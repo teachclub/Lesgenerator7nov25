@@ -1,0 +1,20 @@
+Server running at http://127.0.0.1:9090/
+[Request] GET /health
+[Health] Status OK
+[Request] GET /api/tijdvakken
+[API Tijdvakken] Sending SLO data.
+[Request] GET /api/tijdvakken
+[API Tijdvakken] Sending SLO data.
+[Request] GET /api/tijdvakken
+[API Tijdvakken] Sending SLO data.
+[Request] OPTIONS /api/suggest
+[CORS] Preflight request for /api/suggest
+[Request] POST /api/suggest
+[API Suggest] Received request for TV=TV9, KA=39, Context=Duitsland, 1932
+[API Suggest] Using hardcoded lookup key: TV5-21-Wittenberg
+[API Suggest] Lookup result for key 'TV5-21-Wittenberg': 3 items found
+[API Suggest] Available keys in SUGGESTIONS_DATA: [ 'TV5-21-Wittenberg' ]
+[API Suggest] Found 3 suggestions after filtering.
+[API Suggest] Sending 3 suggestions.
+[Request] GET /api/tijdvakken
+[API Tijdvakken] Sending SLO data.
