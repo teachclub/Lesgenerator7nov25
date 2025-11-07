@@ -1,20 +1,36 @@
-Server running at http://127.0.0.1:9090/
-[Request] GET /health
-[Health] Status OK
-[Request] GET /api/tijdvakken
-[API Tijdvakken] Sending SLO data.
-[Request] GET /api/tijdvakken
-[API Tijdvakken] Sending SLO data.
-[Request] GET /api/tijdvakken
-[API Tijdvakken] Sending SLO data.
-[Request] OPTIONS /api/suggest
-[CORS] Preflight request for /api/suggest
-[Request] POST /api/suggest
-[API Suggest] Received request for TV=TV9, KA=39, Context=Duitsland, 1932
-[API Suggest] Using hardcoded lookup key: TV5-21-Wittenberg
-[API Suggest] Lookup result for key 'TV5-21-Wittenberg': 3 items found
-[API Suggest] Available keys in SUGGESTIONS_DATA: [ 'TV5-21-Wittenberg' ]
-[API Suggest] Found 3 suggestions after filtering.
-[API Suggest] Sending 3 suggestions.
-[Request] GET /api/tijdvakken
-[API Tijdvakken] Sending SLO data.
+[env] WAARSCHUWING: EUROPEANA_WSKEY ontbreekt of is leeg. Bepaalde routes (Europeana/Chips) zullen falen.
+[server] Routes mounten...
+[mount] OK / <- ./routes/a01.health.cjs
+[mount] OK /api/europeana <- ./routes/a11.pingEuropeana.cjs
+[mount] OK /api/europeana <- ./routes/a23.searchRaw.cjs
+[mount] OK /api/europeana <- ./routes/a23.facets.cjs
+[mount] OK /api/europeana <- ./routes/a24.item.cjs
+[mount] OK /api <- ./routes/a06.chips.cjs
+Cannot read properties of undefined (reading 'method')
+Cannot read properties of undefined (reading 'method')
+node:events:497
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::8080
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at Function.listen (/Users/ceeskoole/Sites/prompt-app/backend/node_modules/express/lib/application.js:635:24)
+    at Object.<anonymous> (/Users/ceeskoole/Sites/prompt-app/backend/server.cjs:84:5)
+    at Module._compile (node:internal/modules/cjs/loader:1706:14)
+    at Object..js (node:internal/modules/cjs/loader:1839:10)
+    at Module.load (node:internal/modules/cjs/loader:1441:32)
+    at Function._load (node:internal/modules/cjs/loader:1263:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  code: 'EADDRINUSE',
+  errno: -48,
+  syscall: 'listen',
+  address: '::',
+  port: 8080
+}
+
+Node.js v22.21.0

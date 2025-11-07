@@ -1,181 +1,22 @@
-nano ~/deploy_masterprompt.sh
-#!/bin/zsh
-
-# --- CONFIGURATIE (Pas deze eventueel aan) ---
-GCP_PROJECT_ID="prompt-to-lesson-ck1"
-GCP_REGION="europe-west4" # Bv. europe-west1, europe-west4, us-central1
-ARTIFACT_REPO_NAME="masterprompt-repo" # Naam voor je Docker image repository
-CLOUD_RUN_SERVICE_NAME="masterprompt-backend" # Naam voor je backend service
-FIREBASE_SITE_ID="prompt-to-lesson-ck1" # Meestal gelijk aan je project ID
-# --- Einde Configuratie ---
-
-# Functie voor foutafhandeling
-error_exit() {
-    echo "❌ FOUT: $1" >&2
-    exit 1
+{
+  "name": "masterprompt-backend",
+  "version": "1.0.1",
+  "description": "Backend voor Masterprompt-geschiedenis",
+  "main": "server.cjs",
+  "type": "commonjs",
+  "license": "MIT",
+  "scripts": {
+    "dev": "PORT=8080 node -r dotenv/config server.cjs",
+    "start": "node -r dotenv/config server.cjs",
+    "env:check": "node -r dotenv/config -e \"console.log(process.env.EUROPEANA_API_KEY)\"",
+    "health": "curl -s http://localhost:8080/health || true"
+  },
+  "dependencies": {
+    "@google-cloud/vertexai": "^1.10.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "google-auth-library": "^10.5.0",
+    "node-fetch": "^2.7.0"
+  }
 }
-
-# --- STAP 0: Setup & Checks ---
-echo "🚀 Start Deployment Masterprompt naar Google Cloud & Firebase..."
-echo "Project: $GCP_PROJECT_ID, Regio: $GCP_REGION"
-
-# Zorg dat we in de home directory beginnen
-cd ~ || error_exit "Kan niet naar home directory navigeren."
-
-# Controleer of de bronmap bestaat
-if [ ! -d "$HOME/Sites/prompt-app/backend" ] || [ ! -d "$HOME/Sites/prompt-app/frontend" ]; then
-    error_exit "Bronmappen ~/Sites/prompt-app/backend of frontend niet gevonden. Voer eerst de installatiescripts uit."
-fi
-
-# Selecteer GCP project
-gcloud config set project "$GCP_PROJECT_ID" || error_exit "Instellen GCP project $GCP_PROJECT_ID mislukt."
-
-# --- STAP 1: Backend Voorbereiden ---
-echo "\n🔧 Backend voorbereiden..."
-cd ~/Sites/prompt-app/backend || error_exit "Kan niet naar backend map navigeren."
-
-# Maak package.json (als het niet bestaat) en voeg start script toe
-if [ ! -f "package.json" ]; then
-    echo "  - Maken package.json..."
-    npm init -y || error_exit "npm init mislukt."
-    # Voeg start script toe (werkt op macOS en Linux met sed)
-    sed -i '' 's/"test": ".*"/"test": "echo \\"Error: no test specified\\" \&\& exit 1",\
-    "start": "node server.cjs"/' package.json || sed -i 's/"test": ".*"/"test": "echo \\"Error: no test specified\\" \&\& exit 1",\n    "start": "node server.cjs"/' package.json || error_exit "Start script toevoegen aan package.json mislukt."
-    # Vervang main: index.js naar server.cjs
-    sed -i '' 's/"main": "index.js"/"main": "server.cjs"/' package.json || sed -i 's/"main": "index.js"/"main": "server.cjs"/' package.json || error_exit "main aanpassen in package.json mislukt."
-else
-    echo "  - package.json bestaat al."
-    # Zorg dat start script erin staat (voor zekerheid)
-    if ! grep -q '"start": "node server.cjs"' package.json; then
-      sed -i '' 's/"test": ".*"/"test": "echo \\"Error: no test specified\\" \&\& exit 1",\
-      "start": "node server.cjs"/' package.json || sed -i 's/"test": ".*"/"test": "echo \\"Error: no test specified\\" \&\& exit 1",\n    "start": "node server.cjs"/' package.json || error_exit "Start script toevoegen aan package.json mislukt (bestaand bestand)."
-    fi
-    if ! grep -q '"main": "server.cjs"' package.json; then
-       sed -i '' 's/"main": "index.js"/"main": "server.cjs"/' package.json || sed -i 's/"main": "index.js"/"main": "server.cjs"/' package.json || error_exit "main aanpassen in package.json mislukt (bestaand bestand)."
-    fi
-fi
-
-# Maak Dockerfile (als het niet bestaat)
-if [ ! -f "Dockerfile" ]; then
-    echo "  - Maken Dockerfile..."
-    cat << DOCKERFILE > Dockerfile
-# Gebruik een officiële Node.js runtime als basis image
-FROM node:18-slim
-WORKDIR /usr/src/app
-COPY package*.json ./
-# RUN npm install --omit=dev # Alleen als je dependencies hebt
-COPY . .
-EXPOSE 9090
-CMD [ "node", "server.cjs" ]
-DOCKERFILE
-else
-    echo "  - Dockerfile bestaat al."
-fi
-
-# Maak .dockerignore (als het niet bestaat)
-if [ ! -f ".dockerignore" ]; then
-    echo "  - Maken .dockerignore..."
-    cat << DOCKERIGNORE > .dockerignore
-node_modules
-npm-debug.log
-*.log
-.git
-.gitignore
-DOCKERIGNORE
-else
-    echo "  - .dockerignore bestaat al."
-fi
-
-# --- STAP 2: Backend Deployen naar Cloud Run ---
-echo "\n☁️ Backend deployen naar Cloud Run (dit kan even duren)..."
-
-# Controleer/maak Artifact Registry repository
-REPO_URL="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REPO_NAME}"
-if ! gcloud artifacts repositories describe "$ARTIFACT_REPO_NAME" --location="$GCP_REGION" > /dev/null 2>&1; then
-    echo "  - Artifact Registry repository '$ARTIFACT_REPO_NAME' aanmaken in $GCP_REGION..."
-    gcloud artifacts repositories create "$ARTIFACT_REPO_NAME" --repository-format=docker --location="$GCP_REGION" --description="Docker repository for Masterprompt" || error_exit "Aanmaken Artifact Registry repository mislukt."
-else
-    echo "  - Artifact Registry repository '$ARTIFACT_REPO_NAME' bestaat al."
-fi
-
-# Build en push image
-echo "  - Docker image bouwen en pushen naar Artifact Registry..."
-gcloud builds submit --region "$GCP_REGION" --tag "${REPO_URL}/${CLOUD_RUN_SERVICE_NAME}:latest" . || error_exit "Cloud Build mislukt."
-
-# Deploy naar Cloud Run
-echo "  - Service deployen naar Cloud Run..."
-gcloud run deploy "$CLOUD_RUN_SERVICE_NAME" \
-  --image "${REPO_URL}/${CLOUD_RUN_SERVICE_NAME}:latest" \
-  --platform managed \
-  --region "$GCP_REGION" \
-  --port 9090 \
-  --allow-unauthenticated || error_exit "Deployen naar Cloud Run mislukt."
-
-# Haal de Cloud Run URL op
-echo "  - Cloud Run Service URL ophalen..."
-BACKEND_URL=$(gcloud run services describe "$CLOUD_RUN_SERVICE_NAME" --platform managed --region "$GCP_REGION" --format='value(status.url)')
-if [ -z "$BACKEND_URL" ]; then
-    error_exit "Kon Cloud Run Service URL niet ophalen."
-fi
-echo "✅ Backend URL: $BACKEND_URL"
-
-# --- STAP 3: Frontend Voorbereiden ---
-echo "\n🔧 Frontend voorbereiden..."
-cd ~/Sites/prompt-app/frontend || error_exit "Kan niet naar frontend map navigeren."
-
-# Update API_BASE in index.html
-echo "  - API URL updaten in index.html..."
-# Belangrijk: gebruik een ander scheidingsteken voor sed (bv #) omdat URL slashes bevat
-BACKEND_API_URL="${BACKEND_URL}/api"
-sed -i '' "s#const API_BASE = '.*';#const API_BASE = '${BACKEND_API_URL}';#" index.html || sed -i "s#const API_BASE = '.*';#const API_BASE = '${BACKEND_API_URL}';#" index.html || error_exit "API URL aanpassen in index.html mislukt."
-
-# Initialiseer Firebase Hosting als dat nog niet gebeurd is
-if [ ! -f "firebase.json" ]; then
-    echo "  - Firebase initialiseren in deze map (volg de instructies)..."
-    firebase init hosting
-    # Controleer of init succesvol was
-    if [ ! -f "firebase.json" ]; then
-        error_exit "Firebase init hosting mislukt. Draai 'firebase init hosting' handmatig en probeer opnieuw."
-    fi
-    # Zorg dat de public directory correct is (huidige map)
-     sed -i '' 's/"public": ".*"/"public": "."/' firebase.json || sed -i 's/"public": ".*"/"public": "."/' firebase.json || echo "Waarschuwing: Kon public directory in firebase.json niet automatisch instellen op '.'"
-else
-    echo "  - firebase.json bestaat al."
-fi
-
-# --- STAP 4: Frontend Deployen naar Firebase Hosting ---
-echo "\n🔥 Frontend deployen naar Firebase Hosting..."
-firebase deploy --only hosting || error_exit "Firebase deploy mislukt."
-
-# Haal de Firebase Hosting URL op (meestal voorspelbaar)
-FRONTEND_URL="https://${FIREBASE_SITE_ID}.web.app" # Pas aan als je een custom domain gebruikt
-echo "✅ Frontend URL: $FRONTEND_URL"
-
-# --- STAP 5: Backend CORS Updaten & Redeployen ---
-echo "\n🔒 Backend CORS updaten voor $FRONTEND_URL en opnieuw deployen..."
-cd ~/Sites/prompt-app/backend || error_exit "Kan niet terug naar backend map navigeren."
-
-# Update CORS header in server.cjs
-echo "  - CORS header aanpassen in server.cjs..."
-sed -i '' "s#res.setHeader('Access-Control-Allow-Origin', '.*');#res.setHeader('Access-Control-Allow-Origin', '${FRONTEND_URL}');#" server.cjs || sed -i "s#res.setHeader('Access-Control-Allow-Origin', '.*');#res.setHeader('Access-Control-Allow-Origin', '${FRONTEND_URL}');#" server.cjs || error_exit "CORS header aanpassen in server.cjs mislukt."
-
-# Build en push nieuwe image
-echo "  - Nieuwe Docker image bouwen en pushen..."
-gcloud builds submit --region "$GCP_REGION" --tag "${REPO_URL}/${CLOUD_RUN_SERVICE_NAME}:latest" . || error_exit "Cloud Build (CORS update) mislukt."
-
-# Deploy nieuwe revisie naar Cloud Run
-echo "  - Nieuwe revisie deployen naar Cloud Run..."
-gcloud run deploy "$CLOUD_RUN_SERVICE_NAME" \
-  --image "${REPO_URL}/${CLOUD_RUN_SERVICE_NAME}:latest" \
-  --platform managed \
-  --region "$GCP_REGION" || error_exit "Redeployen naar Cloud Run (CORS update) mislukt."
-
-# --- KLAAR ---
-echo "\n\n🎉 Deployment Voltooid! 🎉"
-echo "-------------------------------------"
-echo "Backend API draait op: $BACKEND_URL"
-echo "Frontend Website is live op: $FRONTEND_URL"
-echo "-------------------------------------"
-echo "Let op: Het kan enkele minuten duren voordat de laatste Cloud Run update (CORS) volledig actief is."
-
-exit 0
