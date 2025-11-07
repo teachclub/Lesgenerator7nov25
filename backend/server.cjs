@@ -1,14 +1,17 @@
 #!/usr/bin/env node
-// backend/server.cjs
-
 const express = require("express");
-const cors = require("cors");
 const { loadEnv } = require("./config/a02.env.cjs");
+const { corsOptions } = require("./middleware/a07.cors.cjs");
+const cors = require("cors");
 
 loadEnv();
 
 const app = express();
-app.use(cors());
+
+// CORS vóór routes, met specifieke origin + credentials
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
 app.use(express.json({ limit: "1mb" }));
 
 function mount(path, file) {
@@ -28,7 +31,6 @@ function mount(path, file) {
 }
 
 console.log("[server] Routes mounten...");
-
 mount("/", "./routes/a01.health.cjs");
 mount("/api/europeana", "./routes/a11.pingEuropeana.cjs");
 mount("/api/europeana", "./routes/a23.searchRaw.cjs");
@@ -42,9 +44,7 @@ for (const [base, file] of [
   ["/api", "./routes/a21.chatSearch.cjs"],
   ["/api", "./routes/a22.thesaurus.cjs"],
   ["/api", "./routes/a19.generate.cjs"],
-]) {
-  try { mount(base, file); } catch (_) {}
-}
+]) { try { mount(base, file); } catch (_) {} }
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
@@ -52,4 +52,3 @@ app.listen(PORT, () => {
   console.log(`[server] masterprompt-backend draait op ${url}`);
   console.log(`[server] Healthcheck: curl ${url}/`);
 });
-
