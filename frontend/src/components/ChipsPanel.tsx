@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 
-// We verwijderen .tsx (best practice voor Vite)
-import { A06Chips } from '../components/A06.Chips'; 
+// DIT IS DE CORRECTE IMPORT (met accolades)
+// Dit repareert de "does not provide an export named 'default'" fout.
+import { A06Chips } from './A06.Chips';
 
 // We importeren ook de API-client en het Chip-type
-// DIT IS DE REPARATIE:
-import { fetchChips, type Chip } from '../api/chips';
+import { fetchChips, type Chip } from '../api/a06.chips';
 
 /**
  * Dit is een 'smart' component wrapper.
@@ -38,9 +38,9 @@ export default function ChipsPanel() {
   };
 
   return (
-    <div style={{ border: '2px dashed green', padding: '10px' }}>
-      <h3>Testpaneel: src/widgets/ChipsPanel.tsx</h3>
-      <p>Dit bestand is nu gerepareerd en lost de crash op.</p>
+    <div style={{ border: '2px dashed red', padding: '10px' }}>
+      <h3>Testpaneel: ChipsPanel.tsx</h3>
+      <p>Dit paneel wordt waarschijnlijk niet gebruikt (de logica zit in PresetZoekerPage.tsx), maar het lost de opstart-crash op.</p>
       <button onClick={handleTestFetch} disabled={isLoading}>
         Test AI Chips (Reformatie)
       </button>
