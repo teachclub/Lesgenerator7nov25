@@ -1,43 +1,39 @@
 const API_URL = 'http://localhost:8080/api';
 
-export interface AiProposal {
-  id: string;
-  title: string;
-  mainQuestion: string;
-  learningOutcome: string;
-}
-
 export interface Chip {
   label: string;
   kind: string;
   count: number;
 }
 
-export interface PresetInput {
-  term: string;
-  tv?: string;
-  ka?: string;
-  filters: string[];
-}
-
-export interface ProposalsResponse {
-  ok: true;
-  data: {
-    proposals: AiProposal[];
-    chips: Chip[];
+export interface SortedChips {
+  onderwerp: {
+    personen: Chip[];
+    gebeurtenissen: Chip[];
+    plaatsen: Chip[];
+    begrippen: Chip[];
   };
 }
 
-export interface ProposalsError {
+export interface ChipsResponse {
+  ok: true;
+  data: {
+    chips: SortedChips;
+  };
+}
+
+export interface ChipsError {
   ok: false;
   error: string | object;
 }
 
-export async function fetchProposalsFromSearch(
-  input: PresetInput
-): Promise<ProposalsResponse | ProposalsError> {
+export async function fetchChipsWithCounts(
+  term: string,
+  context?: string
+): Promise<ChipsResponse | ChipsError> {
+  const input = { term, context };
   try {
-    const res = await fetch(`${API_URL}/pre-selection`, {
+    const res = await fetch(`${API_URL}/chips`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -50,13 +46,11 @@ export async function fetchProposalsFromSearch(
     }
 
     const data = await res.json();
-    
     if (data.ok) {
-      return data as ProposalsResponse;
+      return data as ChipsResponse;
     } else {
-      return { ok: false, error: data.error || 'Onbekende presetfout' };
+      return { ok: false, error: data.error || 'Onbekende chipsfout' };
     }
-
   } catch (err) {
     return { ok: false, error: (err as Error).message || 'Netwerkfout' };
   }

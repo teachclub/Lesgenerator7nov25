@@ -1,34 +1,22 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { A21TvKaSelect } from './A21.TvKaSelect';
+import { useQueryStore } from '../state/query.store';
 
-// (We hebben A21.TvKaSelect nog niet, dus we gebruiken een placeholder)
-// import { A21TvKaSelect } from './A21.TvKaSelect';
-
-// --- Props ---
-// Deze component 'lift' zijn state omhoog naar de pagina
 interface SearchBarProps {
   onSearch: (term: string, tv: string, ka: string) => void;
   isLoading: boolean;
 }
 
-/**
- * A16: De 'S1' invoer (zoekterm / TV+KA).
- * Deze component beheert de invoervelden en roept 'onSearch' aan
- * wanneer de gebruiker op de zoekknop klikt.
- */
 export function A16SearchBar({ onSearch, isLoading }: SearchBarProps) {
-  const [term, setTerm] = useState('');
-  const [tv, setTv] = useState(''); // Tijdvak
-  const [ka, setKa] = useState(''); // Kenmerkend Aspect
+  const { term, tv, ka, setTerm, setTv, setKa } = useQueryStore();
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isLoading) return; // Voorkom dubbelklikken
-    
-    // Valideer dat er *iets* is ingevuld
+    if (isLoading) return;
+
     if (term.trim() || (tv && ka)) {
       onSearch(term.trim(), tv, ka);
     } else {
-      // Optioneel: geef feedback
       alert('Vul een zoekterm in, of selecteer een Tijdvak + Kenmerkend Aspect.');
     }
   };
@@ -53,19 +41,13 @@ export function A16SearchBar({ onSearch, isLoading }: SearchBarProps) {
 
       <div className="search-field-group">
         <label>Zoek op Tijdvak (TV) en Kenmerkend Aspect (KA):</label>
-        {/* TODO: Vervang deze placeholders zodra A21.TvKaSelect.tsx af is.
-          <A21TvKaSelect 
-            selectedTv={tv}
-            onTvChange={setTv}
-            selectedKa={ka}
-            onKaChange={setKa}
-            disabled={isLoading}
-          />
-        */}
-        <input 
-          type="text" 
-          placeholder="[Placeholder: A21.TvKaSelect komt hier]" 
-          disabled 
+        
+        <A21TvKaSelect 
+          selectedTv={tv}
+          onTvChange={setTv}
+          selectedKa={ka}
+          onKaChange={setKa}
+          disabled={isLoading}
         />
       </div>
 

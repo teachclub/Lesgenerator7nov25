@@ -1,50 +1,126 @@
-import React from 'react';
-import type { Chip } from '../api/a12.search'; // We hergebruiken het Chip-type
+import React, { useState } from 'react';
+import type { Chip, SortedChips } from '../api/a06.chips';
 
-// --- Props ---
 interface ChipsProps {
-  chips: Chip[];
+  chips: SortedChips;
   isLoading: boolean;
   onChipClick: (chip: Chip) => void;
 }
 
-/**
- * A06: Toont de AI-gegenereerde 'chips' (suggesties).
- * Dit is een 'dumb' component: het ontvangt de chips en
- * meldt terug wanneer op een chip wordt geklikt.
- */
-export function A06Chips({ chips, isLoading, onChipClick }: ChipsProps) {
-  if (isLoading) {
-    return (
-      <div className="chips-a06 loading">
-        <span>AI-suggesties laden...</span>
-      </div>
-    );
-  }
+const ChipList = ({
+  list,
+  onClick,
+}: {
+  list: Chip[];
+  onClick: (chip: Chip) => void;
+}) => {
+  const [showAll, setShowAll] = useState(false);
+  const top10 = list.slice(0, 10);
+  const remainingCount = list.length - 10;
 
-  if (chips.length === 0) {
-    // Toon niets als er geen chips zijn
-    return null;
-  }
+  const itemsToShow = showAll ? list : top10;
 
   return (
-    <div className="chips-a06">
-      <span className="chips-title">Suggesties:</span>
+    <>
       <ul className="chips-list">
-        {chips.map((chip, index) => (
+        {itemsToShow.map((chip, index) => (
           <li key={`${chip.label}-${index}`}>
             <button
               type="button"
-              onClick={() => onChipClick(chip)}
+              onClick={() => onClick(chip)}
               className={`chip-kind-${chip.kind || 'unknown'}`}
             >
-              {chip.label}
-              {/* Optioneel: toon 'kind' als icoon of tekst */}
-              {/* <span className="chip-kind">({chip.kind})</span> */}
+              {chip.label} ({chip.count})
             </button>
           </li>
         ))}
       </ul>
+      {remainingCount > 0 && (
+        <button
+          type="button"
+          className="chip-show-all"
+          onClick={() => setShowAll(!showAll)}
+        >
+          {showAll ? 'Toon minder' : `Toon alle ${list.length} items...`}
+        </button>
+      )}
+    </>
+  );
+};
+
+const OpenSection = ({
+  title,
+  kind,
+  list,
+  onClick,
+}: {
+  title: string;
+  kind: string;
+  list: Chip[];
+  onClick: (chip: Chip) => void;
+}) => {
+  if (!list || list.length === 0) return null;
+
+  return (
+    <div className="chip-open-section">
+      <h4 className={`chip-title chip-title-${kind}`}>{title}</h4>
+      <ChipList list={list} onClick={onClick} />
+    </div>
+  );
+};
+
+export function A06Chips({ chips, isLoading, onChipClick }: ChipsProps) {
+  if (isLoading) {
+    return (
+      <div className="chips-a06 loading">
+        <span>Geassocieerde Suggesties worden geladen...</span>
+        <br />
+        <span>(dit kan even duren, maar Rome werd niet in één dag gebouwd!)</span>
+      </div>
+    );
+  }
+
+  const { personen, gebeurtenissen, plaatsen, begrippen } = chips?.onderwerp || {};
+  const isEmpty =
+    (!personen || personen.length === 0) &&
+    (!gebeurtenissen || gebeurtenissen.length === 0) &&
+    (!plaatsen || plaatsen.length === 0) &&
+    (!begrippen || begrippen.length === 0);
+
+  if (isEmpty) {
+    return (
+      <div className="chips-a06 empty">
+        <span>(Suggesties verschijnen na een zoekopdracht)</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="chips-a06">
+      <OpenSection
+        title="Personen"
+        kind="person"
+        list={personen}
+        onClick={onChipClick}
+      />
+      <OpenSection
+        title="Gebeurtenissen"
+        kind="event"
+        list={gebeurtenissen}
+        onClick={onChipClick}
+      />
+      <OpenSection
+        title="Begrippen"
+        kind="concept"
+        list={begrippen}
+        onClick={onChipClick}
+      />
+      <OpenSection
+        title="Locaties"
+        kind="place"
+        list={plaatsen}
+        onClick={onChipClick}
+      />
     </div>
   );
 }

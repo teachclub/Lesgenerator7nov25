@@ -1,102 +1,79 @@
 import React, { useState } from 'react';
 
-// State Stores
 import { useQueryStore } from '../state/query.store';
 import { useSelectionStore } from '../state/selection.store';
 
-// API Clients
-import { fetchChips, type Chip } from '../api/a06.chips';
-import { fetchPreset } from '../api/a13.searchPreset';
-import { fetchProposals, fetchLesson, type AiProposal } from '../api/a19.generate';
+import { fetchChipsWithCounts, type SortedChips, type Chip } from '../api/a06.chips';
+import { fetchProposalsFromSearch, type AiProposal } from '../api/a13.searchPreset';
+import { fetchLesson } from '../api/a19.generate';
 
-// Componenten
 import { A16SearchBar } from '../components/A16.SearchBar';
 import { A21TvKaSelect } from '../components/A21.TvKaSelect';
 import { A06Chips } from '../components/A06.Chips';
 import { A14Filters } from '../components/A14.Filters';
-import { A15RatioPicker } from '../components/A15.RatioPicker';
-import { A18SelectionPanel, type Source } from '../components/A18.SelectionPanel';
+import { A30SelectionList, type Source } from '../components/A30.SelectionList';
 import { A19GenerateButton } from '../components/A19.GenerateButton';
 import { A20ExportActions } from '../components/A20.ExportActions';
 
-// --- Types voor de pagina-state ---
-type LoadingState = 'idle' | 's1-preset' | 's1-chips' | 's2-proposals' | 's3-lesson';
+type LoadingState = 'idle' | 's1-chips' | 's2-proposals' | 's3-lesson';
 
-/**
- * Hoofdpagina: Orchestratie van alle componenten en API-calls.
- */
+const EMPTY_CHIPS: SortedChips = {
+  onderwerp: {
+    personen: [],
+    gebeurtenissen: [],
+    plaatsen: [],
+    begrippen: [],
+  },
+};
+
 export function PresetZoekerPage() {
-  // Lokale state voor laadstatussen en resultaten
   const [loading, setLoading] = useState<LoadingState>('idle');
   const [error, setError] = useState<string | null>(null);
 
-  // AI-resultaten
-  const [chips, setChips] = useState<Chip[]>([]);
+  const [chips, setChips] = useState<SortedChips>(EMPTY_CHIPS);
   const [proposals, setProposals] = useState<AiProposal[]>([]);
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [lessonMarkdown, setLessonMarkdown] = useState<string>('');
+  
+  const [searchResults, setSearchResults] = useState<Source[]>([]);
 
-  // Haal state en acties uit de stores
   const queryState = useQueryStore();
   const selectionState = useSelectionStore();
 
-  // --- S1: Zoek Bronnen (Preset) + Genereer AI Chips ---
   const handleS1Search = async (term: string, tv: string, ka: string) => {
     setError(null);
-    setChips([]);
+    setChips(EMPTY_CHIPS);
     setProposals([]);
     setLessonMarkdown('');
+    setSearchResults([]);
+    selectionState.setSources([]);
     
-    // 1. Update de query store
     queryState.setTerm(term);
     queryState.setTv(tv);
     queryState.setKa(ka);
     
-    // 2. Start de 'preset' zoekopdracht (S1+S2)
-    setLoading('s1-preset');
-    const presetInput = queryState.getPresetInput();
-    const presetResult = await fetchPreset({ ...presetInput, term, tv, ka });
-
-    if (presetResult.ok) {
-      selectionState.setSources(presetResult.data.sources as Source[]);
-    } else {
-      setError(presetResult.error as string);
-    }
-    setLoading('idle'); // Preset is klaar, nu chips
-
-    // 3. Start de 'chips' generatie (async)
     if (term.trim() || ka.trim()) {
       setLoading('s1-chips');
-      const context = ka || tv; // Gebruik KA of TV als context
-      const chipsResult = await fetchChips({ term: term || ka, context });
+      const context = ka || tv;
+      const chipsResult = await fetchChipsWithCounts(term || ka, context);
       if (chipsResult.ok) {
-        setChips(chipsResult.chips);
-      } // Fout bij chips is niet erg, we gaan door
-      setLoading('s1-chips');
+        setChips(chipsResult.data.chips);
+      } else {
+        setError(chipsResult.error as string);
+      }
+      setLoading('idle');
     }
   };
-
-  // --- Tussenstap: Klik op een Chip (zoek opnieuw) ---
-  const handleChipClick = (chip: Chip) => {
-    // TODO: Implementeer logica voor 'Zoeken met Chips' (A12)
-    // Dit zou de 'custom' modus kunnen activeren en resultaten toevoegen.
-    console.log('Chip geklikt, roep A12 API aan:', chip);
-    alert('Zoeken met chips (A12) nog niet geïmplementeerd.');
-  };
-
-  // --- S2: Genereer Lesvoorstellen ---
-  // Deze functie wordt aangeroepen zodra de bronnen (van S1) binnen zijn
-  // OF wanneer S2-filters (A14, A15) veranderen.
-  // We triggeren dit nu handmatig na S1.
-  const triggerProposalGeneration = async (sources: Source[]) => {
-    if (sources.length === 0) return;
-    
+  
+  const handleProposalGeneration = async () => {
     setLoading('s2-proposals');
     setError(null);
     setProposals([]);
     setSelectedProposalId(null);
     
-    const proposalsResult = await fetchProposals(sources);
+    const presetInput = queryState.getPresetInput();
+    const proposalsResult = await fetchProposalsFromSearch(presetInput);
+    
     if (proposalsResult.ok) {
       setProposals(proposalsResult.data.proposals);
     } else {
@@ -104,11 +81,29 @@ export function PresetZoekerPage() {
     }
     setLoading('idle');
   };
-  
-  // TODO: Koppel triggerProposalGeneration aan een 'Genereer voorstellen' knop
-  // of roep het automatisch aan na S1.
 
-  // --- S3: Genereer Definitieve Les ---
+  const handleChipClick = (chip: Chip) => {
+    const { term, tv, ka, setTerm } = queryState;
+    const chipLabel = chip.label;
+
+    if (!term.trim()) {
+      setTerm(chipLabel);
+      handleS1Search(chipLabel, tv, ka);
+      return;
+    }
+
+    const helpText = "Logica:\nEN = Verfijnen (minder treffers, moet beide bevatten)\nOF = Vergroten (meer treffers, mag een van beide bevatten)";
+    const useAnd = window.confirm(
+      `Wil je verfijnen met 'EN'? (Zoekterm wordt: "${term} EN ${chipLabel}")\n\n${helpText}\n\nOK = EN\nAnnuleren = OF`
+    );
+    
+    const operator = useAnd ? 'AND' : 'OR';
+    const newTerm = `${term} ${operator} ${chipLabel}`;
+    
+    setTerm(newTerm);
+    handleS1Search(newTerm, tv, ka);
+  };
+  
   const handleS3Generate = async (chosenProposal: AiProposal) => {
     setLoading('s3-lesson');
     setError(null);
@@ -128,58 +123,40 @@ export function PresetZoekerPage() {
     <div className="preset-zoeker-page">
       <h1>Lesgenerator</h1>
 
-      {/* --- SECTIE 1: S1 + S2 Invoer --- */}
-      <section className="section-s1-s2">
-        <h2>Sectie 1 & 2: Zoeken & Filteren</h2>
+      <section className="section-search">
+        <h2>1. Zoeken & Filteren</h2>
         
-        {/* We moeten A16 en A21 combineren in de 'echte' A16 */}
-        <A16SearchBar 
-          onSearch={handleS1Search}
-          isLoading={loading === 's1-preset' || loading === 's1-chips'}
-        />
+        <div className="search-container">
+          <div className="search-panel">
+            <A16SearchBar 
+              onSearch={handleS1Search}
+              isLoading={loading === 's1-chips'}
+            />
+            
+            <A14Filters
+              selectedFilters={queryState.filters}
+              onFilterChange={queryState.setFilter}
+              disabled={loading !== 'idle'}
+            />
+
+            <button onClick={handleProposalGeneration} disabled={loading !== 'idle'}>
+              Genereer Lesvoorstellen
+            </button>
+          </div>
+          
+          <div className="chips-panel">
+            <A06Chips
+              chips={chips}
+              isLoading={loading === 's1-chips'}
+              onChipClick={handleChipClick}
+            />
+          </div>
+        </div>
         
-        <A14Filters
-          selectedFilters={queryState.filters}
-          onFilterChange={queryState.setFilter}
-          disabled={loading !== 'idle'}
-        />
-        
-        <A15RatioPicker
-          selectedRatio={queryState.ratio}
-          onRatioChange={queryState.setRatio}
-          selectedMax={queryState.max}
-          onMaxChange={queryState.setMax}
-          disabled={loading !== 'idle'}
-        />
-        
-        {/* TODO: Knop toevoegen om S1/S2 opnieuw uit te voeren */}
       </section>
 
-      {/* --- SECTIE 2: Resultaten (Chips & Selectie) --- */}
-      <section className="section-results">
-        <A06Chips
-          chips={chips}
-          isLoading={loading === 's1-chips'}
-          onChipClick={handleChipClick}
-        />
-        
-        <A18SelectionPanel
-          sources={selectionState.sources}
-          mode={selectionState.mode}
-          onModeChange={selectionState.setMode}
-          onRemoveSource={selectionState.removeSource}
-          isLoading={loading === 's1-preset'}
-        />
-        
-        {/* TODO: Knop om S2 (Proposals) te triggeren */}
-        <button onClick={() => triggerProposalGeneration(selectionState.sources)} disabled={loading !== 'idle' || selectionState.sources.length === 0}>
-          Genereer Lesvoorstellen (S2)
-        </button>
-      </section>
-
-      {/* --- SECTIE 3: Genereren (AI Voorstellen & Knop) --- */}
-      <section className="section-s3-generate">
-        <h2>Sectie 3: Genereer Les</h2>
+      <section className="section-selection">
+        <h2>2. Kies Voorstel & Selecteer Bronnen</h2>
         
         <A19GenerateButton
           sources={selectionState.sources}
@@ -189,18 +166,23 @@ export function PresetZoekerPage() {
           onGenerate={handleS3Generate}
           isLoading={loading === 's2-proposals' || loading === 's3-lesson'}
         />
+
+        <A30SelectionList
+          searchResults={searchResults}
+          isLoading={loading === 's2-proposals'}
+        />
+        
       </section>
       
-      {/* --- SECTIE 4: Eindresultaat & Export --- */}
-      <section className="section-s4-export">
-        <h2>Eindresultaat</h2>
+      <section className="section-export">
+        <h2>3. Eindresultaat</h2>
         
         <div className="lesson-output">
           {loading === 's3-lesson' && <p>Les aan het genereren...</p>}
           {lessonMarkdown ? (
-            <pre>{lessonMarkdown}</pre> /* TODO: Gebruik een Markdown-renderer */
+            <pre>{lessonMarkdown}</pre>
           ) : (
-            !isLoading && <p>De gegenereerde les verschijnt hier.</p>
+            loading === 'idle' && <p>De gegenereerde les verschijnt hier.</p>
           )}
         </div>
 
@@ -211,7 +193,6 @@ export function PresetZoekerPage() {
         />
       </section>
 
-      {/* Toon algemene foutmeldingen */}
       {error && (
         <div className="error-panel">
           <strong>Fout:</strong> {error}
