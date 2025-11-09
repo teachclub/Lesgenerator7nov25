@@ -1,4 +1,6 @@
-[env] Alle vereiste API keys (Europeana, Gemini) zijn geladen.
+[env] WAARSCHUWING: EUROPEANA_WSKEY ontbreekt of is leeg. Bepaalde routes (Europeana/Chips) zullen falen.
+[env] WAARSCHUWING: GEMINI_API_KEY ontbreekt of is leeg. Bepaalde routes (Europeana/Chips) zullen falen.
+[env] WAARSCHUWING: GEMINI_MODEL_CHIPS ontbreekt of is leeg. Bepaalde routes (Europeana/Chips) zullen falen.
 [server] Routes mounten...
 [mount] OK / <- ./routes/a01.health.cjs
 [mount] OK /api/europeana <- ./routes/a11.pingEuropeana.cjs
@@ -12,9 +14,29 @@
 [mount] OK /api <- ./routes/a13.searchPreset.cjs
 [mount] OK /api <- ./routes/a21.chatSearch.cjs
 [mount] OK /api <- ./routes/a22.thesaurus.cjs
-[server] masterprompt-backend draait op http://localhost:8080
-[server] Healthcheck: curl http://localhost:8080/
-[A06 Hybride v6] Starten... term="Luther"
-[A06][EU] URL: https://api.europeana.eu/record/v2/search.json?wskey=dentrovercey&query=Luther&rows=0&profile=facets&media=true&facet-limit=60&facet=proxy_dc_subject&facet=proxy_dc_title&facet=proxy_dc_coverage&facet=DATA_PROVIDER&facet=PROVIDER&facet=AGGREGATION_PROVIDER&facet=COUNTRY&facet=LANGUAGE&facet=TYPE&facet=MIME_TYPE&facet=RIGHTS&facet=YEAR
-[A06][EU] facets fields: 10 totalResults: 33869 flatten: 316
-[A06 Hybride v6] AI items: 0 | Facet labels: 284
+node:events:497
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::8080
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at Function.listen (/Users/ceeskoole/Sites/prompt-app/backend/node_modules/express/lib/application.js:635:24)
+    at Object.<anonymous> (/Users/ceeskoole/Sites/prompt-app/backend/server.cjs:50:5)
+    at Module._compile (node:internal/modules/cjs/loader:1706:14)
+    at Object..js (node:internal/modules/cjs/loader:1839:10)
+    at Module.load (node:internal/modules/cjs/loader:1441:32)
+    at Function._load (node:internal/modules/cjs/loader:1263:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  code: 'EADDRINUSE',
+  errno: -48,
+  syscall: 'listen',
+  address: '::',
+  port: 8080
+}
+
+Node.js v22.21.0
