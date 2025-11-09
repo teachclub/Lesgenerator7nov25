@@ -1,54 +1,37 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 
-export interface QueryState {
-  term: string;
-  tv: string;
-  ka: string;
-  filters: string[];
-}
+export type Mode = "AND" | "OR";
 
-interface QueryActions {
-  setTerm: (term: string) => void;
-  setTv: (tv: string) => void;
-  setKa: (ka: string) => void;
-  setFilter: (filterId: string, isSelected: boolean) => void;
-  
-  getPresetInput: () => {
-    term: string;
-    tv: string;
-    ka: string;
-    filters: string[];
-  };
-}
-
-const initialState: QueryState = {
-  term: '',
-  tv: '',
-  ka: '',
-  filters: [],
+type QueryState = {
+  terms: [string, string, string];
+  mode: Mode;
+  suggestSeed: string;
+  setTerm: (index: 0 | 1 | 2, value: string) => void;
+  setMode: (m: Mode) => void;
+  setSuggestSeed: (s: string) => void;
+  reset: () => void;
+  buildQuery: () => string;
 };
 
-export const useQueryStore = create<QueryState & QueryActions>((set, get) => ({
-  ...initialState,
-
-  setTerm: (term) => set({ term }),
-  setTv: (tv) => set({ tv }),
-  setKa: (ka) => set({ ka }),
-
-  setFilter: (filterId, isSelected) =>
-    set((state) => {
-      const currentFilters = state.filters;
-      if (isSelected && !currentFilters.includes(filterId)) {
-        return { filters: [...currentFilters, filterId] };
-      }
-      if (!isSelected && currentFilters.includes(filterId)) {
-        return { filters: currentFilters.filter((f) => f !== filterId) };
-      }
-      return {};
+export const useQueryStore = create<QueryState>((set, get) => ({
+  terms: ["", "", ""],
+  mode: "AND",
+  suggestSeed: "",
+  setTerm: (index, value) =>
+    set((s) => {
+      const next = [...s.terms] as [string, string, string];
+      next[index] = value;
+      return { terms: next };
     }),
-
-  getPresetInput: () => {
-    const { term, tv, ka, filters } = get();
-    return { term, tv, ka, filters };
+  setMode: (m) => set({ mode: m }),
+  setSuggestSeed: (s) => set({ suggestSeed: s }),
+  reset: () => set({ terms: ["", "", ""], mode: "AND", suggestSeed: "" }),
+  buildQuery: () => {
+    const { terms, mode } = get();
+    const filled = terms.map((t) => t.trim()).filter(Boolean);
+    if (filled.length === 0) return "";
+    const joiner = ` ${mode} `;
+    return filled.length === 1 ? filled[0] : filled.map((t) => `(${t})`).join(joiner);
   },
 }));
+

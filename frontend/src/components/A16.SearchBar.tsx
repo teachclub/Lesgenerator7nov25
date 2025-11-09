@@ -1,59 +1,27 @@
-import React from 'react';
-import { A21TvKaSelect } from './A21.TvKaSelect';
-import { useQueryStore } from '../state/query.store';
+import { useQueryStore, Mode } from "@/state/query.store";
 
-interface SearchBarProps {
-  onSearch: (term: string, tv: string, ka: string) => void;
-  isLoading: boolean;
-}
-
-export function A16SearchBar({ onSearch, isLoading }: SearchBarProps) {
-  const { term, tv, ka, setTerm, setTv, setKa } = useQueryStore();
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isLoading) return;
-
-    if (term.trim() || (tv && ka)) {
-      onSearch(term.trim(), tv, ka);
-    } else {
-      alert('Vul een zoekterm in, of selecteer een Tijdvak + Kenmerkend Aspect.');
-    }
-  };
-
+export default function A16SearchBar() {
+  const { terms, mode, setTerm, setMode, setSuggestSeed, buildQuery } = useQueryStore();
+  function onSuggest() {
+    const seed = buildQuery();
+    if (seed) setSuggestSeed(seed);
+  }
   return (
-    <form className="search-bar-a16" onSubmit={handleSearch}>
-      <div className="search-field-group">
-        <label htmlFor="search-term">Vrije zoekterm:</label>
-        <input
-          id="search-term"
-          type="text"
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          placeholder="Bijv. 'Maarten Luther'..."
-          disabled={isLoading}
-        />
+    <div className="grid gap-2">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <input className="border rounded px-3 py-2 w-full" placeholder="Zoekterm 1" value={terms[0]} onChange={(e) => setTerm(0, e.target.value)} />
+        <input className="border rounded px-3 py-2 w-full" placeholder="Zoekterm 2" value={terms[1]} onChange={(e) => setTerm(1, e.target.value)} />
+        <input className="border rounded px-3 py-2 w-full" placeholder="Zoekterm 3" value={terms[2]} onChange={(e) => setTerm(2, e.target.value)} />
       </div>
-
-      <div className="search-or-divider">
-        <span>OF</span>
+      <div className="flex items-center gap-3">
+        {(["AND", "OR"] as Mode[]).map((m) => (
+          <button key={m} type="button" onClick={() => setMode(m)} className={`px-3 py-1 rounded border ${mode === m ? "bg-black text-white" : "bg-white"}`}>
+            {m === "AND" ? "EN" : "OF"}
+          </button>
+        ))}
+        <button type="button" onClick={onSuggest} className="ml-auto px-3 py-1 rounded border">Zoek Suggesties</button>
       </div>
-
-      <div className="search-field-group">
-        <label>Zoek op Tijdvak (TV) en Kenmerkend Aspect (KA):</label>
-        
-        <A21TvKaSelect 
-          selectedTv={tv}
-          onTvChange={setTv}
-          selectedKa={ka}
-          onKaChange={setKa}
-          disabled={isLoading}
-        />
-      </div>
-
-      <button type="submit" disabled={isLoading}>
-        {isLoading ? 'Bezig...' : 'Zoek Bronnen (S1)'}
-      </button>
-    </form>
+    </div>
   );
 }
+
