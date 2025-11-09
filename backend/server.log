@@ -6,10 +6,15 @@
 [mount] OK /api/europeana <- ./routes/a23.facets.cjs
 [mount] OK /api/europeana <- ./routes/a24.item.cjs
 [mount] OK /api <- ./routes/a06.chips.cjs
+[mount] OK /api <- ./routes/a19.generate.cjs
+[mount] OK /api <- ./routes/a25.proposals.cjs
 [mount] OK /api <- ./routes/a12.search.cjs
 [mount] OK /api <- ./routes/a13.searchPreset.cjs
 [mount] OK /api <- ./routes/a21.chatSearch.cjs
 [mount] OK /api <- ./routes/a22.thesaurus.cjs
-[mount] OK /api <- ./routes/a19.generate.cjs
 [server] masterprompt-backend draait op http://localhost:8080
 [server] Healthcheck: curl http://localhost:8080/
+[A06 Hybride v6] Starten... term="Luther"
+[A06][EU] URL: https://api.europeana.eu/record/v2/search.json?wskey=dentrovercey&query=Luther&rows=0&profile=facets&media=true&facet-limit=60&facet=proxy_dc_subject&facet=proxy_dc_title&facet=proxy_dc_coverage&facet=DATA_PROVIDER&facet=PROVIDER&facet=AGGREGATION_PROVIDER&facet=COUNTRY&facet=LANGUAGE&facet=TYPE&facet=MIME_TYPE&facet=RIGHTS&facet=YEAR
+[A06][EU] facets fields: 10 totalResults: 33869 flatten: 316
+[A06 Hybride v6] AI items: 0 | Facet labels: 284

@@ -8,7 +8,6 @@ loadEnv();
 
 const app = express();
 
-// CORS vóór routes, met specifieke origin + credentials
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
@@ -37,13 +36,14 @@ mount("/api/europeana", "./routes/a23.searchRaw.cjs");
 mount("/api/europeana", "./routes/a23.facets.cjs");
 mount("/api/europeana", "./routes/a24.item.cjs");
 mount("/api", "./routes/a06.chips.cjs");
+mount("/api", "./routes/a19.generate.cjs");
+mount("/api", "./routes/a25.proposals.cjs");
 
 for (const [base, file] of [
   ["/api", "./routes/a12.search.cjs"],
   ["/api", "./routes/a13.searchPreset.cjs"],
   ["/api", "./routes/a21.chatSearch.cjs"],
   ["/api", "./routes/a22.thesaurus.cjs"],
-  ["/api", "./routes/a19.generate.cjs"],
 ]) { try { mount(base, file); } catch (_) {} }
 
 const PORT = process.env.PORT || 8080;

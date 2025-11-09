@@ -1,21 +1,27 @@
-const { Router } = require("express");
-const { search } = require("../services/a11.europeana.cjs");
+const express = require('express');
 
-const router = Router();
-router.post("/api/search-preset", async (req, res) => {
-  try {
-    const { keywords="*", type="IMAGE", yearFrom, yearTo, country, dataProvider, rows=24 } = req.body || {};
-    const qf = [];
-    if (type) qf.push(`TYPE:${type}`);
-    if (yearFrom && yearTo) qf.push(`YEAR:[${yearFrom} TO ${yearTo}]`);
-    if (country) qf.push(`COUNTRY:"${country}"`);
-    if (dataProvider) qf.push(`DATA_PROVIDER:"${dataProvider}"`);
+module.exports = function() {
+  const r = express.Router();
 
-    const r = await search({ query: keywords, qf, rows, profile: "rich", media: true });
-    res.json({ ok: true, preset: { keywords, qf }, results: { total: r.totalResults ?? 0, items: r.items ?? [] } });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-module.exports = router;
+  r.post('/search-preset', async (req, res) => {
+    const { term, tv, ka, ratio, max, filters } = req.body;
 
+    console.log("[A13] Preset zoekopdracht ontvangen:", req.body);
+
+    const dummySources = [
+      { id: 'dummy:1', title: `Dummy Resultaat voor: ${term || ka}`, type: 'TEXT', link: '#' },
+      { id: 'dummy:2', title: 'Tijdelijk resultaat 2', type: 'IMAGE', link: '#' }
+    ];
+
+    res.json({
+      ok: true,
+      data: {
+        sources: dummySources,
+        debug: { message: "A13 service nog niet geïmplementeerd. Dit zijn dummy data." }
+      }
+    });
+    
+  });
+
+  return r;
+};

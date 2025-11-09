@@ -1,9 +1,7 @@
-// Environment variabelen ophalen
-const MODEL_PROPOSALS = () => process.env.GEMINI_MODEL_CHIPS || "gemini-2.5-flash"; // Snel voor voorstellen
-const MODEL_LESSON = () => "gemini-2.5-pro"; // Krachtiger model voor de definitieve les
+const MODEL_PROPOSALS = () => process.env.GEMINI_MODEL_CHIPS || "gemini-2.5-flash";
+const MODEL_LESSON = () => "gemini-2.5-pro";
 const API_KEY = () => process.env.GEMINI_API_KEY;
 
-// Helper om de API aan te roepen
 async function callGeminiApi(prompt, modelToUse) {
   if (!API_KEY()) {
     console.error("[A19 Service] Fout: GEMINI_API_KEY ontbreekt.");
@@ -12,7 +10,6 @@ async function callGeminiApi(prompt, modelToUse) {
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent`;
   const controller = new AbortController();
-  // Geef deze langere taken meer tijd: 90 seconden
   const timeoutId = setTimeout(() => controller.abort(), 90000);
 
   try {
@@ -25,7 +22,7 @@ async function callGeminiApi(prompt, modelToUse) {
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: {
-          responseMimeType: "application/json", // We willen JSON terug
+          responseMimeType: "application/json",
           temperature: 0.3,
         },
       }),
@@ -56,11 +53,7 @@ async function callGeminiApi(prompt, modelToUse) {
   }
 }
 
-/**
- * STAP 1: Genereer 3 lesvoorstellen
- */
 async function generateProposals(sources) {
-  // Converteer de bronnenlijst naar een simpele tekst voor de prompt
   const sourceListText = sources.map((src, i) =>
     `Bron ${i + 1} (Titel): ${src.title}\nBron ${i + 1} (Type): ${src.type}\nBron ${i + 1} (Link): ${src.link}\n---`
   ).join('\n');
@@ -84,16 +77,11 @@ Genereer nu de 3 lesvoorstellen in het gevraagde JSON-formaat.
   return callGeminiApi(prompt, MODEL_PROPOSALS());
 }
 
-/**
- * STAP 2: Genereer de volledige les
- */
 async function generateLesson(chosenProposal, sources) {
-  // Maak de bronnenlijst met links
   const sourceListText = sources.map((src, i) =>
     `Bron ${i + 1}: ${src.title} (Type: ${src.type}). Beschikbaar op: ${src.link}`
   ).join('\n');
 
-  // Maak een string van het gekozen voorstel
   const proposalText = `Gekozen lesvoorstel:\nTitel: ${chosenProposal.title}\nHoofdvraag: ${chosenProposal.mainQuestion}\nLeerlingoordeel: ${chosenProposal.studentJudgment}`;
 
   const prompt = `
@@ -118,8 +106,8 @@ Genereer nu het lesplan in het gevraagde JSON-formaat.
   return callGeminiApi(prompt, MODEL_LESSON());
 }
 
-// Exporteer de functies die de router nodig heeft
 module.exports = {
   generateProposals,
   generateLesson,
+  callGeminiApi,
 };

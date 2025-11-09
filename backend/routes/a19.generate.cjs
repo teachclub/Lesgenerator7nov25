@@ -1,54 +1,46 @@
 const express = require('express');
-const router = express.Router();
+const {
+  generateProposals,
+  generateLesson,
+} = require('../services/a19.generate.cjs');
 
-// Placeholder generate-endpoint: valideert input en geeft samenvatting terug
-router.post('/api/generate', async (req, res) => {
-  try {
-    const { selected = [], context = {} } = req.body || {};
-    if (!Array.isArray(selected) || selected.length === 0) {
-      return res.status(400).json({ ok: false, error: 'no_selection' });
+module.exports = function() {
+  const r = express.Router();
+
+  r.post('/generate/proposals', async (req, res) => {
+    const { sources } = req.body; 
+
+    if (!sources || !Array.isArray(sources) || sources.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Minstens één geselecteerde bron vereist.' });
     }
 
-    const safeCtx = {
-      query: String(context?.query ?? ''),
-      tv: String(context?.tv ?? ''),
-      ka: String(context?.ka ?? ''),
-    };
+    try {
+      const result = await generateProposals(sources);
+      res.status(result.ok ? 200 : 500).json(result);
+    } catch (err) {
+      console.error("[A19 Route] Fout bij /generate/proposals:", err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
 
-    const items = selected.map((it) => ({
-      type: String(it?.type || ''),
-      title: it?.title ? String(it.title) : undefined,
-      provider: it?.provider ? String(it.provider) : undefined,
-      url: it?.url ? String(it.url) : undefined,
-      thumb: it?.thumb ? String(it.thumb) : undefined,
-    }));
+  r.post('/generate/lesson', async (req, res) => {
+    const { chosenProposal, sources } = req.body; 
 
-    // Simpele “lesplan”-skelet als bewijs van leven
-    const lesson = {
-      meta: {
-        createdAt: new Date().toISOString(),
-        selectionCount: items.length,
-        tv: safeCtx.tv,
-        ka: safeCtx.ka,
-        query: safeCtx.query,
-      },
-      structuur: {
-        hoofdvraag: safeCtx.query ? `Wat leren deze bronnen over: ${safeCtx.query}?` : "Wat leren deze bronnen over het onderwerp?",
-        doelen: [
-          "Leerling kan bronnen selecteren en duiden (tekst/beeld).",
-          "Leerling koppelt broncontext aan tijdvak en kenmerkend aspect.",
-        ],
-        werkvorm: "Jigsaw / duo-analyse / klassikale terugkoppeling",
-      },
-      bronnen: items,
-      notities: "Dit is een placeholder-generatie. De AI-variant kan later worden aangesloten.",
-    };
+    if (!chosenProposal || typeof chosenProposal !== 'object') {
+      return res.status(400).json({ ok: false, error: 'Een gekozen voorstel (chosenProposal) is vereist.' });
+    }
+    if (!sources || !Array.isArray(sources) || sources.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Minstens één geselecteerde bron vereist.' });
+    }
 
-    return res.json({ ok: true, lesson });
-  } catch (err) {
-    return res.status(500).json({ ok: false, error: 'generate_failed' });
-  }
-});
+    try {
+      const result = await generateLesson(chosenProposal, sources);
+      res.status(result.ok ? 200 : 500).json(result);
+    } catch (err) {
+      console.error("[A19 Route] Fout bij /generate/lesson:", err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
 
-module.exports = router;
-
+  return r;
+};
