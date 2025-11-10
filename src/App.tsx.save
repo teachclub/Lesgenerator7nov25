@@ -1,0 +1,605 @@
+import React, { useEffect, useState } from 'react'
+
+
+
+
+
+import { fetchTijdvakken, fetchSuggesties, generateLesson } from '@/lib/api'
+import { searchKleio, type KleioItem } from './services/kleioSearchService'
+
+export default function App() {
+  // ——— KLEIO: state + functie ———
+  const [kleioTerm, setKleioTerm] = useState('')
+  const [kleioItems, setKleioItems] = useState<KleioItem[]>([])
+  const [kleioLoading, setKleioLoading] = useState(false)
+  const [kleioError, setKleioError] = useState<string | null>(null)
+
+  async function runKleioSearch(q: string) {
+    setKleioError(null)
+    setKleioLoading(true)
+    try {
+      const items = await searchKleio(q)
+      setKleioItems(items)
+      console.log('Kleio results:', items)
+    } catch (e: any) {
+      setKleioError(String(e))
+    } finally {
+      setKleioLoading(false)
+    }
+  }
+  // ——— einde KLEIO ———
+
+  // ——— bestaande app-state ———
+  const [tijdvakken, setTijdvakken] = useState<any[]>([])
+  const [tv, setTv] = useState<string>('')     // veiliger: later vullen na fetch
+  const [ka, setKa] = useState<string>('')     // idem
+  const [suggesties, setSuggesties] = useState<any[]>([])
+  const [les, setLes] = useState<string>('')
+
+  useEffect(() => {
+    fetchTijdvakken()
+      .then((tvk) => {
+        setTijdvakken(tvk || [])
+        // defaults kiezen als leeg
+        const firstTv = tvk?.[0]
+        if (firstTv?.id && !tv) setTv(firstTv.id)
+        const firstKa = firstTv?.kas?.[0]
+        if (firstKa?.id && !ka) setKa(firstKa.id)
+      })
+      .catch(console.error)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const loadSuggesties = async () => {
+    setLes('')
+    setSuggesties(await fetchSuggesties(tv, ka))
+  }
+
+  const makeLesson = async (s: any) => {
+    const md = await generateLesson(s, { bouw: 'bovenbouw', leerweg: 'vwo' })
+    setLes(md)
+  }
+
+  return (
+    <>
+      {/* ——— KLEIO TEST ——— */}
+      <div style={{ border: '1px solid #ddd', padding: 12, margin: '12px 0' }}>
+        <h3 style={{ margin: 0 }}>Kleio test</h3>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <input
+            value={kleioTerm}
+            onChange={(e) => setKleioTerm(e.target.value)}
+            placeholder="zoekterm… (bv. protest)"
+            style={{ flex: 1 }}
+          />
+          <button
+            onClick={() => runKleioSearch(kleioTerm)}
+            disabled={kleioLoading || !kleioTerm.trim()}
+          >
+            {kleioLoading ? 'Zoeken…' : 'Zoek in VGN Kleio'}
+          </button>
+        </div>
+
+        {kleioError && (
+          <div style={{ color: 'crimson', marginTop: 8 }}>{kleioError}</div>
+        )}
+
+        {!!kleioItems.length && (
+          <ul style={{ marginTop: 8 }}>
+            {kleioItems.map((it) => (
+              <li key={it.permalink}>
+                <a href={it.permalink} target="_blank" rel="noreferrer">
+                  {it.title_guess}
+                </a>{' '}
+                <span style={{ opacity: 0.7 }}>({it.source})</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {/* ——— EINDE KLEIO TEST ——— */}
+
+      <div
+        style={{
+          fontFamily:
+            'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
+          padding: 24,
+          maxWidth: 920,
+          margin: '0 auto',
+        }}
+      >
+        <h1>Prompt → Lesson</h1>
+        <p style={{ opacity: 0.7 }}>
+          Backend: {import.meta.env.VITE_API_BASE}
+        </p>
+
+        <section
+          style={{
+            display: 'grid',
+            gap: 12,
+            gridTemplateColumns: 'repeat(3, minmax(0,1fr))',
+            alignItems: 'end',
+          }}
+        >
+          <div>
+            <label>Tijdvak</label>
+            <select
+              value={tv}
+              onChange={(e) => {
+                const newTv = e.target.value
+                setTv(newTv)
+                const found = tijdvakken.find((t: any) => t.id === newTv)
+                const firstKa = found?.kas?.[0]
+                setKa(firstKa?.id || '')
+              }}
+              style={{ display: 'block', width: '100%', padding: 8 }}
+            >
+              {tijdvakken.map((t: any) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label>KA</label>
+            <select
+              value={ka}
+              onChange={(e) => setKa(e.target.value)}
+              style={{ display: 'block', width: '100%', padding: 8 }}
+            >
+              {tijdvakken
+                .find((t: any) => t.id === tv)
+                ?.kas?.map((k: any) => (
+                  <option key={k.id} value={k.id}>
+                    {k.id} — {k.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <button onClick={loadSuggesties} style={{ padding: '10px 14px' }}>
+            Haal suggesties
+          </button>
+        </section>
+
+        <section style={{ marginTop: 24, display: 'grid', gap: 12 }}>
+          {suggesties.map((s: any) => (
+            <div
+              key={s.id}
+              style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: 12,
+                padding: 16,
+              }}
+            >
+              <h3 style={{ margin: '0 0 6px' }}>{s.title}</h3>
+              <div style={{ opacity: 0.8, marginBottom: 8 }}>
+                {s.head_question}
+              </div>
+              <button onClick={() => makeLesson(s)} style={{ padding: '8px 10px' }}>
+                Genereer les
+              </button>
+            </div>
+          ))}
+        </section>
+
+        {les && (
+          <section style={{ marginTop: 24 }}>
+            <h2>Les (Markdown)</h2>
+            <textarea value={les} readOnly rows={18} style={{ width: '100%' }} />
+          </section>
+        )}
+      </div>
+    </>
+  )
+}
+rt React, { useEffect, useState } from 'react'
+import { fetchTijdvakken, fetchSuggesties, generateLesson } from '@/lib/api'
+import { searchKleio, type KleioItem } from './services/kleioSearchService';
+
+export default function App() {
+  // ——— KLEIO: state + functie ———
+  const [kleioTerm, setKleioTerm] = useState('');
+  const [kleioItems, setKleioItems] = useState<KleioItem[]>([]);
+  const [kleioLoading, setKleioLoading] = useState(false);
+  const [kleioError, setKleioError] = useState<string | null>(null);
+
+  async function runKleioSearch(q: string) {
+    setKleioError(null);
+    setKleioLoading(true);
+    try {
+      const items = await searchKleio(q);
+      setKleioItems(items);
+      console.log('Kleio results:', items);
+    } catch (e: any) {
+      setKleioError(String(e));
+    } finally {
+      setKleioLoading(false);
+    }
+  }
+  // ——— einde KLEIO ———
+
+  // Bestaande state/logic (laat zo staan; ook oké als je het later gebruikt)
+  const [tijdvakken, setTijdvakken] = useState<any[]>([]);
+  const [tv, setTv] = useState('TV9');
+  const [ka, setKa] = useState('39');
+  const [suggesties, setSuggesties] = useState<any[]>([]);
+  const [les, setLes] = useState<string>('');
+
+  useEffect(() => {
+    fetchTijdvakken().then(setTijdvakken).catch(console.error);
+  }, []);
+
+  const loadSuggesties = async () => {
+    setLes('');
+    setSuggesties(await fetchSuggesties(tv, ka));
+  };
+
+  const makeLesson = async (s: any) => {
+    const md = await generateLesson(s, { bouw: 'bovenbouw', leerweg: 'vwo' });
+    setLes(md);
+  };
+
+  // ——— UI ———
+  return (
+    <>
+      {/* ——— KLEIO TEST ——— */}
+      <div style={{ border: '1px solid #ddd', padding: 12, margin: '12px 0' }}>
+        <h3 style={{ margin: 0 }}>Kleio test</h3>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <input
+            value={kleioTerm}
+            onChange={(e) => setKleioTerm(e.target.value)}
+            placeholder="zoekterm… (bv. protest)"
+            style={{ flex: 1 }}
+          />
+          <button onClick={() => runKleioSearch(kleioTerm)} disabled={kleioLoading}>
+            {kleioLoading ? 'Zoeken…' : 'Zoek in Kleio'}
+          </button>
+        </div>
+
+        {kleioError && <div style={{ color: 'red', marginTop: 8 }}>{kleioError}</div>}
+
+        <ul style={{ marginTop: 8 }}>
+          {kleioItems.map((it, i) => (
+            <li key={i}>
+              <a href={it.permalink} target="_blank" rel="noreferrer">
+                {it.title_guess}
+              </a>{' '}
+              <small>({it.source})</small>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* …hier mag je eigen bestaande UI onder plakken als je wilt… */}
+    </>
+  );
+}
+
+        placeholder="zoekterm… (bv. protest)"
+        style={{ flex: 1 }}
+      />
+      <button onClick={() => runKleioSearch(kleioTerm)} disabled={kleioLoading || !kleioTerm.trim()}>
+        {kleioLoading ? 'Zoeken…' : 'Zoek'}
+      </button>
+    </div>
+
+    {kleioError && (
+      <div style={{ color: 'crimson', marginTop: 8 }}>
+        Fout: {kleioError}
+      </div>
+    )}
+
+    <ul style={{ marginTop: 8 }}>
+      {kleioItems.map((it) => (
+        <li key={it.permalink}>
+          <a href={it.permalink} target="_blank" rel="noreferrer">{it.title_guess}</a>
+          <span style={{ opacity: 0.7 }}> — {it.source}</span>
+        </li>
+      ))}
+      {(!kleioLoading && !kleioError && kleioItems.length === 0 && kleioTerm.trim()) && (
+        <li style={{ opacity: 0.7 }}>Geen resultaten.</li>
+      )}
+    </ul>
+  </div>
+
+{/* ——— KLEIO TEST ——— */}
+<div style={{ border: '1px solid #ddd', padding: 12, margin: '12px 0' }}>
+  <h3 style={{ margin: 0 }}>Kleio test</h3>
+
+  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+    <input
+      value={kleioTerm}
+      onChange={(e) => setKleioTerm(e.target.value)}
+      placeholder="zoekterm… (bv. protest)"
+      style={{ flex: 1 }}
+    />
+    <button onClick={() => runKleioSearch(kleioTerm)}>Zoek</button>
+  </div>
+
+  {kleioLoading && <p>Zoeken…</p>}
+  {kleioError && <p style={{ color: 'red' }}>{kleioError}</p>}
+
+  {kleioItems.length > 0 && (
+    <ul style={{ marginTop: 8 }}>
+      {kleioItems.map((it) => (
+        <li key={it.permalink}>
+          <a href={it.permalink} target="_blank" rel="noreferrer">
+            {it.title_guess}
+          </a>{' '}
+          — <small>{it.source}</small>
+        </li>
+      ))}
+    </ul>
+  )}
+</div>
+
+{/* ——— KLEIO TEST ——— */}
+<div style={{ border: '1px solid #ddd', padding: 12, margin: '12px 0' }}>
+  <h3 style={{ margin: 0 }}>Kleio test</h3>
+  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+    <input
+      value={kleioTerm}
+      onChange={(e) => setKleioTerm(e.target.value)}
+      placeholder="zoekterm… (bv. protest)"
+      style={{ flex: 1 }}
+    />
+    <button onClick={() => runKleioSearch(kleioTerm)} disabled={kleioLoading}>
+      {kleioLoading ? 'Zoeken…' : 'Zoek Kleio'}
+    </button>
+  </div>
+
+  {kleioError && <div style={{ color: 'crimson', marginTop: 8 }}>Fout: {kleioError}</div>}
+
+  <ul style={{ marginTop: 8 }}>
+    {kleioItems.map((it) => (
+      <li key={it.permalink}>
+        <a href={it.permalink} target="_blank" rel="noreferrer">
+          {it.title_guess || it.permalink}
+        </a>{' '}
+        — {it.source}
+      </li>
+    ))}
+  </ul>
+</div>
+{/* ——— EINDE KLEIO TEST ——— */}
+  import React, { useEffect, useState } from 'react'
+import { fetchTijdvakken, fetchSuggesties, generateLesson } from '@/lib/api'
+import { searchKleio, type KleioItem } from './services/kleioSearchService'
+
+export default function App() {
+  // ——— KLEIO: state + functie ———
+  const [kleioTerm, setKleioTerm] = useState('')
+  const [kleioItems, setKleioItems] = useState<KleioItem[]>([])
+  const [kleioLoading, setKleioLoading] = useState(false)
+  const [kleioError, setKleioError] = useState<string | null>(null)
+
+  async function runKleioSearch(q: string) {
+    setKleioError(null)
+    setKleioLoading(true)
+    try {
+      const items = await searchKleio(q)
+      setKleioItems(items)
+      console.log('Kleio results:', items)
+    } catch (e: any) {
+      setKleioError(String(e))
+    } finally {
+      setKleioLoading(false)
+    }
+  }
+  // ——— einde KLEIO ———
+
+  // ——— bestaande app-state ———
+  const [tijdvakken, setTijdvakken] = useState<any[]>([])
+  const [tv, setTv] = useState<string>('')     // veiliger: later vullen na fetch
+  const [ka, setKa] = useState<string>('')     // idem
+  const [suggesties, setSuggesties] = useState<any[]>([])
+  const [les, setLes] = useState<string>('')
+
+  useEffect(() => {
+    fetchTijdvakken()
+      .then((tvk) => {
+        setTijdvakken(tvk || [])
+        // defaults kiezen als leeg
+        const firstTv = tvk?.[0]
+        if (firstTv?.id && !tv) setTv(firstTv.id)
+        const firstKa = firstTv?.kas?.[0]
+        if (firstKa?.id && !ka) setKa(firstKa.id)
+      })
+      .catch(console.error)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const loadSuggesties = async () => {
+    setLes('')
+    setSuggesties(await fetchSuggesties(tv, ka))
+  }
+
+  const makeLesson = async (s: any) => {
+    const md = await generateLesson(s, { bouw: 'bovenbouw', leerweg: 'vwo' })
+    setLes(md)
+  }
+
+  return (
+    <>
+      {/* ——— KLEIO TEST ——— */}
+      <div style={{ border: '1px solid #ddd', padding: 12, margin: '12px 0' }}>
+        <h3 style={{ margin: 0 }}>Kleio test</h3>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <input
+            value={kleioTerm}
+            onChange={(e) => setKleioTerm(e.target.value)}
+            placeholder="zoekterm… (bv. protest)"
+            style={{ flex: 1 }}
+          />
+          <button
+            onClick={() => runKleioSearch(kleioTerm)}
+            disabled={kleioLoading || !kleioTerm.trim()}
+          >
+            {kleioLoading ? 'Zoeken…' : 'Zoek in VGN Kleio'}
+          </button>
+        </div>
+
+        {kleioError && (
+          <div style={{ color: 'crimson', marginTop: 8 }}>{kleioError}</div>
+        )}
+
+        {!!kleioItems.length && (
+          <ul style={{ marginTop: 8 }}>
+            {kleioItems.map((it) => (
+              <li key={it.permalink}>
+                <a href={it.permalink} target="_blank" rel="noreferrer">
+                  {it.title_guess}
+                </a>{' '}
+                <span style={{ opacity: 0.7 }}>({it.source})</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {/* ——— EINDE KLEIO TEST ——— */}
+
+      <div
+        style={{
+          fontFamily:
+            'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
+          padding: 24,
+          maxWidth: 920,
+          margin: '0 auto',
+        }}
+      >
+        <h1>Prompt → Lesson</h1>
+        <p style={{ opacity: 0.7 }}>
+          Backend: {import.meta.env.VITE_API_BASE}
+        </p>
+
+        <section
+          style={{
+            display: 'grid',
+            gap: 12,
+            gridTemplateColumns: 'repeat(3, minmax(0,1fr))',
+            alignItems: 'end',
+          }}
+        >
+          <div>
+            <label>Tijdvak</label>
+            <select
+              value={tv}
+              onChange={(e) => {
+                const newTv = e.target.value
+                setTv(newTv)
+                const found = tijdvakken.find((t: any) => t.id === newTv)
+                const firstKa = found?.kas?.[0]
+                setKa(firstKa?.id || '')
+              }}
+              style={{ display: 'block', width: '100%', padding: 8 }}
+            >
+              {tijdvakken.map((t: any) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label>KA</label>
+            <select
+              value={ka}
+              onChange={(e) => setKa(e.target.value)}
+              style={{ display: 'block', width: '100%', padding: 8 }}
+            >
+              {tijdvakken
+                .find((t: any) => t.id === tv)
+                ?.kas?.map((k: any) => (
+                  <option key={k.id} value={k.id}>
+                    {k.id} — {k.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <button onClick={loadSuggesties} style={{ padding: '10px 14px' }}>
+            Haal suggesties
+          </button>
+        </section>
+
+        <section style={{ marginTop: 24, display: 'grid', gap: 12 }}>
+          {suggesties.map((s: any) => (
+            <div
+              key={s.id}
+              style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: 12,
+                padding: 16,
+              }}
+            >
+              <h3 style={{ margin: '0 0 6px' }}>{s.title}</h3>
+              <div style={{ opacity: 0.8, marginBottom: 8 }}>
+                {s.head_question}
+              </div>
+              <button onClick={() => makeLesson(s)} style={{ padding: '8px 10px' }}>
+                Genereer les
+              </button>
+            </div>
+          ))}
+        </section>
+
+        {les && (
+          <section style={{ marginTop: 24 }}>
+            <h2>Les (Markdown)</h2>
+            <textarea value={les} readOnly rows={18} style={{ width: '100%' }} />
+          </section>
+        )}
+      </div>
+    </>
+  )
+}
+
+  <div style={{ fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif', padding: 24, maxWidth: 920, margin: '0 auto' }}>
+      <h1>Prompt → Lesson</h1>
+      <p style={{opacity:.7}}>Backend: {import.meta.env.VITE_API_BASE}</p>
+
+      <section style={{display:'grid', gap:12, gridTemplateColumns:'repeat(3, minmax(0,1fr))', alignItems:'end'}}>
+        <div>
+          <label>Tijdvak</label>
+          <select value={tv} onChange={e=>setTv(e.target.value)} style={{display:'block', width:'100%', padding:8}}>
+            {[...tijdvakken].map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label>KA</label>
+          <select value={ka} onChange={e=>setKa(e.target.value)} style={{display:'block', width:'100%', padding:8}}>
+            {tijdvakken.find(t=>t.id===tv)?.kas?.map((k:any)=>(
+              <option key={k.id} value={k.id}>{k.id} — {k.name}</option>
+            ))}
+          </select>
+        </div>
+        <button onClick={loadSuggesties} style={{padding:'10px 14px'}}>Haal suggesties</button>
+      </section>
+
+      <section style={{marginTop:24, display:'grid', gap:12}}>
+        {suggesties.map(s => (
+          <div key={s.id} style={{border:'1px solid #e5e7eb', borderRadius:12, padding:16}}>
+            <h3 style={{margin:'0 0 6px'}}>{s.title}</h3>
+            <div style={{opacity:.8, marginBottom:8}}>{s.head_question}</div>
+            <button onClick={()=>makeLesson(s)} style={{padding:'8px 10px'}}>Genereer les</button>
+          </div>
+        ))}
+      </section>
+
+      {les && (
+        <section style={{marginTop:24}}>
+          <h2>Les (Markdown)</h2>
+          <textarea value={les} readOnly rows={18} style={{width:'100%'}} />
+        </section>
+      )}
+    </div>
+  )
+}
