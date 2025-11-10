@@ -7,19 +7,16 @@ export interface Chip {
 }
 
 export interface SortedChips {
-  onderwerp: {
-    personen: Chip[];
-    gebeurtenissen: Chip[];
-    plaatsen: Chip[];
-    begrippen: Chip[];
-  };
+  personen: Chip[];
+  gebeurtenissen: Chip[];
+  plaatsen: Chip[];
+  begrippen: Chip[];
 }
 
 export interface ChipsResponse {
   ok: true;
-  data: {
-    chips: SortedChips;
-  };
+  model: string;
+  chips: SortedChips;
 }
 
 export interface ChipsError {

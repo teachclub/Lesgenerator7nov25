@@ -1,30 +1,35 @@
-import { useSelectionStore } from "@/state/selection.store";
+import React from 'react';
+import { useSelectionStore } from '../state/selection.store';
 
-export default function Verzamelbak() {
-  const { selected, max, clear } = useSelectionStore();
+export function A31Verzamelbak() {
+  const { selected, toggle, max } = useSelectionStore();
+
+  if (selected.length === 0) {
+    return (
+      <div className="verzamelbak-a31 empty">
+        <h4>Geselecteerde Bronnen (0 / {max})</h4>
+        <p>(Vink bronnen aan in de resultatenlijst om ze hier te verzamelen)</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="border rounded p-3 grid gap-2">
-      <div className="flex items-center justify-between">
-        <div className="font-semibold">Verzamelbakje</div>
-        <div className="text-sm opacity-80">
-          {selected.length}/{max}
-        </div>
-      </div>
-      <div className="grid gap-2">
+    <div className="verzamelbak-a31">
+      <h4>Geselecteerde Bronnen ({selected.length} / {max})</h4>
+      <ul className="verzamelbak-list">
         {selected.map((s) => (
-          <div key={s.id} className="text-sm">
-            <a className="underline" href={s.url} target="_blank" rel="noreferrer">
-              {s.title}
-            </a>
-            <span className="ml-2 text-xs opacity-70">{s.type}</span>
-          </div>
+          <li key={s.id} className="verzamelbak-item">
+            <span className="item-title">{s.title}</span>
+            <button
+              type="button"
+              className="remove-btn"
+              onClick={() => toggle(s)}
+            >
+              Verwijder
+            </button>
+          </li>
         ))}
-        {selected.length === 0 && <div className="text-sm opacity-70">Nog geen bronnen geselecteerd.</div>}
-      </div>
-      <button onClick={clear} className="px-3 py-1 rounded border">
-        Leegmaken
-      </button>
+      </ul>
     </div>
   );
 }
-

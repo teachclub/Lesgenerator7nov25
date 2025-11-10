@@ -1,27 +1,85 @@
-import { useQueryStore, Mode } from "@/state/query.store";
+import React, { useEffect } from 'react';
+import { A21TvKaSelect } from './A21.TvKaSelect';
+import { useQueryStore } from '../state/query.store';
 
-export default function A16SearchBar() {
-  const { terms, mode, setTerm, setMode, setSuggestSeed, buildQuery } = useQueryStore();
-  function onSuggest() {
-    const seed = buildQuery();
-    if (seed) setSuggestSeed(seed);
-  }
-  return (
-    <div className="grid gap-2">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        <input className="border rounded px-3 py-2 w-full" placeholder="Zoekterm 1" value={terms[0]} onChange={(e) => setTerm(0, e.target.value)} />
-        <input className="border rounded px-3 py-2 w-full" placeholder="Zoekterm 2" value={terms[1]} onChange={(e) => setTerm(1, e.target.value)} />
-        <input className="border rounded px-3 py-2 w-full" placeholder="Zoekterm 3" value={terms[2]} onChange={(e) => setTerm(2, e.target.value)} />
-      </div>
-      <div className="flex items-center gap-3">
-        {(["AND", "OR"] as Mode[]).map((m) => (
-          <button key={m} type="button" onClick={() => setMode(m)} className={`px-3 py-1 rounded border ${mode === m ? "bg-black text-white" : "bg-white"}`}>
-            {m === "AND" ? "EN" : "OF"}
-          </button>
-        ))}
-        <button type="button" onClick={onSuggest} className="ml-auto px-3 py-1 rounded border">Zoek Suggesties</button>
-      </div>
-    </div>
-  );
+interface SearchBarProps {
+  onTriggerSearch: () => void;
+  isLoading: boolean;
 }
 
+export function A16SearchBar({ onTriggerSearch, isLoading }: SearchBarProps) {
+  const { 
+    terms, tv, ka, mode,
+    setTerm, setTv, setKa, setMode, addTermField 
+  } = useQueryStore();
+
+  const handleSearchClick = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLoading) return;
+    
+    const validTerms = terms.map(t => t.trim()).filter(Boolean);
+    if (validTerms.length > 0 || (tv && ka)) {
+      onTriggerSearch();
+    } else {
+      alert('Vul een zoekterm in, of selecteer een Tijdvak + Kenmerkend Aspect.');
+    }
+  };
+  
+  useEffect(() => {
+    if (tv && ka) {
+      onTriggerSearch();
+    }
+  }, [tv, ka]);
+
+  return (
+    <form className="search-bar-a16" onSubmit={handleSearchClick}>
+      <div className="search-field-group">
+        <label>Vrije zoektermen:</label>
+        {terms.map((term, index) => (
+          <input
+            key={index}
+            type="text"
+            value={term}
+            onChange={(e) => setTerm(index, e.target.value)}
+            placeholder={index === 0 ? "Bijv. 'Luther' (Hoofdzoekterm)..." : "Optionele term..."}
+            disabled={isLoading}
+          />
+        ))}
+        <button type="button" onClick={addTermField} disabled={isLoading} className="add-term-btn">
+          + Veld toevoegen
+        </button>
+      </div>
+
+      <div className="search-mode-toggle">
+        <label>
+          <input type="radio" value="AND" checked={mode === 'AND'} onChange={() => setMode('AND')} />
+          EN (Verfijnen: alle termen)
+        </label>
+        <label>
+          <input type="radio" value="OR" checked={mode === 'OR'} onChange={() => setMode('OR')} />
+          OF (Vergroten: één van de termen)
+        </label>
+      </div>
+
+      <div className="search-or-divider">
+        <span>OF</span>
+      </div>
+
+      <div className="search-field-group">
+        <label>Zoek op Tijdvak (TV) en Kenmerkend Aspect (KA):</label>
+        
+        <A21TvKaSelect 
+          selectedTv={tv}
+          onTvChange={setTv}
+          selectedKa={ka}
+          onKaChange={setKa}
+          disabled={isLoading}
+        />
+      </div>
+
+      <button type="submit" disabled={isLoading}>
+        {isLoading ? 'Suggesties laden...' : 'Zoek Suggesties (Chips)'}
+      </button>
+    </form>
+  );
+}

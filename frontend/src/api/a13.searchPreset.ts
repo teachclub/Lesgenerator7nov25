@@ -7,16 +7,8 @@ export interface AiProposal {
   learningOutcome: string;
 }
 
-export interface Chip {
-  label: string;
-  kind: string;
-  count: number;
-}
-
 export interface PresetInput {
   term: string;
-  tv?: string;
-  ka?: string;
   filters: string[];
 }
 
@@ -24,7 +16,6 @@ export interface ProposalsResponse {
   ok: true;
   data: {
     proposals: AiProposal[];
-    chips: Chip[];
   };
 }
 

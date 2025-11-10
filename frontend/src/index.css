@@ -78,7 +78,7 @@ select {
   gap: 2rem;
 }
 .search-panel {
-  flex: 1;
+  flex: 2;
   min-width: 300px;
 }
 .chips-panel {
@@ -116,12 +116,10 @@ select {
   padding: 5px;
   margin-top: 10px;
 }
-
 .chips-a06 .chip-open-section,
 .chips-a06 .chip-collapsible-section {
   margin-bottom: 1.5rem;
 }
-
 .chips-a06 .chip-title {
   font-size: 1.1rem;
   font-weight: 600;
@@ -136,7 +134,6 @@ select {
 .chips-a06 summary.chip-title:hover {
   opacity: 0.8;
 }
-
 .chips-a06 .chip-title-person { border-color: var(--color-person); color: var(--color-person); }
 .chips-a06 .chip-title-concept { border-color: var(--color-concept); color: var(--color-concept); }
 .chips-a06 .chip-title-place { border-color: var(--color-place); color: var(--color-place); }
@@ -145,11 +142,26 @@ select {
 .chips-a06 .chip-title-type { border-color: var(--color-type); color: var(--color-type); }
 .chips-a06 .chip-title-right { border-color: var(--color-right); color: var(--color-right); }
 
+.selection-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  margin-top: 1.5rem;
+}
+.selection-results-panel {
+  flex: 2;
+  min-width: 300px;
+}
+.selection-basket-panel {
+  flex: 1;
+  min-width: 300px;
+}
 
 .selection-list-a30 {
   border: 1px solid #eee;
   border-radius: 8px;
   padding: 1rem;
+  background-color: #fcfcfc;
 }
 .selection-list-a30 .search-results-list {
   list-style: none;
@@ -182,4 +194,53 @@ select {
 .selection-list-a30 .item-link {
   font-size: 0.9rem;
   text-decoration: none;
+}
+.list-subheader {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--color-person);
+  margin-top: 1rem;
+}
+.list-subheader-type {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+  margin-top: 0.5rem;
+}
+
+.verzamelbak-a31 {
+  border: 2px dashed var(--color-person);
+  border-radius: 8px;
+  padding: 1rem;
+  background-color: #fdfdff;
+  position: sticky;
+  top: 20px;
+}
+.verzamelbak-a31 h4 {
+  margin-top: 0;
+}
+.verzamelbak-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.verzamelbak-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.verzamelbak-item .item-title {
+  flex: 1;
+  margin-right: 10px;
+  font-size: 0.9rem;
+}
+.verzamelbak-item .remove-btn {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 3px 8px;
+  font-size: 0.8rem;
+  border-radius: 4px;
 }
