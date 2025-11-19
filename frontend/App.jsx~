@@ -1,0 +1,63 @@
+import React, { useState, useEffect } from 'react';
+// LET OP: Eén puntje (.) want components staat in dezelfde src map
+import BronnenFilters from "./components/BronnenFilters";
+import BronnenKaart from "./components/BronnenKaart";
+
+const initialBronnen = [
+    { id: 1, herkomst: 'Kleio', INLEIDING_BRON1: 'Kleio Tekst', TOELICHTING_BRON: 'Een puur tekstuele bron.', bronType: 'tekst', isImage: false, imageUrl: null },
+    { id: 2, herkomst: 'Kleio', INLEIDING_BRON1: 'Kleio Afbeelding', TOELICHTING_BRON: 'Een afbeelding van Kleio.', bronType: 'afbeelding', isImage: true, imageUrl: 'https://www.vgnkleio.nl/wp-content/uploads/2025/11/image-3-1024x642.png' },
+    { id: 3, herkomst: 'Cito', INLEIDING_BRON1: 'Cito Tekst', TOELICHTING_BRON: 'Een reguliere Cito tekst.', bronType: 'tekst', isImage: false, imageUrl: null },
+    { id: 4, herkomst: 'Cito', INLEIDING_BRON1: 'Cito URL', TOELICHTING_BRON: 'Een Cito bron met een afbeelding URL.', bronType: 'afbeelding', isImage: true, imageUrl: 'https://lh3.googleusercontent.com/CJ1MDzclPwPK19uf-EVEB_fy-aWOBPyuMln7jSag4R-5mZAicmffyS0aHpwQgrrDd1MtnbGPpladGm7CvDp0baymwx2IDqz7gbkkHhdK8nveXLFlqsb0QM6DvkP-eMCNvJp7tAM' },
+];
+
+const App = () => {
+    const [filters, setFilters] = useState({
+        tekst: true,
+        afbeeldingen: false,
+        kleio: true,
+        cito: true,
+    });
+    
+    const [filteredBronnen, setFilteredBronnen] = useState(initialBronnen);
+
+    useEffect(() => {
+        const applyFiltering = () => {
+            const result = initialBronnen.filter(bron => {
+                // 1. Filter op BronType (Tekst of Afbeelding)
+                const matchesBronType = 
+                    (filters.tekst && bron.bronType === 'tekst') ||
+                    (filters.afbeeldingen && bron.bronType === 'afbeelding');
+
+                // 2. Filter op Herkomst (Kleio of Cito)
+                const matchesHerkomst = 
+                    (filters.kleio && bron.herkomst === 'Kleio') ||
+                    (filters.cito && bron.herkomst === 'Cito');
+
+                return matchesBronType && matchesHerkomst;
+            });
+            setFilteredBronnen(result);
+        };
+
+        applyFiltering();
+    }, [filters]); 
+
+    return (
+        <div className="app-container p-4">
+            <h1 className="text-2xl font-bold mb-4">Bron Scraper Weergave</h1>
+            
+            <BronnenFilters filters={filters} setFilters={setFilters} />
+            
+            <div className="bronnen-lijst grid grid-cols-1 gap-4 mt-4">
+                {filteredBronnen.map(bron => (
+                    <BronnenKaart key={bron.id} bron={bron} />
+                ))}
+                
+                {filteredBronnen.length === 0 && (
+                    <p>Geen bronnen gevonden.</p>
+                )}
+            </div>
+        </div>
+    );
+};
+
+export default App;

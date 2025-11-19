@@ -1,11 +1,18 @@
 import React from 'react';
-import { PresetZoekerPage } from './pages/PresetZoekerPage';
-import './index.css'; 
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { GeneratorPage } from './components/features/GeneratorPage/GeneratorPage';
+import ProposalsPage from './pages/ProposalsPage';
+import './index.css';
 
-export default function App() {
+const App: React.FC = () => {
   return (
-    <main className="app-container">
-      <PresetZoekerPage />
-    </main>
+    <Router>
+      <Routes>
+        <Route path="/" element={<GeneratorPage />} />
+        <Route path="/proposals" element={<ProposalsPage />} />
+      </Routes>
+    </Router>
   );
-}
+};
+
+export default App;

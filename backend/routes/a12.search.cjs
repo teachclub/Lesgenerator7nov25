@@ -1,45 +1,66 @@
 const express = require('express');
 const router = express.Router();
-const {
-  searchEuropeana,
-  chipsToEuropeanaParams,
-} = require('../services/a11.europeana.cjs');
 
-// POST /api/search
-// Body opties:
-// { query: "rembrandt", qf: ["who:\"Rembrandt\"", "TYPE:IMAGE"], rows, start }
-// { chips: [ { label, kind, who, what, where, yearRange:{from,to}, type, reusability } ], rows, start }
-router.post('/api/search', async (req, res) => {
-  try {
-    const body = req.body || {};
-    const rows = Number(body.rows ?? 24);
-    const start = Number(body.start ?? 1);
+let citoService;
+let kleioService;
 
-    // Variant A: chips → Europeana params
-    if (Array.isArray(body.chips) && body.chips.length > 0) {
-      const params = chipsToEuropeanaParams(body.chips, { rows, start });
-      const out = await searchEuropeana(params);
-      return res.status(out.ok ? 200 : 400).json(out);
+// Veilig inladen van services
+try {
+    citoService = require('../services/a28.cito.cjs');
+} catch (e) {
+    console.error('[a12.search] Kon Cito service niet laden:', e.message);
+}
+
+try {
+    kleioService = require('../services/a27.kleio.cjs');
+} catch (e) {
+    console.error('[a12.search] Kon Kleio service niet laden:', e.message);
+}
+
+router.post('/search', async (req, res) => {
+    try {
+        const { query, filters } = req.body;
+        console.log('[/api/search] Request:', { query, filters });
+
+        const qString = Array.isArray(query) ? query.join(' ') : (query || '');
+        let allResults = [];
+
+        // 1. CITO ZOEKEN
+        const useCito = !filters.providers || filters.providers.length === 0 || filters.providers.includes('Cito');
+        
+        if (useCito && citoService && citoService.searchCito) {
+            try {
+                const citoHits = citoService.searchCito({ query: qString, filters });
+                allResults = [...allResults, ...citoHits];
+                console.log(`[/api/search] Cito hits toegevoegd: ${citoHits.length}`);
+            } catch (err) {
+                console.error('[/api/search] Fout in Cito service:', err);
+            }
+        }
+
+        // 2. KLEIO ZOEKEN
+        const useKleio = !filters.providers || filters.providers.length === 0 || filters.providers.includes('Kleio');
+
+        if (useKleio && kleioService && kleioService.searchKleio) {
+            try {
+                const kleioHits = await kleioService.searchKleio({ query: qString, filters });
+                allResults = [...allResults, ...kleioHits];
+                console.log(`[/api/search] Kleio hits toegevoegd: ${kleioHits.length}`);
+            } catch (err) {
+                console.error('[/api/search] Fout in Kleio service:', err);
+            }
+        }
+
+        // 3. RESPONSE - PLATTE LIJST (CRUCIAAL VOOR FRONTEND)
+        console.log(`[/api/search] Totaal aantal hits teruggestuurd: ${allResults.length}`);
+        
+        // Stuur direct de array, GEEN object wrapper zoals { hits: ... }
+        res.json(allResults);
+
+    } catch (error) {
+        console.error('[/api/search] CRITICAL ERROR:', error);
+        res.status(500).json({ error: 'Interne serverfout tijdens zoeken.' });
     }
-
-    // Variant B: vrije query + optionele qf[]
-    const query = String(body.query ?? '*');
-    const qf = Array.isArray(body.qf) ? body.qf.map(String) : [];
-    const params = {
-      query,
-      qf,
-      rows,
-      start,
-      media: 'true',
-      profile: 'rich',
-      reusability: String(body.reusability || 'open'),
-    };
-    const out = await searchEuropeana(params);
-    return res.status(out.ok ? 200 : 400).json(out);
-  } catch (err) {
-    return res.status(500).json({ ok: false, error: 'search_failed' });
-  }
 });
 
 module.exports = router;
-

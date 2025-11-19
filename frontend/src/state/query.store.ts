@@ -1,78 +1,116 @@
 import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
 
-export type SearchMode = 'AND' | 'OR';
-
-export interface QueryState {
-  terms: string[];
-  mode: SearchMode;
-  tv: string;
-  ka: string;
-  filters: string[];
-}
-
-interface QueryActions {
-  setTerm: (index: number, value: string) => void;
-  addTermField: () => void;
-  setMode: (mode: SearchMode) => void;
-  setTv: (tv: string) => void;
-  setKa: (ka: string) => void;
-  setFilter: (filterId: string, isSelected: boolean) => void;
+interface QueryState {
+  hits: any[];
+  totalHits: number;
+  loading: boolean;
+  error: string | null;
+  queries: string[];
+  selectedHit: any | null;
   
-  getSearchQuery: () => string;
-  getPresetInput: () => {
-    term: string;
-    filters: string[];
+  // Filters
+  filters: {
+    providers: string[];
+    types: string[];
+    tijdvak: string;      // NIEUW: Geselecteerd tijdvak ID
+    kas: string[];        // NIEUW: Lijst met geselecteerde KA's
   };
+
+  executeSearch: (query: string) => Promise<void>;
+  toggleArrayFilter: (key: 'providers' | 'types' | 'kas', value: string) => void;
+  setFilterValue: (key: 'tijdvak', value: string) => void; // NIEUW: Voor dropdowns
+  setSelectedHit: (hit: any) => void;
+  setQuery: (index: number, value: string) => void;
 }
 
-const initialState: QueryState = {
-  terms: ['', '', ''],
-  mode: 'OR',
-  tv: '',
-  ka: '',
-  filters: [],
+const normalizeHits = (data: any): any[] => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (data.hits && Array.isArray(data.hits)) return data.hits;
+  return [];
 };
 
-export const useQueryStore = create<QueryState & QueryActions>((set, get) => ({
-  ...initialState,
+export const useQueryStore = create<QueryState>()(
+  devtools((set, get) => ({
+    hits: [],
+    totalHits: 0,
+    loading: false,
+    error: null,
+    selectedHit: null,
+    queries: [''],
+    filters: {
+      providers: ['Cito', 'Kleio'],
+      types: ['TEXT', 'IMAGE'],
+      tijdvak: '', 
+      kas: [],
+    },
 
-  setTerm: (index, value) => set((state) => {
-    const newTerms = [...state.terms];
-    newTerms[index] = value;
-    return { terms: newTerms };
-  }),
+    toggleArrayFilter: (key, value) => {
+      const current = get().filters[key];
+      if (!Array.isArray(current)) return;
 
-  addTermField: () => set(state => ({
-    terms: [...state.terms, '']
-  })),
+      const next = current.includes(value)
+        ? current.filter((item) => item !== value)
+        : [...current, value];
+      
+      set((state) => ({
+        filters: { ...state.filters, [key]: next },
+      }));
+    },
 
-  setMode: (mode) => set({ mode }),
-  setTv: (tv) => set({ tv }),
-  setKa: (ka) => set({ ka }),
+    setFilterValue: (key, value) => {
+      set((state) => ({
+        filters: { ...state.filters, [key]: value },
+      }));
+    },
 
-  setFilter: (filterId, isSelected) =>
-    set((state) => {
-      const currentFilters = state.filters;
-      if (isSelected && !currentFilters.includes(filterId)) {
-        return { filters: [...currentFilters, filterId] };
+    setSelectedHit: (hit) => set({ selectedHit: hit }),
+
+    setQuery: (index, value) => {
+      const newQueries = [...get().queries];
+      newQueries[index] = value;
+      set({ queries: newQueries });
+    },
+
+    executeSearch: async (queryInput: string) => {
+      set({ loading: true, error: null });
+      const { filters } = get();
+      
+      // Update ook de query state
+      set({ queries: [queryInput] });
+
+      try {
+        const response = await fetch('http://localhost:8080/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            query: [queryInput], 
+            filters 
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status}`);
+        }
+
+        const rawData = await response.json();
+        const hits = normalizeHits(rawData);
+
+        set({ 
+          hits, 
+          totalHits: hits.length, 
+          loading: false 
+        });
+
+      } catch (err: any) {
+        console.error('Search error:', err);
+        set({ 
+          error: err.message || 'Fout bij zoeken.', 
+          loading: false, 
+          hits: [] 
+        });
       }
-      if (!isSelected && currentFilters.includes(filterId)) {
-        return { filters: currentFilters.filter((f) => f !== filterId) };
-      }
-      return {};
-    }),
-
-  getSearchQuery: () => {
-    const { terms, mode } = get();
-    const validTerms = terms.map(t => t.trim()).filter(Boolean);
-    if (validTerms.length === 0) return '';
-    if (validTerms.length === 1) return validTerms[0];
-    return validTerms.map(t => `(${t})`).join(` ${mode} `);
-  },
-  
-  getPresetInput: () => {
-    const { tv, ka, filters } = get();
-    const term = get().getSearchQuery() || ka || tv;
-    return { term, filters };
-  },
-}));
+    },
+  }))
+);

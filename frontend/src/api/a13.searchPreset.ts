@@ -1,38 +1,59 @@
+// De URL van je lokale backend-server
 const API_URL = 'http://localhost:8080/api';
 
-export interface AiProposal {
-  id: string;
-  title: string;
-  mainQuestion: string;
-  learningOutcome: string;
-}
+// --- Input Types ---
+// (Deze moeten overeenkomen met je frontend state/componenten)
 
 export interface PresetInput {
+  // Dit is de 'S1' invoer
   term: string;
-  filters: string[];
+  tv?: string; // Tijdvak
+  ka?: string; // Kenmerkend Aspect
+
+  // Dit zijn de 'S2' filters
+  ratio: number; // Percentage (bijv. 0.7 voor 70%)
+  max: number; // Maximaal aantal bronnen (bijv. 20)
+  filters: string[]; // Bijv. ['alleen tekst', 'spotprent']
 }
 
-export interface ProposalsResponse {
+// --- Output Types ---
+// (De backend /api/search-preset stuurt een lijst met bronnen)
+
+export interface PresetSource {
+  // Dit is een voorbeeldstructuur, pas aan o.b.v. wat de backend stuurt
+  id: string;
+  title: string;
+  type: string;
+  link: string;
+  imageUrl?: string;
+}
+
+export interface PresetResponse {
   ok: true;
   data: {
-    proposals: AiProposal[];
+    sources: PresetSource[];
+    debug?: any; // Eventuele debug-info van de backend
   };
 }
 
-export interface ProposalsError {
+export interface PresetError {
   ok: false;
   error: string | object;
 }
 
-export async function fetchProposalsFromSearch(
+// --- API Functie ---
+
+/**
+ * Roept de /api/search-preset endpoint aan.
+ */
+export async function fetchPreset(
   input: PresetInput
-): Promise<ProposalsResponse | ProposalsError> {
+): Promise<PresetResponse | PresetError> {
   try {
-    const res = await fetch(`${API_URL}/pre-selection`, {
+    const res = await fetch(`${API_URL}/search-preset`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
-      credentials: 'include',
     });
 
     if (!res.ok) {
@@ -42,8 +63,9 @@ export async function fetchProposalsFromSearch(
 
     const data = await res.json();
     
+    // De backend route /api/search-preset stuurt een { ok: true, data: ... } structuur
     if (data.ok) {
-      return data as ProposalsResponse;
+      return data as PresetResponse;
     } else {
       return { ok: false, error: data.error || 'Onbekende presetfout' };
     }
