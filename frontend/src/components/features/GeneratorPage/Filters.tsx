@@ -20,58 +20,18 @@ export const Filters: React.FC = () => {
     }))
   );
 
-  // Zoek het actieve tijdvak object op voor de KA lijst
   const activeTijdvak = TIJDVAKKEN.find(t => t.id === tijdvak);
 
   const handleTijdvakChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setFilterValue('tijdvak', e.target.value);
-    // Optioneel: Je zou hier ook de KA's kunnen resetten als dat wenselijk is
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 mt-4">
       
-      {/* 1. TYPE */}
+      {/* 1. TIJDVAKKEN (NU BOVENAAN) */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Type Bron</h3>
-        <div className="space-y-1">
-          {['TEXT', 'IMAGE'].map(type => (
-            <label key={type} className="flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                checked={types.includes(type)}
-                onChange={() => toggleArrayFilter('types', type)}
-              />
-              <span className="ml-2 text-sm text-gray-800 capitalize">
-                {type === 'TEXT' ? 'Tekst' : 'Afbeeldingen'}
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {/* 2. PROVIDERS */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Selecteer Bronnen</h3>
-        <div className="space-y-1">
-          {AVAILABLE_PROVIDERS.map((provider) => (
-            <label key={provider} className="flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                checked={providers.includes(provider)}
-                onChange={() => toggleArrayFilter('providers', provider)}
-              />
-              <span className="ml-2 text-sm text-gray-800">{provider}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {/* 3. TIJDVAKKEN (DROPDOWN) */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Tijdvak</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Historische Context</h3>
         <select 
           value={tijdvak} 
           onChange={handleTijdvakChange}
@@ -86,7 +46,7 @@ export const Filters: React.FC = () => {
         </select>
       </div>
 
-      {/* 4. KENMERKENDE ASPECTEN (CHECKBOXES) - Alleen zichtbaar als tijdvak is gekozen */}
+      {/* 2. KENMERKENDE ASPECTEN (Direct onder tijdvak) */}
       {activeTijdvak && (
         <div className="pt-2 border-t border-gray-100 animation-fade-in">
           <h3 className="text-sm font-semibold text-gray-700 mb-2">
@@ -109,6 +69,44 @@ export const Filters: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 3. TYPE BRON */}
+      <div className="pt-4 border-t border-gray-100">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Type Bron</h3>
+        <div className="space-y-1">
+          {['TEXT', 'IMAGE'].map(type => (
+            <label key={type} className="flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                checked={types.includes(type)}
+                onChange={() => toggleArrayFilter('types', type)}
+              />
+              <span className="ml-2 text-sm text-gray-800 capitalize">
+                {type === 'TEXT' ? 'Tekst' : 'Afbeeldingen'}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* 4. PROVIDERS */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Selecteer Bronnen</h3>
+        <div className="space-y-1">
+          {AVAILABLE_PROVIDERS.map((provider) => (
+            <label key={provider} className="flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                checked={providers.includes(provider)}
+                onChange={() => toggleArrayFilter('providers', provider)}
+              />
+              <span className="ml-2 text-sm text-gray-800">{provider}</span>
+            </label>
+          ))}
+        </div>
+      </div>
 
     </div>
   );

@@ -13,22 +13,16 @@ const HitItem: React.FC<{ hit: Hit; onSelect: (hit: Hit) => void }> = ({ hit, on
 
   return (
     <div className="border border-gray-200 rounded-lg p-3 mb-3 shadow-sm hover:shadow-md transition-shadow duration-200 bg-white flex gap-4">
-      
       {hasImage && (
-        <div className="flex-shrink-0 w-32 h-32 bg-gray-100 rounded overflow-hidden border border-gray-300 relative">
+        <div className="flex-shrink-0 w-32 h-32 bg-gray-100 rounded overflow-hidden border border-gray-300">
           <img 
-            // FIX 1: KEY zorgt dat React niet in de war raakt bij scrollen/zoeken
             key={hit.imageUrl} 
             src={hit.imageUrl} 
-            alt="Bron voorbeeld" 
+            alt="Bron" 
             className="w-full h-full object-cover"
             loading="lazy"
-            // FIX 2: DIT IS DE MAGISCHE SLEUTEL VOOR GOOGLE PLAATJES
-            referrerPolicy="no-referrer"
-            onError={(e) => {
-                // Verberg alleen als het echt, echt kapot is
-                (e.target as HTMLImageElement).style.display = 'none';
-            }}
+            referrerPolicy="no-referrer" // <--- DIT IS DE TRUC
+            onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
           />
         </div>
       )}
@@ -43,16 +37,11 @@ const HitItem: React.FC<{ hit: Hit; onSelect: (hit: Hit) => void }> = ({ hit, on
                     {hit.provider}
                 </span>
             </div>
-
             <div className="text-xs text-gray-500 mb-2 flex flex-wrap gap-1">
-                {hit.tv && hit.tv.map((t, i) => (
-                <span key={i} className="bg-yellow-50 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-200">{t}</span>
-                ))}
+                {hit.tv && hit.tv.map((t, i) => <span key={i} className="bg-yellow-50 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-200">{t}</span>)}
             </div>
-
             <div className="text-xs text-gray-700 mb-1 line-clamp-3 snippet-content" dangerouslySetInnerHTML={createMarkup(hit.highlight)} />
         </div>
-
         <button onClick={() => onSelect(hit)} className="text-xs font-medium text-blue-600 hover:text-blue-800 mt-1 self-start">
             Lees meer &rarr;
         </button>

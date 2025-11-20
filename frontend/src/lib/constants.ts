@@ -25,7 +25,7 @@ export const TIJDVAKKEN = [
     kas: [
       'De verspreiding van het christendom in geheel Europa',
       'Het ontstaan en de verspreiding van de islam',
-      'De vrijwel volledige vervanging in West-Europa van de agrarisch-urbane cultuur door een zelfvoorzienende agrarische cultuur, georganiseerd via hofstelsel en horigheid',
+      'De vrijwel volledige vervanging in West-Europa van de agrarisch-urbane cultuur door een zelfvoorzienende agrarische cultuur',
       'Het ontstaan van feodale verhoudingen in het bestuur'
     ]
   },

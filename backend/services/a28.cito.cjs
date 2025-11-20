@@ -24,12 +24,11 @@ const loadCitoData = () => {
             complete: (results) => {
                 citoCache = results.data.map((record, index) => {
                     let rawContent = record.TEKSTBRON_OFURL || record.URL || record.TEKSTBRON || '';
-                    const isImage = isImageUrl(rawContent);
                     
-                    // Normaliseer Tijdvak (zodat "Tijdvak 5" en "5" matchen)
-                    let tv = record.METADATA_TV_HC || record.TIJDVAK || '';
-                    if (tv.match(/^\d+$/)) tv = `Tijdvak ${tv}`; // Maak van "5" -> "Tijdvak 5"
+                    const isImage = isImageUrl(rawContent);
+                    // Geen HTTPS dwang (Raw URL behouden voor werkende plaatjes)
 
+                    const tv = record.METADATA_TV_HC || record.TIJDVAK || '';
                     const ka = record.METADATA_KA || record.KA || '';
 
                     return {
@@ -53,6 +52,7 @@ const loadCitoData = () => {
         });
     } catch (error) { console.error(error); }
 };
+
 loadCitoData();
 
 const searchCito = ({ query, filters }) => {
@@ -60,38 +60,42 @@ const searchCito = ({ query, filters }) => {
     
     let results = citoCache;
 
-    // 1. Zoekterm (Optioneel: als leeg, toon alles wat aan filters voldoet)
+    // --- BOOLEAN LOGICA ---
+    // Werkt hetzelfde als bij Kleio: splits op " NOT "
     if (query && query.trim() !== '') {
-        const qLower = query.toLowerCase();
-        results = results.filter(item => 
-            (item.title && item.title.toLowerCase().includes(qLower)) ||
-            (item.description && item.description.toLowerCase().includes(qLower))
-        );
+        let cleanQuery = query;
+        let excludedTerms = [];
+
+        if (query.includes(' NOT ')) {
+            const parts = query.split(' NOT ');
+            cleanQuery = parts[0].trim().toLowerCase();
+            excludedTerms = parts.slice(1).map(t => t.trim().toLowerCase());
+        } else {
+            cleanQuery = query.toLowerCase();
+        }
+
+        results = results.filter(item => {
+            const content = (item.title + ' ' + item.description + ' ' + item.fullText).toLowerCase();
+            
+            // 1. Moet de zoekterm bevatten (als die er is)
+            if (cleanQuery && !content.includes(cleanQuery)) return false;
+
+            // 2. Mag GEEN verboden termen bevatten
+            if (excludedTerms.some(term => content.includes(term))) return false;
+
+            return true;
+        });
     }
 
-    // 2. Type Filter
+    // Filters
     if (filters.types?.length > 0) {
         results = results.filter(item => filters.types.includes(item.type));
     }
-
-    // 3. Tijdvak Filter
     if (filters.tijdvak) {
-        // Frontend stuurt "Tijdvak 5". Backend heeft "Tijdvak 5". 
-        // We doen een includes check voor veiligheid.
-        results = results.filter(item => 
-            item.tv.some(t => t.toLowerCase().includes(filters.tijdvak.toLowerCase()))
-        );
+        results = results.filter(item => item.tv.some(t => t.toLowerCase().includes(filters.tijdvak.toLowerCase())));
     }
-
-    // 4. KA Filter
     if (filters.kas && filters.kas.length > 0) {
-        // Cito data bevat vaak de KA tekst. We checken of de tekst uit de filter in de data voorkomt.
-        // Omdat de teksten lang zijn, is een simpele 'includes' vaak het beste.
-        results = results.filter(item => 
-            item.ka.some(kItem => 
-                filters.kas.some(kFilter => kItem.toLowerCase().includes(kFilter.toLowerCase()) || kFilter.toLowerCase().includes(kItem.toLowerCase()))
-            )
-        );
+        results = results.filter(item => item.ka.some(kItem => filters.kas.some(kFilter => kItem.toLowerCase().includes(kFilter.toLowerCase()) || kFilter.toLowerCase().includes(kItem.toLowerCase()))));
     }
 
     return results;

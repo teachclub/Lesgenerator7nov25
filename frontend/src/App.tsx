@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { GeneratorPage } from './components/features/GeneratorPage/GeneratorPage';
 import ProposalsPage from './pages/ProposalsPage';
+import LessonPage from './pages/LessonPage'; // Vergeet deze import niet!
 import './index.css';
 
 const App: React.FC = () => {
@@ -10,6 +11,7 @@ const App: React.FC = () => {
       <Routes>
         <Route path="/" element={<GeneratorPage />} />
         <Route path="/proposals" element={<ProposalsPage />} />
+        <Route path="/lesson" element={<LessonPage />} />
       </Routes>
     </Router>
   );
