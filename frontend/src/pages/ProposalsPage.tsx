@@ -13,16 +13,16 @@ interface Proposal {
 
 const ProposalsPage: React.FC = () => {
   const navigate = useNavigate();
-  
-  // HIER ZAT DE FOUT: We moeten 'sources' hebben, niet 'selectedItems'
-  const { sources } = useSelectionStore();
-  
+  const { sources } = useSelectionStore(); // We kijken naar de JUISTE bronnenbak
   const { query } = useQueryStore();
   
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatingLesson, setGeneratingLesson] = useState(false);
   const [error, setError] = useState('');
+
+  // Staat voor de pop-up (modal)
+  const [viewingSource, setViewingSource] = useState<{source: Source, proposalIndex: number} | null>(null);
 
   // Helper voor proxy images
   const getProxiedImageUrl = (source: Source) => {
@@ -35,13 +35,8 @@ const ProposalsPage: React.FC = () => {
 
   useEffect(() => {
     const fetchProposals = async () => {
-      console.log("ProposalsPage geladen.");
-      // We gebruiken nu 'sources' uit de store
-      console.log("Aantal bronnen in bakje:", sources ? sources.length : 0);
-
       const items = sources || [];
       if (items.length === 0) {
-          console.warn("Geen bronnen gevonden! (Bakje is leeg)");
           setLoading(false);
           return;
       }
@@ -81,6 +76,7 @@ const ProposalsPage: React.FC = () => {
     fetchProposals();
   }, []);
 
+  // Verwijder uit concept
   const handleRemoveSourceFromProposal = (proposalIndex: number, sourceIdToRemove: string) => {
       const updatedProposals = [...proposals];
       const prop = updatedProposals[proposalIndex];
@@ -90,6 +86,11 @@ const ProposalsPage: React.FC = () => {
       prop.selectedSourceIds = currentIds.filter(id => id !== sourceIdToRemove);
       
       setProposals(updatedProposals);
+      
+      // Als we deze aan het bekijken waren, sluit de modal
+      if (viewingSource && viewingSource.source.id === sourceIdToRemove) {
+          setViewingSource(null);
+      }
   };
 
   const handleChoose = async (prop: Proposal) => {
@@ -97,7 +98,6 @@ const ProposalsPage: React.FC = () => {
       setGeneratingLesson(true);
       
       const safeIds = Array.isArray(prop.selectedSourceIds) ? prop.selectedSourceIds : [];
-      // Filteren uit 'sources'
       const usedSources = (sources || []).filter(s => safeIds.includes(s.id));
 
       try {
@@ -122,12 +122,13 @@ const ProposalsPage: React.FC = () => {
       }
   };
 
-  // Als er geen items zijn (en niet aan het laden), toon melding
+  // --- RENDER HELPERS ---
+
   if (!loading && (!sources || sources.length === 0)) {
       return (
         <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-8 font-sans">
              <h2 className="text-2xl font-bold text-gray-800 mb-2">Je 'bakje' is leeg!</h2>
-             <p className="text-gray-600 mb-6">Ga terug en zoek eerst naar bronnen. Alles in de lijst telt mee.</p>
+             <p className="text-gray-600 mb-6">Ga terug en zoek eerst naar bronnen.</p>
              <button onClick={() => navigate('/')} className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold">Terug naar zoeken</button>
         </div>
       );
@@ -161,12 +162,12 @@ const ProposalsPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8 font-sans">
+    <div className="min-h-screen bg-gray-100 p-8 font-sans relative">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8 flex justify-between items-center">
           <div>
               <h1 className="text-3xl font-bold text-gray-900">Kies & Cureer</h1>
-              <p className="text-gray-600 mt-1">Streep weg wat je niet wilt gebruiken. De rest wordt je les.</p>
+              <p className="text-gray-600 mt-1">Klik op een bron om te lezen. Streep weg wat niet past.</p>
           </div>
           <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-800 font-medium px-4 py-2 bg-white rounded shadow-sm border transition-colors">
             &larr; Terug naar zoeken
@@ -223,7 +224,11 @@ const ProposalsPage: React.FC = () => {
 
                                 const imgUrl = getProxiedImageUrl(source);
                                 return (
-                                    <div key={sourceId} className="group flex items-start gap-2 text-xs text-gray-600 bg-white p-2 rounded border border-gray-200 relative hover:border-red-300 transition-colors">
+                                    <div 
+                                        key={sourceId} 
+                                        onClick={() => setViewingSource({ source, proposalIndex: idx })}
+                                        className="group flex items-start gap-2 text-xs text-gray-600 bg-white p-2 rounded border border-gray-200 relative hover:border-indigo-300 hover:shadow-md transition-all cursor-zoom-in"
+                                    >
                                         {imgUrl ? (
                                             <img 
                                                 src={imgUrl} 
@@ -237,17 +242,9 @@ const ProposalsPage: React.FC = () => {
                                             </span>
                                         )}
                                         <div className="flex-1 min-w-0">
-                                            <span className="truncate font-medium block text-gray-900">{source.title}</span>
+                                            <span className="truncate font-medium block text-gray-900 group-hover:text-indigo-700">{source.title}</span>
                                             <span className="text-[10px] text-gray-400 uppercase">{source.type} • {source.provider}</span>
                                         </div>
-                                        
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); handleRemoveSourceFromProposal(idx, source.id); }}
-                                            className="opacity-0 group-hover:opacity-100 absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md hover:bg-red-600 hover:scale-110 transition-all z-10"
-                                            title="Verwijder uit dit concept"
-                                        >
-                                            ✕
-                                        </button>
                                     </div>
                                 );
                             })
@@ -270,6 +267,58 @@ const ProposalsPage: React.FC = () => {
             );
           })}
         </div>
+
+        {/* --- DE POP-UP (MODAL) --- */}
+        {viewingSource && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setViewingSource(null)}>
+                <div 
+                    className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden" 
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="p-6 border-b flex justify-between items-start bg-gray-50">
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-900 pr-8">{viewingSource.source.title}</h3>
+                            <span className="text-xs text-gray-500 uppercase font-bold">{viewingSource.source.type} • {viewingSource.source.provider}</span>
+                        </div>
+                        <button onClick={() => setViewingSource(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                    </div>
+                    
+                    <div className="p-6 overflow-y-auto">
+                         {viewingSource.source.imageUrl && (
+                            <img 
+                                src={getProxiedImageUrl(viewingSource.source)} 
+                                className="w-full h-64 object-contain bg-gray-100 rounded mb-6 border"
+                                referrerPolicy="no-referrer"
+                            />
+                         )}
+                         <div className="prose prose-sm max-w-none text-gray-700">
+                             <p className="whitespace-pre-wrap">{viewingSource.source.content || viewingSource.source.description || "Geen tekst beschikbaar."}</p>
+                         </div>
+                         {viewingSource.source.url && (
+                             <a href={viewingSource.source.url} target="_blank" rel="noopener" className="block mt-4 text-indigo-600 underline font-bold">
+                                 Bekijk origineel &rarr;
+                             </a>
+                         )}
+                    </div>
+
+                    <div className="p-4 border-t bg-gray-50 flex justify-end gap-3">
+                        <button 
+                            onClick={() => setViewingSource(null)}
+                            className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded"
+                        >
+                            Sluiten
+                        </button>
+                        <button 
+                            onClick={() => handleRemoveSourceFromProposal(viewingSource.proposalIndex, viewingSource.source.id)}
+                            className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 font-bold hover:bg-red-100 rounded flex items-center gap-2"
+                        >
+                            <span>🗑️</span> Verwijder uit concept
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
       </div>
     </div>
   );
