@@ -13,21 +13,28 @@ const isImageUrl = (text) => {
 
 const loadCitoData = () => {
     try {
-        const csvPath = path.join(__dirname, '../sources/cito_bronnen.csv'); 
-        if (!fs.existsSync(csvPath)) return;
+        let csvPath = path.join(__dirname, '../data/cito_bronnen.csv');
+        if (!fs.existsSync(csvPath)) csvPath = path.join(__dirname, '../sources/cito_bronnen.csv');
+
+        if (!fs.existsSync(csvPath)) {
+            console.error("[a28.cito] ❌ CSV bestand niet gevonden!");
+            return;
+        }
+
         const csvFile = fs.readFileSync(csvPath, 'utf8');
 
+        // HIER ZIT DE FIX: delimiter leeg laten = auto-detect
         Papa.parse(csvFile, {
             header: true,
             skipEmptyLines: true,
-            delimiter: ",", 
+            delimiter: "", 
             complete: (results) => {
                 citoCache = results.data.map((record, index) => {
+                    // Content
                     let rawContent = record.TEKSTBRON_OFURL || record.URL || record.TEKSTBRON || '';
-                    
                     const isImage = isImageUrl(rawContent);
-                    // Geen HTTPS dwang (Raw URL behouden voor werkende plaatjes)
 
+                    // Metadata
                     const tv = record.METADATA_TV_HC || record.TIJDVAK || '';
                     const ka = record.METADATA_KA || record.KA || '';
 
@@ -35,18 +42,27 @@ const loadCitoData = () => {
                         id: `cito-${index}`,
                         title: record.INLEIDING_BRON1 || 'Naamloze Cito Bron',
                         imageUrl: isImage ? rawContent : null,
-                        description: isImage ? (record.TOELICHTING_BRON || 'Afbeelding') : rawContent,
-                        fullText: isImage ? record.TOELICHTING_BRON : rawContent,
-                        highlight: isImage ? (record.TOELICHTING_BRON || 'Afbeelding') : rawContent.substring(0, 200) + '...',
-                        link: isImage ? rawContent : null,
+                        content: isImage ? (record.TOELICHTING_BRON || 'Geen toelichting.') : rawContent,
+                        description: isImage ? 'Afbeelding' : (rawContent.substring(0, 150) + '...'),
                         provider: 'Cito',
                         type: isImage ? 'IMAGE' : 'TEXT',
+                        link: isImage ? rawContent : null,
                         year: record.JAAR || '',
-                        tv: tv ? [tv] : [],
-                        ka: ka ? [ka] : []
+                        rawTv: tv, 
+                        rawKa: ka
                     };
                 });
+
                 console.log(`[a28.cito] ✅ ${citoCache.length} items geladen.`);
+
+                // Steekproef om te bewijzen dat het nu werkt
+                if (citoCache.length > 0) {
+                    console.log(">>> CITO STEEKPROEF (Item #1):");
+                    console.log("    Titel:", citoCache[0].title.substring(0, 50));
+                    console.log("    TV (raw):", citoCache[0].rawTv);
+                    console.log("    KA (raw):", citoCache[0].rawKa);
+                    console.log("-----------------------------------");
+                }
             },
             error: (err) => console.error(err)
         });
@@ -56,16 +72,14 @@ const loadCitoData = () => {
 loadCitoData();
 
 const searchCito = ({ query, filters }) => {
-    if (filters.providers?.length > 0 && !filters.providers.includes('Cito')) return [];
-    
+    if (filters && filters.cito === false) return [];
+
     let results = citoCache;
 
-    // --- BOOLEAN LOGICA ---
-    // Werkt hetzelfde als bij Kleio: splits op " NOT "
+    // 1. Zoekterm
     if (query && query.trim() !== '') {
         let cleanQuery = query;
         let excludedTerms = [];
-
         if (query.includes(' NOT ')) {
             const parts = query.split(' NOT ');
             cleanQuery = parts[0].trim().toLowerCase();
@@ -75,29 +89,45 @@ const searchCito = ({ query, filters }) => {
         }
 
         results = results.filter(item => {
-            const content = (item.title + ' ' + item.description + ' ' + item.fullText).toLowerCase();
-            
-            // 1. Moet de zoekterm bevatten (als die er is)
+            const content = (item.title + ' ' + item.content).toLowerCase();
             if (cleanQuery && !content.includes(cleanQuery)) return false;
-
-            // 2. Mag GEEN verboden termen bevatten
             if (excludedTerms.some(term => content.includes(term))) return false;
-
             return true;
         });
     }
 
-    // Filters
-    if (filters.types?.length > 0) {
-        results = results.filter(item => filters.types.includes(item.type));
+    // 2. TIJDVAK FILTER
+    if (filters && filters.tv) {
+        const tvNum = filters.tv.replace(/\D/g, ''); 
+        if (tvNum) {
+            // Zoek naar "Tijdvak 1" of "Tijdvak 10"
+            const zoekTv = `Tijdvak ${tvNum}`;
+            results = results.filter(item => item.rawTv && item.rawTv.includes(zoekTv));
+        }
     }
-    if (filters.tijdvak) {
-        results = results.filter(item => item.tv.some(t => t.toLowerCase().includes(filters.tijdvak.toLowerCase())));
+
+    // 3. KA FILTER
+    if (filters && filters.ka && filters.ka.length > 0) {
+        const targetNumbers = filters.ka.map(id => id.replace(/\D/g, '')); 
+
+        results = results.filter(item => {
+            if (!item.rawKa) return false;
+            // Match op "KA 1" of "KA1"
+            const rawUpper = item.rawKa.toUpperCase();
+            return targetNumbers.some(num => {
+                const regex = new RegExp(`KA[^0-9]*${num}(?!\\d)`, 'i');
+                return regex.test(item.rawKa);
+            });
+        });
     }
-    if (filters.kas && filters.kas.length > 0) {
-        results = results.filter(item => item.ka.some(kItem => filters.kas.some(kFilter => kItem.toLowerCase().includes(kFilter.toLowerCase()) || kFilter.toLowerCase().includes(kItem.toLowerCase()))));
+
+    // 4. Type Filter
+    if (filters) {
+        if (filters.images === false) results = results.filter(i => i.type !== 'IMAGE');
+        if (filters.text === false) results = results.filter(i => i.type !== 'TEXT');
     }
 
     return results;
 };
+
 module.exports = { searchCito };

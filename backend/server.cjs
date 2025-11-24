@@ -1,41 +1,70 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-
+const path = require('path');
 const app = express();
-const port = process.env.PORT || 8080;
 
-// Verhoog de limiet voor grote JSON payloads (belangrijk voor bronnen)
-app.use(express.json({ limit: '10mb' })); 
-app.use(cors());
+// CONFIGURATIE
+const HOST = '127.0.0.1';
+const PORT = process.env.PORT || 8081; // We blijven op 8081
 
-// --- ROUTES MOUNTEN ---
-// Alleen bestanden in de map 'routes' horen hier thuis.
+// MIDDLEWARE
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.json({ limit: '50mb' }));
 
-// 1. Zoeken & Fetchen
-app.use('/api', require('./routes/a12.search.cjs'));
-app.use('/api', require('./routes/a26.fetch.cjs'));
+// LOGGING
+app.use((req, res, next) => {
+  console.log(`[LOG] ${req.method} ${req.path}`);
+  next();
+});
 
-// 2. Hulpmiddelen
-// (Check of deze bestaat, anders commentarieer uit)
-try {
-    app.use('/api', require('./routes/a27.imageProxy.cjs'));
-} catch (e) {
-    console.warn('Image Proxy route niet gevonden (optioneel).');
+// --- ROUTES ---
+
+// 1. Zoeken (De echte logica uit a12)
+try { 
+    app.use('/api', require('./routes/a12.search.cjs')); 
+app.use('/api', require('./routes/a27.imageProxy.cjs'));
+} catch (e) { 
+    console.error('Search route error:', e.message); 
 }
 
-// 3. AI Generatie (Fase 1 & 2)
-app.use('/api', require('./routes/a29.proposals.cjs'));
-app.use('/api', require('./routes/a30.lesson.cjs'));
+// 2. Tijdvakken & KA's (De data)
+app.get('/api/tijdvakken', (req, res) => {
+    try {
+        // Verwijder cache voor development (zodat je wijzigingen in data direct ziet)
+        const filePath = path.join(__dirname, 'data', 'tijdvakken.cjs');
+        delete require.cache[require.resolve(filePath)];
+        const data = require(filePath);
 
-// --- SERVICE PRELOAD (Optioneel) ---
-// We laden Cito alvast in zodat de CSV in het geheugen zit
-try {
-    require('./services/a28.cito.cjs');
-} catch (e) {
-    console.error('Kon Cito service niet pre-loaden:', e.message);
-}
+        // Stuur de lijst terug (of het nu een array is of {tijdvakken: []})
+        const list = Array.isArray(data) ? data : (data.tijdvakken || []);
+        res.json(list);
+    } catch (e) { 
+        console.error("Fout bij tijdvakken:", e);
+        res.status(500).json({ error: "Fout bij laden tijdvakken" }); 
+    }
+});
 
-app.listen(port, () => {
-  console.log(`[server] Draait op http://localhost:${port}`);
+app.get('/api/ka', (req, res) => {
+    try {
+        const tvId = req.query.tv;
+        const filePath = path.join(__dirname, 'data', 'tijdvakken.cjs');
+        delete require.cache[require.resolve(filePath)];
+        const data = require(filePath);
+        const list = Array.isArray(data) ? data : (data.tijdvakken || []);
+
+        const tv = list.find(t => String(t.id) == String(tvId) || String(t.nummer) == String(tvId));
+        res.json(tv ? (tv.kenmerkendeAspecten || tv.kas || []) : []);
+    } catch (e) { res.json([]); }
+});
+
+// 3. Overige (Chips, Proposals)
+try { app.use('/api', require('./routes/a99.chips.cjs')); } catch (e) {}
+try { app.use('/api', require('./routes/a25.proposals.cjs')); } catch (e) {}
+
+// Health Check
+app.get('/', (req, res) => res.send('Kleio Backend Live on 8081'));
+
+// START
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 Backend luistert op http://${HOST}:${PORT}`);
 });

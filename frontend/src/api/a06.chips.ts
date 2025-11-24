@@ -1,2 +1,0 @@
-export { fetchChips } from "./useChipsApi";
-

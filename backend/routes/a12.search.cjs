@@ -4,58 +4,54 @@ const router = express.Router();
 let citoService;
 let kleioService;
 
-// Veilig inladen van services
-try {
-    citoService = require('../services/a28.cito.cjs');
-} catch (e) {
-    console.error('[a12.search] Kon Cito service niet laden:', e.message);
-}
+try { citoService = require('../services/a28.cito.cjs'); } catch (e) { console.error('Cito load err:', e.message); }
+try { kleioService = require('../services/a27.kleio.cjs'); } catch (e) { console.error('Kleio load err:', e.message); }
 
-try {
-    kleioService = require('../services/a27.kleio.cjs');
-} catch (e) {
-    console.error('[a12.search] Kon Kleio service niet laden:', e.message);
-}
-
-router.post('/search', async (req, res) => {
+router.post(['/search', '/search-preset'], async (req, res) => {
     try {
-        const { query, filters } = req.body;
-        console.log('[/api/search] Request:', { query, filters });
+        // Haal alle mogelijke parameters op
+        let { query, term, filters, ka, tv } = req.body;
+
+        // 1. Query Fallback
+        if (!query && term) query = term;
+
+        // 2. FILTERS NORMALISEREN (De cruciale stap voor de Thesaurus!)
+        if (!filters) filters = {};
+
+        // Als er een KA-ID is meegestuurd (bijv "ka10_1"), zet die in de filters
+        if (ka) filters.ka = ka; 
+        if (tv) filters.tv = tv;
+
+        console.log('[/api/search-preset] Filters:', filters);
 
         const qString = Array.isArray(query) ? query.join(' ') : (query || '');
         let allResults = [];
 
-        // 1. CITO ZOEKEN
-        const useCito = !filters.providers || filters.providers.length === 0 || filters.providers.includes('Cito');
-        
-        if (useCito && citoService && citoService.searchCito) {
+        // 3. Cito Zoeken
+        const useCito = filters?.cito !== false;
+        if (useCito && citoService) {
             try {
                 const citoHits = citoService.searchCito({ query: qString, filters });
                 allResults = [...allResults, ...citoHits];
-                console.log(`[/api/search] Cito hits toegevoegd: ${citoHits.length}`);
-            } catch (err) {
-                console.error('[/api/search] Fout in Cito service:', err);
-            }
+            } catch (err) { console.error('Cito fout:', err.message); }
         }
 
-        // 2. KLEIO ZOEKEN
-        const useKleio = !filters.providers || filters.providers.length === 0 || filters.providers.includes('Kleio');
-
-        if (useKleio && kleioService && kleioService.searchKleio) {
+        // 4. Kleio Zoeken (Nu met correcte filters.ka!)
+        const useKleio = filters?.kleio !== false;
+        if (useKleio && kleioService) {
             try {
+                // Hier gaat filters.ka nu mee naar de service -> kaMap -> Thesaurus
                 const kleioHits = await kleioService.searchKleio({ query: qString, filters });
                 allResults = [...allResults, ...kleioHits];
-                console.log(`[/api/search] Kleio hits toegevoegd: ${kleioHits.length}`);
-            } catch (err) {
-                console.error('[/api/search] Fout in Kleio service:', err);
-            }
+            } catch (err) { console.error('Kleio fout:', err.message); }
         }
 
-        // 3. RESPONSE - PLATTE LIJST (CRUCIAAL VOOR FRONTEND)
-        console.log(`[/api/search] Totaal aantal hits teruggestuurd: ${allResults.length}`);
-        
-        // Stuur direct de array, GEEN object wrapper zoals { hits: ... }
-        res.json(allResults);
+        console.log(`[/api/search-preset] Totaal hits: ${allResults.length}`);
+
+        res.json({
+            sources: allResults,
+            meta: { count: allResults.length, query: qString }
+        });
 
     } catch (error) {
         console.error('[/api/search] CRITICAL ERROR:', error);

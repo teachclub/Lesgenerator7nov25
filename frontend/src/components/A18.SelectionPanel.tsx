@@ -1,20 +1,16 @@
-import React from 'react';
+// Geen 'import React' meer nodig hier
+export type SelectionMode = 'auto' | 'manual';
 
-// --- Types ---
-// Dit type moet overeenkomen met de bronnen die de backend stuurt
 export interface Source {
   id: string;
   title: string;
-  type: string;
-  link: string;
-  // ...andere velden zoals imageUrl
+  description?: string;
+  content?: string;
+  url?: string;
+  type?: string;
 }
 
-// Definitie voor de "selectie mode"
-export type SelectionMode = 'preset' | 'custom';
-
-// --- Props ---
-interface SelectionPanelProps {
+interface Props {
   sources: Source[];
   mode: SelectionMode;
   onModeChange: (mode: SelectionMode) => void;
@@ -22,90 +18,35 @@ interface SelectionPanelProps {
   isLoading: boolean;
 }
 
-/**
- * A18: Toont de selectie (preset of eigen keuze).
- * Beheert de modus-wissel en het verwijderen/toevoegen van bronnen.
- */
-export function A18SelectionPanel({
-  sources,
-  mode,
-  onModeChange,
-  onRemoveSource,
-  isLoading,
-}: SelectionPanelProps) {
-  
-  const handleModeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onModeChange(e.target.value as SelectionMode);
-  };
-
+// We halen 'mode' en 'onModeChange' hier weg omdat we ze nog niet gebruiken
+export function A18SelectionPanel({ sources, onRemoveSource, isLoading }: Props) {
   return (
-    <div className="selection-panel-a18">
-      <div className="selection-mode-toggle">
-        <label>
-          <input
-            type="radio"
-            name="selection-mode"
-            value="preset"
-            checked={mode === 'preset'}
-            onChange={handleModeChange}
-            disabled={isLoading}
-          />
-          Preset (S1+S2)
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="selection-mode"
-            value="custom"
-            checked={mode === 'custom'}
-            onChange={handleModeChange}
-            disabled={isLoading}
-          />
-          Eigen Keuze
-        </label>
+    <div className="space-y-2">
+      {/* Header */}
+      <div className="flex justify-between items-center bg-gray-100 p-2 rounded text-sm">
+         <span className="font-semibold text-gray-600">Selectie ({sources.length})</span>
       </div>
 
-      <div className="selection-list-container">
-        {isLoading && <div className="loading-overlay">Selectie laden...</div>}
-        
-        {sources.length === 0 && !isLoading && (
-          <div className="empty-state">
-            {mode === 'preset'
-              ? 'Voer S1-criteria in en klik op "Zoek Bronnen".'
-              : 'Zoek bronnen om toe te voegen aan je eigen selectie.'}
-          </div>
-        )}
-
-        {sources.length > 0 && (
-          <ul className="selection-list">
-            {sources.map((src) => (
-              <li key={src.id} className="selection-item">
-                <span className="item-title">{src.title}</span>
-                <span className="item-type">({src.type})</span>
-                {/* Toon 'verwijder' knop alleen in 'custom' modus */}
-                {mode === 'custom' && (
-                  <button
-                    type="button"
-                    onClick={() => onRemoveSource(src.id)}
-                    disabled={isLoading}
-                    className="remove-btn"
-                  >
-                    Verwijder
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {mode === 'custom' && (
-        <div className="custom-actions">
-          {/* TODO: Hier komt de UI voor het ZOEKEN en TOEVOEGEN van bronnen (A12) */}
-          <button type="button" disabled={isLoading}>
-            [Placeholder: Zoek en voeg bronnen toe]
-          </button>
-        </div>
+      {/* Lijst */}
+      {isLoading ? (
+        <div className="text-gray-400 text-sm p-2">Laden...</div>
+      ) : (
+        <ul className="space-y-1">
+          {sources.map((source) => (
+            <li key={source.id} className="flex justify-between items-center bg-white p-2 rounded border shadow-sm">
+              <span className="truncate text-sm font-medium">{source.title}</span>
+              <button 
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveSource(source.id);
+                }}
+                className="text-red-400 hover:text-red-600 ml-2"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

@@ -13,6 +13,7 @@ router.post('/generate-lesson', async (req, res) => {
         }
 
         const selectedSources = sources.filter(s => proposal.selectedSourceIds.includes(s.id));
+        
         let finalSources = selectedSources;
         if (finalSources.length < 4) {
              const extra = sources.filter(s => !proposal.selectedSourceIds.includes(s.id)).slice(0, 4 - finalSources.length);
@@ -21,52 +22,55 @@ router.post('/generate-lesson', async (req, res) => {
         if (finalSources.length > 8) finalSources = finalSources.slice(0, 8);
 
         const sourcesText = finalSources.map((s, i) => `
-        BRON ${i + 1}
+        BRON ${i + 1} (ID: ${s.id})
         Titel: ${s.title}
         Inhoud: "${s.fullText || s.description || ''}"
         `).join('\n---\n');
 
         const prompt = `
         Je bent een expert in geschiedenisdidactiek.
+        
         CONCEPT: "${proposal.title}"
         HOOFDVRAAG: "${proposal.mainQuestion}"
+        RATIONALE: "${proposal.rationale}"
         
         BRONNEN:
         ${sourcesText}
 
         OPDRACHT:
         Schrijf een volledig lesplan in **Markdown**.
-
-        BELANGRIJK VOOR TABELLEN:
-        1. **Samenwerkingstabel**: Maak voor de leerlingen een "Grabbelton" met antwoorden. Hussel de juiste antwoorden door elkaar zodat leerlingen moeten puzzelen. Gebruik concrete sub-dimensies (bijv. "Propaganda" ipv "Cultureel").
         
-        2. **Kwadrant (Auto-Selectie)**:
-           - Analyseer het thema.
-           - Kies de assen op basis van dit algoritme:
-             * Dominant ECO & SOC? -> As X: Economisch, As Y: Sociaal/Ideologisch.
-             * Dominant POL? -> As X: Politiek, As Y: Sociaal.
-             * Anders: Kies de meest logische tegenstelling (bijv. Dwang vs Keuze, of Elite vs Volk).
-           - Label de assen in leerlingtaal (bijv. "Geld & Werk" vs "Macht & Regels").
-           - Plaats ALLE bronnummers in het juiste kwadrant.
+        BELANGRIJK VOOR DE TABELLEN:
+        1. **Samenwerkingstabel**: 
+           - Docentversie: Volledig ingevuld.
+           - Leerlingversie: **Gebruik stippellijntjes (...........) in de lege cellen** zodat de tabel body heeft en printbaar is.
+           - Kolommen: Bron | Wie | Gevoel | Sub-dimensie | Argument
+        
+        2. **Positioneringskwadrant**:
+           - Gebruik de 4 sub-dimensies uit de Rationale.
+           - Maak een duidelijke Markdown tabel.
 
         STRUCTUUR:
         
-        # Deel 1: DOCENTENVERSIE (Antwoorden)
-        ## A. Instructie & Doelen
-        ## B. Antwoordmodel Tabellen (De juiste antwoorden)
-        ### 1. Samenwerkingstabel (Correct)
-        | Bron | Wie? | Kerngevoel | Sub-dimensie |
-        |---|---|---|---|
-        | 1 | ... | ... | ... |
+        # Deel 1: DOCENTENVERSIE (Antwoordmodel)
+        ## A. Instructie
+        ## B. Antwoordmodel
+        ## C. Ingevulde Tabellen
         
-        ### 2. Kwadrant (Correct)
-        **Gekozen Assen:** [As X] vs [As Y]
-        * Kwadrant Linksboven: Bronnen ...
-        * Kwadrant Rechtsboven: Bronnen ...
-        * (etc)
+        ### 1. Samenwerkingstabel (Compleet)
+        | Bron | Wie spreekt? | Kerngevoel | Sub-dimensie (Concreet) | Argument / Verklaring |
+        | :--- | :--- | :--- | :--- | :--- |
+        *Vul hier de rij in voor elke bron*
 
-        ## C. Bronnenlijst
-        (Lijst met links)
+        ### 2. Positioneringskwadrant
+        *Plaats de bronnummers in de vakken waar ze het best passen.*
+        
+        | | **[Sub-dimensie 1]** | **[Sub-dimensie 2]** |
+        | :--- | :--- | :--- |
+        | **[Sub-dimensie 3]** | *Bronnummers...* | *Bronnummers...* |
+        | **[Sub-dimensie 4]** | *Bronnummers...* | *Bronnummers...* |
+
+        ## D. Bronnenlijst
 
         ---
         
@@ -76,34 +80,30 @@ router.post('/generate-lesson', async (req, res) => {
         > "${proposal.mainQuestion}"
 
         ## De Bronnen
-        (Alleen Titel + Analysevragen)
+        (Alleen Titel + Analysevragen. Tekst = *[Zie Bronnenbijlage]*)
 
         ## Opdracht 1: De Puzzel
-        *Vul de tabel in met de bouwstenen uit de grabbelton.*
+        *Gebruik de grabbelton om de tabel in te vullen.*
         
-        **GRABBELTON (Kies hieruit):**
-        * *Wie:* [Lijst met alle personen door elkaar]
-        * *Gevoel:* [Lijst met kernwoorden door elkaar]
-        * *Dimensie:* [Lijst met sub-dimensies door elkaar]
+        **GRABBELTON:**
+        * Wie: [Lijst...]
+        * Gevoel: [Lijst...]
+        * Begrip: [Lijst...]
+        * Argument: [Lijst...]
 
-        | Bron | Wie is aan het woord? | Wat is het kerngevoel? | Welke dimensie? |
-        |---|---|---|---|
-        | 1 | | | |
-        | 2 | | | |
-        | ... | | | |
+        | Bron | Wie is aan het woord? | Wat is het kerngevoel? | Welk begrip past hier? | Welk argument geeft de bron? |
+        | :--- | :--- | :--- | :--- | :--- |
+        | 1 | ........................................ | ........................................ | ........................................ | ........................................ |
+        | 2 | ........................................ | ........................................ | ........................................ | ........................................ |
+        (Enzovoort voor alle bronnen)
 
-        ## Opdracht 2: Het Kwadrant
-        *Plaats de bronnummers in het juiste vak.*
+        ## Opdracht 2: Het Positioneringskwadrant
+        *Plaats de bronnummers.*
         
-        | | **[Label As X: Boven]** | |
+        | | **[Sub-dimensie 1]** | **[Sub-dimensie 2]** |
         | :--- | :---: | :---: |
-        | **[Label As Y: Links]** | VAK 1 | VAK 2 |
-        | | | |
-        | **[Label As Y: Rechts]** | VAK 3 | VAK 4 |
-        | | **[Label As X: Onder]** | |
-
-        **Discussievraag:**
-        "Kies het vak met de meeste bronnen. Wat zegt dit over het antwoord op de hoofdvraag?"
+        | **[Sub-dimensie 3]** | .................... | .................... |
+        | **[Sub-dimensie 4]** | .................... | .................... |
 
         ## Reflectie
         (3 vragen)
@@ -114,18 +114,16 @@ router.post('/generate-lesson', async (req, res) => {
         const result = await model.generateContent(prompt);
         let markdown = result.response.text();
 
-        // BIJLAGE TOEVOEGEN (Blijft hetzelfde)
         let appendix = "\n\n---\n\n# BRONNENBIJLAGE\n\n";
         finalSources.forEach((s, i) => {
-            appendix += `## Bron ${i + 1}: ${s.title}\n`;
-            if (s.imageUrl) appendix += `![Bron ${i+1}](${s.imageUrl})\n\n`;
+            appendix += `## Bron ${i + 1}: ${s.title}\n\n`;
+            if (s.imageUrl) appendix += `![Bron ${i + 1}](${s.imageUrl})\n\n`;
             if (s.fullText || s.description) appendix += `> ${s.fullText || s.description}\n\n`;
             if (s.link) appendix += `[Link](${s.link})\n\n`;
             appendix += "---\n\n";
         });
 
         const finalDocument = markdown + appendix;
-        
         res.json({ markdown: finalDocument });
 
     } catch (error) {

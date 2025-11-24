@@ -1,20 +1,17 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { GeneratorPage } from './components/features/GeneratorPage/GeneratorPage';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+
+import { PresetZoekerPage } from './pages/PresetZoekerPage';
 import ProposalsPage from './pages/ProposalsPage';
-import LessonPage from './pages/LessonPage'; // Vergeet deze import niet!
-import './index.css';
+import LessonPage from './pages/LessonPage';
 
-const App: React.FC = () => {
+export default function App() {
   return (
-    <Router>
+    <BrowserRouter>
       <Routes>
-        <Route path="/" element={<GeneratorPage />} />
+        <Route path="/" element={<PresetZoekerPage />} />
         <Route path="/proposals" element={<ProposalsPage />} />
-        <Route path="/lesson" element={<LessonPage />} />
+        <Route path="/lesson-plan" element={<LessonPage />} />
       </Routes>
-    </Router>
+    </BrowserRouter>
   );
-};
-
-export default App;
+}

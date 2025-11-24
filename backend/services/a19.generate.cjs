@@ -1,113 +1,40 @@
-const MODEL_PROPOSALS = () => process.env.GEMINI_MODEL_CHIPS || "gemini-2.5-flash";
-const MODEL_LESSON = () => "gemini-2.5-pro";
-const API_KEY = () => process.env.GEMINI_API_KEY;
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+require('dotenv').config();
 
-async function callGeminiApi(prompt, modelToUse) {
-  if (!API_KEY()) {
-    console.error("[A19 Service] Fout: GEMINI_API_KEY ontbreekt.");
-    return { ok: false, status: 400, data: { error: "GEMINI_API_KEY ontbreekt" } };
+const API_KEY = process.env.GEMINI_API_KEY;
+// Fallback voor als de key mist, zodat de server niet crasht bij opstarten
+const genAI = new GoogleGenerativeAI(API_KEY || 'mock_key');
+
+async function generateProposals({ topic, sources = [] }) {
+  if (!API_KEY) {
+    console.warn("⚠️ Geen API Key gevonden (check .env of Cloud Run), stuur mock data.");
+    return { 
+      proposals: [
+        { id: 1, title: "Geen API Key", description: "Voeg GEMINI_API_KEY toe aan de environment variables.", targetAudience: "N.v.t." }
+      ] 
+    };
   }
-
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 90000);
+  
+  // Gebruik het snelle model
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  
+  const prompt = `Je bent een expert geschiedenisdocent.
+  Onderwerp: "${topic}"
+  Aantal bronnen: ${sources.length}
+  
+  Bedenk 3 pakkende, diverse lesvoorstellen (concepten) op basis hiervan.
+  Output MOET strikte JSON zijn in dit formaat: 
+  { "proposals": [{ "id": "1", "title": "...", "description": "...", "targetAudience": "..." }] }`;
 
   try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": API_KEY(),
-      },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.3,
-        },
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      const errorData = await res.json();
-      console.error(`[A19 Service] HTTP Fout ${res.status}:`, JSON.stringify(errorData));
-      return { ok: false, status: res.status, data: errorData };
-    }
-
-    const data = await res.json();
-    const rawText = data.candidates[0].content.parts[0].text;
-    const jsonData = JSON.parse(rawText);
-
-    return { ok: true, status: 200, data: jsonData };
-
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      return { ok: false, status: 408, data: { error: "Request timeout (90s)" } };
-    }
-    console.error("[A19 Service] Onverwachte Fout:", error);
-    return { ok: false, status: 500, data: { error: error.message } };
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const txt = response.text().replace(/```json|```/g, '').trim();
+    return JSON.parse(txt);
+  } catch (e) {
+    console.error("AI Fout:", e);
+    throw new Error("Kon geen voorstellen genereren.");
   }
 }
 
-async function generateProposals(sources) {
-  const sourceListText = sources.map((src, i) =>
-    `Bron ${i + 1} (Titel): ${src.title}\nBron ${i + 1} (Type): ${src.type}\nBron ${i + 1} (Link): ${src.link}\n---`
-  ).join('\n');
-
-  const prompt = `
-Je bent een expert in geschiedenisdidactiek.
-Genereer 3 unieke lesvoorstellen op basis van de volgende bronnenlijst.
-
-Regels:
-1. Geef ANTWOORD in een strict JSON-object: { "proposals": [...] }.
-2. Elk object in de array moet de structuur hebben: { "id": "voorstel_1", "title": "...", "mainQuestion": "...", "studentJudgment": "..." }.
-3. 'mainQuestion' is de hoofdvraag voor de les.
-4. 'studentJudgment' is een kort 'leerlingoordeel' (max 2 zinnen) vanuit een presentistisch perspectief (bijv. "Waarom deden ze niet gewoon...?", "Dit is toch oneerlijk?").
-
-Bronnenlijst:
-${sourceListText}
-
-Genereer nu de 3 lesvoorstellen in het gevraagde JSON-formaat.
-`;
-
-  return callGeminiApi(prompt, MODEL_PROPOSALS());
-}
-
-async function generateLesson(chosenProposal, sources) {
-  const sourceListText = sources.map((src, i) =>
-    `Bron ${i + 1}: ${src.title} (Type: ${src.type}). Beschikbaar op: ${src.link}`
-  ).join('\n');
-
-  const proposalText = `Gekozen lesvoorstel:\nTitel: ${chosenProposal.title}\nHoofdvraag: ${chosenProposal.mainQuestion}\nLeerlingoordeel: ${chosenProposal.studentJudgment}`;
-
-  const prompt = `
-Je bent een expert in geschiedenisdidactiek.
-Genereer een volledig, uitgeschreven lesplan (in Markdown-formaat) op basis van het gekozen voorstel en de bronnenlijst.
-
-Strikte Instructies:
-1. Geef ANTWOORD in een strict JSON-object: { "lessonMarkdown": "..." }.
-2. Het 'lessonMarkdown' veld moet de volledige les bevatten.
-3. De les moet (buitenlandse) bronnen bevatten. VERTAAL relevante citaten of beschrijvingen van deze buitenlandse bronnen naar het Nederlands.
-4. De les moet eindigen met een sectie genaamd "## Bronnen", met daarin de volledige 'Bronnenlijst' (inclusief de klikbare links).
-
-Gekozen Voorstel:
-${proposalText}
-
-Bronnenlijst (voor gebruik in de les en voor de bronnensectie):
-${sourceListText}
-
-Genereer nu het lesplan in het gevraagde JSON-formaat.
-`;
-
-  return callGeminiApi(prompt, MODEL_LESSON());
-}
-
-module.exports = {
-  generateProposals,
-  generateLesson,
-  callGeminiApi,
-};
+module.exports = { generateProposals };

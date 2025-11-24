@@ -1,0 +1,103 @@
+const express = require('express');
+const router = express.Router();
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+router.post('/propose-lessons', async (req, res) => {
+    try {
+        const { sources } = req.body;
+
+        if (!sources || sources.length < 2) {
+            return res.status(400).json({ error: 'Minimaal 2 bronnen vereist.' });
+        }
+
+        const inputSources = sources.slice(0, 40).map(s => ({
+            id: s.id,
+            title: s.title,
+            content: s.fullText ? s.fullText.substring(0, 600) : (s.description || '').substring(0, 600),
+            provider: s.provider
+        }));
+
+        const prompt = `
+        Je bent een expert in geschiedenisdidactiek.
+        Je werkt volgens de methode **"Het Vreemde Verleden"** (Tim Huijgen).
+
+        DOEL:
+        Ontwikkel 3 lesvoorstellen.
+        Startpunt = **Cognitief Conflict** (Presentisme/Onbegrip).
+        Eindpunt = **Contextualisatie** (Historisch begrip).
+
+        ---------------------------------------------------------
+        TRAININGSDATA: ZO MOET DE HOOFDVRAAG KLINKEN!
+        (Ongenuanceerd, leerlingentaal, oordelend vanuit het NU)
+
+        * Thema Industriële Revolutie: 
+          "Hoe kun je als ouder je kind serieus de fabriek insturen, dat doe je je kind toch niet aan?"
+        
+        * Thema Imperialisme:
+          "Hoe dachten Europese landen dat ze zomaar andere gebieden konden 'pakken', alsof de wereld een soort Monopoly-bord is?"
+        
+        * Thema Totalitaire Systemen:
+          "Waarom zouden mensen vrijwillig kiezen voor een systeem waarin je bijna geen vrijheid meer hebt, dat wil toch niemand?"
+        
+        * Thema Koude Oorlog:
+          "Hoe kun je serieus een wapenwedloop met kernbommen starten terwijl je weet dat één fout de hele wereld kan uitroeien?"
+        ---------------------------------------------------------
+
+        BRONNEN SET:
+        ${JSON.stringify(inputSources)}
+
+        OPDRACHT:
+        Genereer exact 3 lesvoorstellen op basis van de bronnen.
+
+        EISEN PER VOORSTEL:
+
+        1. **Titel**: Kort & Pakkend.
+        
+        2. **Presentistische Hoofdvraag**: 
+           - Gebruik de toon van de voorbeelden hierboven.
+           - Wees direct, gebruik spreektaal, toon onbegrip/verontwaardiging.
+           - VERBODEN: "In hoeverre...", "Welke factoren...", "Analyseer...".
+
+        3. **Leeropbrengst (Contextualisatie)**: 
+           - Leg uit welke historische context het 'domme' oordeel van de leerling weerlegt.
+           - Gebruik VERPLICHT dit formaat (met enters):
+           
+           [Concrete Sub-dimensie] (Politiek-institutioneel): [Uitleg...]
+           [Concrete Sub-dimensie] (Sociaal-economisch): [Uitleg...]
+           [Concrete Sub-dimensie] (Cultureel-mentaal): [Uitleg...]
+           [Concrete Sub-dimensie] (Individueel): [Uitleg...]
+
+           *Kies sub-dimensies die de vraag beantwoorden (bijv. 'Woningnood' of 'Propaganda' of 'Overlevingsdrang').*
+
+        4. **Bronnen**: Selecteer 3 tot 8 bronnen.
+
+        OUTPUT (JSON Array):
+        [
+          { "id": 1, "title": "...", "mainQuestion": "...", "rationale": "...", "selectedSourceIds": [...] },
+          { "id": 2, ... },
+          { "id": 3, ... }
+        ]
+        Geef alleen JSON.
+        `;
+
+        const modelName = process.env.GEMINI_MODEL_CHIPS || "gemini-pro";
+        const model = genAI.getGenerativeModel({ model: modelName });
+        
+        // Temperatuur iets hoger (0.7) zodat hij de informele toon durft te pakken
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.7 } 
+        });
+
+        const text = result.response.text().replace(/```json|```/g, '').trim();
+        res.json(JSON.parse(text));
+
+    } catch (error) {
+        console.error('[AI] Fout:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;
