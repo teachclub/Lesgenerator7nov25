@@ -22,6 +22,7 @@ app.use((req, res, next) => {
 // 1. Zoeken (De echte logica uit a12)
 try { 
     app.use('/api', require('./routes/a12.search.cjs')); 
+app.use('/api', require('./routes/a25.proposals.cjs'));
 app.use('/api', require('./routes/a27.imageProxy.cjs'));
 } catch (e) { 
     console.error('Search route error:', e.message); 

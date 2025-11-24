@@ -1,12 +1,10 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryStore } from '../state/query.store';
-import { useSelectionStore } from '../state/selection.store';
+import { useSelectionStore, Source } from '../state/selection.store';
 import { fetchPreset } from '../lib/api';
-import { A16SearchBar } from '../components/A16.SearchBar';
 import { A14Filters } from '../components/A14.Filters';
 import { A21TvKaSelect } from '../components/A21.TvKaSelect';
-import { type Source } from '../components/A18.SelectionPanel';
 
 const MAX_GEMINI_SOURCES = 40;
 
@@ -19,11 +17,9 @@ export function PresetZoekerPage() {
   const selectionState = useSelectionStore();
   const navigate = useNavigate();
 
-  // DE MAGISCHE TRUC: Kleio afbeeldingen via jouw eigen backend proxy sturen
+  // Helper voor proxy images
   const getProxiedImageUrl = (source: Source) => {
     if (!source.imageUrl) return undefined;
-    
-    // Als het van Kleio komt, gebruik de proxy om blokkades te omzeilen
     if (source.provider === 'Kleio' || source.imageUrl.includes('vgnkleio.nl')) {
         return `http://localhost:8081/api/image-proxy?url=${encodeURIComponent(source.imageUrl)}`;
     }
@@ -65,6 +61,7 @@ export function PresetZoekerPage() {
   const isOverLimit = sourceCount > MAX_GEMINI_SOURCES;
 
   const handleProceed = () => {
+      console.log('Knop ingedrukt! Navigeren naar voorstellen...');
       if (sourceCount > 0 && !isOverLimit) {
           navigate('/proposals');
       }
@@ -97,12 +94,21 @@ export function PresetZoekerPage() {
 
       <div className="flex-1 grid grid-cols-12 overflow-hidden">
         
-        {/* KOLOM 1: JOUW FILTERS (ONAANGETAST) */}
+        {/* KOLOM 1: FILTERS & ZOEK KNOP */}
         <div className="col-span-3 bg-white border-r p-4 overflow-y-auto flex flex-col gap-6">
           <div>
             <h2 className="font-semibold text-gray-700 mb-2">1. Zoekopdracht</h2>
-            <A16SearchBar term={queryState.term} onTermChange={queryState.setTerm} onSearch={handleSearch} isLoading={loading} />
+            <input
+                type="text"
+                value={queryState.term}
+                onChange={(e) => queryState.setTerm(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                placeholder="Zoekterm (bijv. 'Koude Oorlog')"
+                className="w-full p-3 border border-gray-300 rounded shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                disabled={loading}
+            />
           </div>
+
           <div>
             <h2 className="font-semibold text-gray-700 mb-2">Tijdvak & KA</h2>
             <A21TvKaSelect 
@@ -114,9 +120,31 @@ export function PresetZoekerPage() {
                 }}
             />
           </div>
+
           <div>
              <h2 className="font-semibold text-gray-700 mb-2">Filters</h2>
              <A14Filters filters={queryState.filters} onToggle={queryState.toggleFilter} disabled={loading} />
+          </div>
+
+          {/* DE GROTE ZOEK KNOP - ONDERAAN GEFORCEERD */}
+          <div className="mt-auto pt-4 border-t border-gray-100">
+              <button
+                onClick={handleSearch}
+                disabled={loading}
+                className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-md transition-all flex justify-center items-center gap-2"
+              >
+                {loading ? (
+                    <>
+                       <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
+                       <span>Zoeken...</span>
+                    </>
+                ) : (
+                    <>
+                       <span>🔍</span>
+                       <span>Start Zoeken</span>
+                    </>
+                )}
+              </button>
           </div>
         </div>
 
@@ -133,7 +161,7 @@ export function PresetZoekerPage() {
             {selectionState.sources.map((source, index) => {
               const uniqueKey = `${source.id}-${index}`;
               const isSelected = selectedUniqueKey === uniqueKey;
-              const displayImage = getProxiedImageUrl(source); // Gebruik de proxy!
+              const displayImage = getProxiedImageUrl(source);
 
               return (
                 <div 
