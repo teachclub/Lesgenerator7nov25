@@ -94,7 +94,7 @@ export function PresetZoekerPage() {
 
       <div className="flex-1 grid grid-cols-12 overflow-hidden">
         
-        {/* KOLOM 1: FILTERS & ZOEK KNOP */}
+        {/* KOLOM 1: FILTERS */}
         <div className="col-span-3 bg-white border-r p-4 overflow-y-auto flex flex-col gap-6">
           <div>
             <h2 className="font-semibold text-gray-700 mb-2">1. Zoekopdracht</h2>
@@ -126,7 +126,7 @@ export function PresetZoekerPage() {
              <A14Filters filters={queryState.filters} onToggle={queryState.toggleFilter} disabled={loading} />
           </div>
 
-          {/* DE GROTE ZOEK KNOP - ONDERAAN GEFORCEERD */}
+          {/* ZOEK KNOP - ONDERAAN */}
           <div className="mt-auto pt-4 border-t border-gray-100">
               <button
                 onClick={handleSearch}
@@ -148,7 +148,7 @@ export function PresetZoekerPage() {
           </div>
         </div>
 
-        {/* KOLOM 2: RESULTATEN */}
+        {/* KOLOM 2: RESULTATEN (Met meer ruimte voor tekst) */}
         <div className="col-span-4 bg-gray-50 border-r p-4 overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-semibold text-gray-700">2. Resultaten</h2>
@@ -192,7 +192,8 @@ export function PresetZoekerPage() {
                     )}
                     <div className="flex-1 min-w-0 pr-6">
                         <h3 className="font-medium text-gray-900 truncate text-sm">{source.title || 'Naamloze bron'}</h3>
-                        <p className="text-xs text-gray-500 mt-1 line-clamp-2">{source.description || 'Geen beschrijving'}</p>
+                        {/* HIER ZAT DE KLEM: line-clamp-2 is nu line-clamp-6 geworden */}
+                        <p className="text-xs text-gray-500 mt-1 line-clamp-6">{source.description || 'Geen beschrijving'}</p>
                         <span className="text-[10px] text-gray-400 uppercase mt-1 block">
                             {source.provider} • {source.type}
                         </span>
@@ -203,7 +204,7 @@ export function PresetZoekerPage() {
           </div>
         </div>
 
-        {/* KOLOM 3: DETAIL */}
+        {/* KOLOM 3: DETAIL (Geeft nu ALLES weer) */}
         <div className="col-span-5 bg-white p-6 overflow-y-auto">
            <h2 className="font-semibold text-gray-700 mb-4 border-b pb-2">3. Bron Detail</h2>
            {selectedSource ? (
@@ -234,8 +235,9 @@ export function PresetZoekerPage() {
                        </button>
                    </div>
 
+                   {/* HIER ZORGEN WE DAT WE DE LANGSTE TEKST PAKKEN */}
                    <p className="text-sm text-gray-700 mb-4 whitespace-pre-wrap leading-relaxed">
-                     {selectedSource.content || selectedSource.description || 'Geen inhoud beschikbaar.'}
+                     {selectedSource.fullText || selectedSource.content || selectedSource.description || 'Geen inhoud beschikbaar.'}
                    </p>
                    
                    {selectedSource.url && (
