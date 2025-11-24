@@ -26,6 +26,20 @@ export function PresetZoekerPage() {
     return source.imageUrl;
   };
 
+  // Helper om operators toe te voegen aan de zoekterm
+  const addOperator = (op: string) => {
+    const current = queryState.term;
+    const padding = current.length > 0 && !current.endsWith(' ') ? ' ' : '';
+    
+    if (op === '()') {
+         queryState.setTerm(`${current}${padding}(  )`);
+         // Cursor positioneren zou hier mooi zijn, maar is complex in simpele React. 
+         // Dit werkt goed genoeg.
+    } else {
+         queryState.setTerm(`${current}${padding}${op} `);
+    }
+  };
+
   const handleSearch = async () => {
     setError(null);
     setLoading(true);
@@ -94,19 +108,43 @@ export function PresetZoekerPage() {
 
       <div className="flex-1 grid grid-cols-12 overflow-hidden">
         
-        {/* KOLOM 1: FILTERS */}
+        {/* KOLOM 1: FILTERS & ZOEKBALK MET OPERATORS */}
         <div className="col-span-3 bg-white border-r p-4 overflow-y-auto flex flex-col gap-6">
           <div>
             <h2 className="font-semibold text-gray-700 mb-2">1. Zoekopdracht</h2>
-            <input
-                type="text"
-                value={queryState.term}
-                onChange={(e) => queryState.setTerm(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder="Zoekterm (bijv. 'Koude Oorlog')"
-                className="w-full p-3 border border-gray-300 rounded shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                disabled={loading}
-            />
+            <div className="relative">
+                <input
+                    type="text"
+                    value={queryState.term}
+                    onChange={(e) => queryState.setTerm(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                    placeholder="Zoekterm..."
+                    className="w-full p-3 border border-gray-300 rounded shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                    disabled={loading}
+                />
+            </div>
+            
+            {/* HIER ZIJN JE KNOPPEN TERUG */}
+            <div className="flex gap-2 mt-2 items-center flex-wrap">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Operators:</span>
+                {['AND', 'OR', 'NOT'].map(op => (
+                    <button
+                        key={op}
+                        onClick={() => addOperator(op)}
+                        className="px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs font-bold text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+                        disabled={loading}
+                    >
+                        {op}
+                    </button>
+                ))}
+                <button
+                    onClick={() => addOperator('()')}
+                    className="px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs font-bold text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+                    disabled={loading}
+                >
+                    ( )
+                </button>
+            </div>
           </div>
 
           <div>
@@ -148,7 +186,7 @@ export function PresetZoekerPage() {
           </div>
         </div>
 
-        {/* KOLOM 2: RESULTATEN (Met meer ruimte voor tekst) */}
+        {/* KOLOM 2: RESULTATEN */}
         <div className="col-span-4 bg-gray-50 border-r p-4 overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-semibold text-gray-700">2. Resultaten</h2>
@@ -192,7 +230,6 @@ export function PresetZoekerPage() {
                     )}
                     <div className="flex-1 min-w-0 pr-6">
                         <h3 className="font-medium text-gray-900 truncate text-sm">{source.title || 'Naamloze bron'}</h3>
-                        {/* HIER ZAT DE KLEM: line-clamp-2 is nu line-clamp-6 geworden */}
                         <p className="text-xs text-gray-500 mt-1 line-clamp-6">{source.description || 'Geen beschrijving'}</p>
                         <span className="text-[10px] text-gray-400 uppercase mt-1 block">
                             {source.provider} • {source.type}
@@ -204,7 +241,7 @@ export function PresetZoekerPage() {
           </div>
         </div>
 
-        {/* KOLOM 3: DETAIL (Geeft nu ALLES weer) */}
+        {/* KOLOM 3: DETAIL */}
         <div className="col-span-5 bg-white p-6 overflow-y-auto">
            <h2 className="font-semibold text-gray-700 mb-4 border-b pb-2">3. Bron Detail</h2>
            {selectedSource ? (
@@ -235,7 +272,6 @@ export function PresetZoekerPage() {
                        </button>
                    </div>
 
-                   {/* HIER ZORGEN WE DAT WE DE LANGSTE TEKST PAKKEN */}
                    <p className="text-sm text-gray-700 mb-4 whitespace-pre-wrap leading-relaxed">
                      {selectedSource.fullText || selectedSource.content || selectedSource.description || 'Geen inhoud beschikbaar.'}
                    </p>

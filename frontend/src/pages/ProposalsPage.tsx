@@ -13,18 +13,15 @@ interface Proposal {
 
 const ProposalsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { sources } = useSelectionStore(); // We kijken naar de JUISTE bronnenbak
+  const { sources } = useSelectionStore();
   const { query } = useQueryStore();
   
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatingLesson, setGeneratingLesson] = useState(false);
   const [error, setError] = useState('');
-
-  // Staat voor de pop-up (modal)
   const [viewingSource, setViewingSource] = useState<{source: Source, proposalIndex: number} | null>(null);
 
-  // Helper voor proxy images
   const getProxiedImageUrl = (source: Source) => {
     if (!source || !source.imageUrl) return undefined;
     if (source.provider === 'Kleio' || source.imageUrl.includes('vgnkleio.nl')) {
@@ -76,7 +73,6 @@ const ProposalsPage: React.FC = () => {
     fetchProposals();
   }, []);
 
-  // Verwijder uit concept
   const handleRemoveSourceFromProposal = (proposalIndex: number, sourceIdToRemove: string) => {
       const updatedProposals = [...proposals];
       const prop = updatedProposals[proposalIndex];
@@ -86,8 +82,6 @@ const ProposalsPage: React.FC = () => {
       prop.selectedSourceIds = currentIds.filter(id => id !== sourceIdToRemove);
       
       setProposals(updatedProposals);
-      
-      // Als we deze aan het bekijken waren, sluit de modal
       if (viewingSource && viewingSource.source.id === sourceIdToRemove) {
           setViewingSource(null);
       }
@@ -96,7 +90,6 @@ const ProposalsPage: React.FC = () => {
   const handleChoose = async (prop: Proposal) => {
       if (!prop) return;
       setGeneratingLesson(true);
-      
       const safeIds = Array.isArray(prop.selectedSourceIds) ? prop.selectedSourceIds : [];
       const usedSources = (sources || []).filter(s => safeIds.includes(s.id));
 
@@ -113,16 +106,15 @@ const ProposalsPage: React.FC = () => {
         if (!response.ok) throw new Error('Fout bij les genereren');
 
         const data = await response.json();
-        navigate('/lesson', { state: { lessonPlan: data.lessonPlan, images: usedSources } });
+        const lessonContent = data.lessonPlan || data.markdown || "";
+        navigate('/lesson', { state: { lessonPlan: lessonContent, images: usedSources } });
 
       } catch (e) {
           console.error(e);
-          alert('Er ging iets mis bij het schrijven van de les.');
+          alert('Er ging iets mis bij het schrijven van de les (Check backend logs).');
           setGeneratingLesson(false);
       }
   };
-
-  // --- RENDER HELPERS ---
 
   if (!loading && (!sources || sources.length === 0)) {
       return (
@@ -167,7 +159,7 @@ const ProposalsPage: React.FC = () => {
         <div className="mb-8 flex justify-between items-center">
           <div>
               <h1 className="text-3xl font-bold text-gray-900">Kies & Cureer</h1>
-              <p className="text-gray-600 mt-1">Klik op een bron om te lezen. Streep weg wat niet past.</p>
+              <p className="text-gray-600 mt-1">Gele ster = Topkeuze. Streep weg wat niet past.</p>
           </div>
           <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-800 font-medium px-4 py-2 bg-white rounded shadow-sm border transition-colors">
             &larr; Terug naar zoeken
@@ -218,17 +210,28 @@ const ProposalsPage: React.FC = () => {
                     
                     <div className="space-y-2 max-h-60 overflow-y-auto pr-1 border border-gray-100 rounded p-2 bg-gray-50">
                         {safeIds.length > 0 ? (
-                            safeIds.map((sourceId) => {
+                            safeIds.map((sourceId, listIndex) => {
                                 const source = (sources || []).find(s => s.id === sourceId);
                                 if (!source) return null;
 
                                 const imgUrl = getProxiedImageUrl(source);
+                                // DE EERSTE 5 KRIJGEN EEN GOUDEN RANDJE
+                                const isTopPick = listIndex < 5;
+
                                 return (
                                     <div 
                                         key={sourceId} 
                                         onClick={() => setViewingSource({ source, proposalIndex: idx })}
-                                        className="group flex items-start gap-2 text-xs text-gray-600 bg-white p-2 rounded border border-gray-200 relative hover:border-indigo-300 hover:shadow-md transition-all cursor-zoom-in"
+                                        className={`group flex items-start gap-2 text-xs text-gray-600 bg-white p-2 rounded border relative hover:shadow-md transition-all cursor-zoom-in
+                                            ${isTopPick ? 'border-amber-400 bg-amber-50 ring-1 ring-amber-200' : 'border-gray-200 hover:border-indigo-300'}
+                                        `}
                                     >
+                                        {isTopPick && (
+                                            <div className="absolute -top-2 -left-2 bg-amber-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm z-10">
+                                                ★ TOP
+                                            </div>
+                                        )}
+
                                         {imgUrl ? (
                                             <img 
                                                 src={imgUrl} 
@@ -237,7 +240,9 @@ const ProposalsPage: React.FC = () => {
                                                 referrerPolicy="no-referrer"
                                             />
                                         ) : (
-                                            <span className="w-10 h-10 rounded bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold flex-shrink-0 text-[10px] border border-indigo-100">
+                                            <span className={`w-10 h-10 rounded text-indigo-600 flex items-center justify-center font-bold flex-shrink-0 text-[10px] border
+                                                ${isTopPick ? 'bg-white border-amber-200' : 'bg-indigo-50 border-indigo-100'}
+                                            `}>
                                                 {source.provider ? source.provider.substring(0,3) : '?'}
                                             </span>
                                         )}
@@ -268,7 +273,7 @@ const ProposalsPage: React.FC = () => {
           })}
         </div>
 
-        {/* --- DE POP-UP (MODAL) --- */}
+        {/* POP-UP MODAL */}
         {viewingSource && (
             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setViewingSource(null)}>
                 <div 

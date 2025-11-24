@@ -1,74 +1,149 @@
 const express = require('express');
 const router = express.Router();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 require('dotenv').config();
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
-// Hier pakken we jouw custom model, of vallen terug op 1.5
-const modelName = process.env.GEMINI_MODEL_CHIPS || "gemini-1.5-flash";
-const model = genAI.getGenerativeModel({ model: modelName });
-
 router.post('/generate-lesson', async (req, res) => {
-  try {
-    const { concept, sources } = req.body;
+    try {
+        // AANGEPAST: We vangen hier 'concept' op, want dat stuurt je frontend nu
+        const { concept, sources } = req.body;
 
-    console.log('--- Nieuwe Les Aanvraag ---');
-    console.log('Model:', modelName);
+        if (!concept || !sources) {
+            return res.status(400).json({ error: 'Data ontbreekt.' });
+        }
 
-    if (!concept || !sources || sources.length === 0) {
-      return res.status(400).json({ error: 'Concept en bronnen zijn verplicht' });
+        // We gebruiken gewoon de bronnen die de frontend ons stuurt (die zijn al gefilterd)
+        let finalSources = sources;
+        
+        // Maximaal 8 bronnen om de AI niet te overvoeren
+        if (finalSources.length > 8) finalSources = finalSources.slice(0, 8);
+
+        const sourcesText = finalSources.map((s, i) => `
+        BRON ${i + 1} (ID: ${s.id})
+        Titel: ${s.title}
+        Inhoud: "${s.fullText || s.description || ''}"
+        `).join('\n---\n');
+
+        // Mapping van Frontend 'concept' naar de variabele die de prompt verwacht
+        const proposal = {
+            title: "Historische Les", // Fallback titel
+            mainQuestion: concept.hook,
+            rationale: concept.context
+        };
+
+        const prompt = `
+        Je bent een expert in geschiedenisdidactiek.
+        
+        CONCEPT: "${proposal.title}"
+        HOOFDVRAAG: "${proposal.mainQuestion}"
+        RATIONALE: "${proposal.rationale}"
+        
+        BRONNEN:
+        ${sourcesText}
+
+        OPDRACHT:
+        Schrijf een volledig lesplan in **Markdown**.
+        
+        BELANGRIJK VOOR DE TABELLEN:
+        1. **Samenwerkingstabel**: 
+           - Docentversie: Volledig ingevuld.
+           - Leerlingversie: **Gebruik stippellijntjes (...........) in de lege cellen** zodat de tabel body heeft en printbaar is.
+           - Kolommen: Bron | Wie | Gevoel | Sub-dimensie | Argument
+        
+        2. **Positioneringskwadrant**:
+           - Gebruik de 4 sub-dimensies uit de Rationale.
+           - Maak een duidelijke Markdown tabel.
+
+        STRUCTUUR:
+        
+        # Deel 1: DOCENTENVERSIE (Antwoordmodel)
+        ## A. Instructie
+        ## B. Antwoordmodel
+        ## C. Ingevulde Tabellen
+        
+        ### 1. Samenwerkingstabel (Compleet)
+        | Bron | Wie spreekt? | Kerngevoel | Sub-dimensie (Concreet) | Argument / Verklaring |
+        | :--- | :--- | :--- | :--- | :--- |
+        *Vul hier de rij in voor elke bron*
+
+        ### 2. Positioneringskwadrant
+        *Plaats de bronnummers in de vakken waar ze het best passen.*
+        
+        | | **[Sub-dimensie 1]** | **[Sub-dimensie 2]** |
+        | :--- | :--- | :--- |
+        | **[Sub-dimensie 3]** | *Bronnummers...* | *Bronnummers...* |
+        | **[Sub-dimensie 4]** | *Bronnummers...* | *Bronnummers...* |
+
+        ## D. Bronnenlijst
+
+        ---
+        
+        # Deel 2: LEERLINGENVERSIE (Werkbladen)
+        
+        ## Inleiding & Hoofdvraag
+        > "${proposal.mainQuestion}"
+
+        ## De Bronnen
+        (Alleen Titel + Analysevragen. Tekst = *[Zie Bronnenbijlage]*)
+
+        ## Opdracht 1: De Puzzel
+        *Gebruik de grabbelton om de tabel in te vullen.*
+        
+        **GRABBELTON:**
+        * Wie: [Lijst...]
+        * Gevoel: [Lijst...]
+        * Begrip: [Lijst...]
+        * Argument: [Lijst...]
+
+        | Bron | Wie is aan het woord? | Wat is het kerngevoel? | Welk begrip past hier? | Welk argument geeft de bron? |
+        | :--- | :--- | :--- | :--- | :--- |
+        | 1 | ........................................ | ........................................ | ........................................ | ........................................ |
+        | 2 | ........................................ | ........................................ | ........................................ | ........................................ |
+        (Enzovoort voor alle bronnen)
+
+        ## Opdracht 2: Het Positioneringskwadrant
+        *Plaats de bronnummers.*
+        
+        | | **[Sub-dimensie 1]** | **[Sub-dimensie 2]** |
+        | :--- | :---: | :---: |
+        | **[Sub-dimensie 3]** | .................... | .................... |
+        | **[Sub-dimensie 4]** | .................... | .................... |
+
+        ## Reflectie
+        (3 vragen)
+        `;
+
+        const modelName = process.env.GEMINI_MODEL_CHIPS || "gemini-1.5-flash";
+        const model = genAI.getGenerativeModel({ model: modelName });
+        
+        const result = await model.generateContent(prompt);
+        let markdown = result.response.text();
+
+        // DE ANTI-HALLUCINATIE TRUC: 
+        // We plakken de ECHTE bronteksten er handmatig achteraan
+        let appendix = "\n\n---\n\n# BRONNENBIJLAGE\n\n";
+        finalSources.forEach((s, i) => {
+            appendix += `## Bron ${i + 1}: ${s.title}\n\n`;
+            if (s.imageUrl) appendix += `![Bron ${i + 1}](${s.imageUrl})\n\n`;
+            if (s.fullText || s.description) appendix += `> ${s.fullText || s.description}\n\n`;
+            if (s.link) appendix += `[Link](${s.link})\n\n`;
+            appendix += "---\n\n";
+        });
+
+        // We sturen dit terug als JSON object met een 'markdown' veld
+        // Omdat de frontend eerder 'lessonPlan' verwachtte, sturen we beide keys voor compatibiliteit
+        const finalDocument = markdown + appendix;
+        res.json({ 
+            lessonPlan: finalDocument, // Voor de huidige frontend
+            markdown: finalDocument    // Voor de zekerheid
+        });
+
+    } catch (error) {
+        console.error('[AI] Fout:', error);
+        res.status(500).json({ error: error.message });
     }
-
-    const sourcesText = sources.map((s, i) => `Bron ${i + 1} (${s.title}):\n${s.content}`).join('\n\n');
-
-    const prompt = `
-      Je bent een ervaren onderwijsspecialist en didactisch expert.
-      Schrijf een volledig, gedetailleerd lesplan in Markdown formaat.
-      
-      GEKOZEN CONCEPT:
-      Pakkende Hook: ${concept.hook}
-      Context/Uitleg: ${concept.context}
-      
-      BESCHIKBARE BRONNEN:
-      ${sourcesText}
-      
-      INSTRUCTIES:
-      - Gebruik de hook en context als fundering.
-      - Integreer informatie uit de bronnen expliciet.
-      - Schrijf in het Nederlands.
-      - Gebruik Markdown (koppen, lijsten, vetgedrukt) voor een duidelijke structuur.
-      
-      GEWENSTE STRUCTUUR:
-      # [Pakkende Titel van de Les]
-      
-      ## Lesinformatie
-      * **Doelgroep:** Voortgezet onderwijs (pas niveau aan op basis van inhoud)
-      * **Tijdsduur:** 50 minuten
-      * **Leerdoelen:** (3-4 concrete doelen)
-      
-      ## 1. Opening & Hook (5-10 min)
-      (Beschrijf hoe de docent de les start met de gegeven hook)
-      
-      ## 2. Instructie & Kern (15-20 min)
-      (De inhoudelijke uitleg, gebruikmakend van de bronnen. Geef aan wat de docent vertelt/doet.)
-      
-      ## 3. Verwerking & Opdracht (15 min)
-      (Een concrete opdracht voor de leerlingen om de stof te verwerken)
-      
-      ## 4. Afsluiting & Evaluatie (5 min)
-      (Hoe wordt de les afgerond en gecontroleerd of doelen zijn behaald?)
-    `;
-
-    const result = await model.generateContent(prompt);
-    const lessonPlan = result.response.text();
-
-    res.json({ lessonPlan });
-
-  } catch (error) {
-    console.error('Fout bij genereren les:', error);
-    res.status(500).json({ error: 'Er ging iets mis bij het genereren van de les.' });
-  }
 });
 
 module.exports = router;
