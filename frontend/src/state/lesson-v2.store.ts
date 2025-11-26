@@ -1,22 +1,33 @@
 import { create } from 'zustand';
 
-// Definities voor de uitgebreide V2 data
 export interface LessonPlanV2 {
   title: string;
   context: string;
   learningGoal: string;
   didacticApproach: string;
+  
   phases: { phaseName: string; time: string; teacherRole: string; studentRole: string; materials: string; }[];
+  
   teacherGuide: {
       lessonGoal: string;
-      didacticQuadrant: string;
-      reflectionQuestions: string[];
-      answerKey: { questionId: string; answer: string; }[];
+      grabBagRationale: string;
+      sourceQuadrant: { axisX: string; axisY: string; explanation: string; };
+      reflectionAnswers?: string[];
+      filledTables?: { collaboration: string; quadrant: string; };
   };
+  
   studentWorksheet: {
       assignmentDescription: string;
       steps: string[];
-      sourceQuestions?: { sourceId: string; questions: { id: string; question: string; bloomLevel?: string; }[] }[];
+      
+      grabBagInstruction?: string; // NIEUW
+      grabBag: { label: string; items: string[] }[];
+      
+      quadrantInstruction?: string; // NIEUW
+      emptyTables: { collaboration: string; quadrant: string; };
+      
+      sourceAnalyses?: { sourceId: string; questions: string[]; answers: string[]; }[];
+      reflectionQuestions?: string[];
   };
 }
 
@@ -25,7 +36,6 @@ interface LessonStateV2 {
   setLessonPlan: (plan: LessonPlanV2) => void;
 }
 
-// HIER ZAT DE FOUT: De export naam moet exact kloppen met de import
 export const useLessonStoreV2 = create<LessonStateV2>((set) => ({
   lessonPlan: null,
   setLessonPlan: (plan) => set({ lessonPlan: plan }),

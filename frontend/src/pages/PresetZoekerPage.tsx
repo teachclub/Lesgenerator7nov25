@@ -22,16 +22,10 @@ export const PresetZoekerPage: React.FC = () => {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // --- HIER ZIT DE FIX ---
   const handleTvKaSelect = (selection: { tv?: string; ka?: string; kaTitel?: string }) => {
     setFilters(prev => ({ ...prev, tv: selection.tv, ka: selection.ka }));
-    
-    if (selection.ka) {
-        // GEEN SPATIE MEER: "KA49"
-        setSearchQuery(`KA${selection.ka}`);
-    }
+    if (selection.ka) setSearchQuery(`KA${selection.ka}`);
   };
-  // -----------------------
 
   const insertOperator = (op: string) => {
     const newQuery = `${searchQuery} ${op} `; 
@@ -47,7 +41,6 @@ export const PresetZoekerPage: React.FC = () => {
     setSelectedDetailSource(null);
 
     try {
-      // Stap 1: Presets (A14 herkent 'KA49' door regex)
       const presetRes = await fetch('http://localhost:8081/api/search-preset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -56,7 +49,6 @@ export const PresetZoekerPage: React.FC = () => {
       const presetData = await presetRes.json();
       const terms = presetData.terms || [searchQuery];
 
-      // Stap 2: Zoeken (A12)
       const searchRes = await fetch('http://localhost:8081/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -70,9 +62,20 @@ export const PresetZoekerPage: React.FC = () => {
     finally { setLoading(false); }
   };
 
-  const getDetailImageUrl = (url?: string) => {
-    if (!url) return undefined;
-    if (url.includes('kleio') || url.includes('vgn')) return `http://localhost:8081/api/image-proxy?url=${encodeURIComponent(url)}`;
+  // DE FIX: SLIMMER FILTEREN OP PLAATJES
+  const getDetailImageUrl = (source: Source) => {
+    if (!source.imageUrl) return undefined;
+    const url = source.imageUrl;
+    
+    // Alleen het grijze poppetje filteren
+    if (url.includes('profile/picture')) return undefined;
+
+    const isCito = source.provider === 'Cito' || source.id.startsWith('cito');
+    const isKleio = source.provider === 'Kleio' || url.includes('kleio') || url.includes('vgn');
+
+    if (isCito || isKleio) {
+        return `http://localhost:8081/api/image-proxy?url=${encodeURIComponent(url)}`;
+    }
     return url;
   };
 
@@ -94,41 +97,31 @@ export const PresetZoekerPage: React.FC = () => {
         <div className="col-span-3 border-r border-gray-200 bg-white overflow-y-auto p-4 space-y-6">
             <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Zoekopdracht</label>
-                <input 
-                    ref={searchInputRef}
-                    type="text" 
-                    value={searchQuery} 
-                    onChange={(e) => setSearchQuery(e.target.value)} 
-                    placeholder="Bijv. KA49..." 
-                    className="w-full p-2 border border-gray-300 rounded text-sm mb-2 focus:ring-2 focus:ring-indigo-500 outline-none" 
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                />
+                <input ref={searchInputRef} type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Bijv. KA49..." className="w-full p-2 border border-gray-300 rounded text-sm mb-2 focus:ring-2 focus:ring-indigo-500 outline-none" onKeyDown={(e) => e.key === 'Enter' && handleSearch()}/>
                 <div className="flex gap-2 mb-3">
                     {['AND', 'OR', 'NOT'].map(op => (
                         <button key={op} onClick={() => insertOperator(op)} className="px-2 py-1 text-xs font-bold bg-white border border-gray-300 rounded hover:bg-gray-100 text-gray-600">{op}</button>
                     ))}
                 </div>
-                <button 
-                    onClick={handleSearch} 
-                    disabled={loading || !searchQuery} 
-                    className={`w-full font-bold py-3 rounded text-sm transition-all flex items-center justify-center gap-2
-                        ${loading ? 'bg-gray-100 text-gray-500 cursor-wait' : 'bg-indigo-600 text-white hover:bg-indigo-700'}
-                    `}
-                >
-                    {loading ? (
-                        <>
-                           <span className="animate-spin">⏳</span> Grabbelton doorzoeken...
-                        </>
-                    ) : '🚀 Start Zoeken'}
+                <button onClick={handleSearch} disabled={loading || !searchQuery} className={`w-full font-bold py-3 rounded text-sm transition-all flex items-center justify-center gap-2 ${loading ? 'bg-gray-100 text-gray-500 cursor-wait' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+                    {loading ? <><span className="animate-spin">⏳</span> Grabbelton...</> : '🚀 Start Zoeken'}
                 </button>
             </div>
             <A21TvKaSelect onSelect={handleTvKaSelect} />
-            
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Filters</label>
-                <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" checked={filters.images} onChange={(e) => setFilters({...filters, images: e.target.checked})} /> Afbeeldingen</label>
-                    <label className="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" checked={filters.text} onChange={(e) => setFilters({...filters, text: e.target.checked})} /> Tekstbronnen</label>
+                <div className="mb-4">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Type Bron</label>
+                    <div className="space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" checked={filters.images} onChange={(e) => setFilters({...filters, images: e.target.checked})} /> Afbeeldingen</label>
+                        <label className="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" checked={filters.text} onChange={(e) => setFilters({...filters, text: e.target.checked})} /> Tekstbronnen</label>
+                    </div>
+                </div>
+                <div className="pt-4 border-t border-gray-100">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Herkomst</label>
+                    <div className="space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" checked={filters.kleio} onChange={(e) => setFilters({...filters, kleio: e.target.checked})} /> Kleio</label>
+                        <label className="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" checked={filters.cito} onChange={(e) => setFilters({...filters, cito: e.target.checked})} /> Cito</label>
+                    </div>
                 </div>
             </div>
         </div>
@@ -141,8 +134,7 @@ export const PresetZoekerPage: React.FC = () => {
             {error && <div className="text-red-500 text-sm mb-4">{error}</div>}
             {loading ? (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-400 animate-pulse">
-                    <span className="text-4xl mb-2">📡</span>
-                    <p>Contact maken met Kleio & Cito...</p>
+                    <span className="text-4xl mb-2">📡</span><p>Zoeken in Kleio & Cito...</p>
                 </div>
             ) : (
                 <SelectionPanel onSelectSource={(s) => setSelectedDetailSource(s)} selectedId={selectedDetailSource?.id}/>
@@ -156,9 +148,14 @@ export const PresetZoekerPage: React.FC = () => {
                         <span className="text-xs font-bold text-indigo-600 uppercase tracking-wide mb-1 block">{selectedDetailSource.type} • {selectedDetailSource.provider}</span>
                         <h1 className="text-2xl font-bold text-gray-900 leading-tight">{selectedDetailSource.title}</h1>
                     </div>
-                    {selectedDetailSource.imageUrl && (
+                    {getDetailImageUrl(selectedDetailSource) && (
                         <div className="mb-6 rounded-lg overflow-hidden border border-gray-200 shadow-sm">
-                            <img src={getDetailImageUrl(selectedDetailSource.imageUrl)} alt="" className="w-full max-h-[400px] object-contain bg-gray-100" />
+                            <img 
+                                src={getDetailImageUrl(selectedDetailSource)} 
+                                alt="" 
+                                className="w-full max-h-[400px] object-contain bg-gray-100"
+                                onError={(e) => (e.target as HTMLImageElement).style.display = 'none'} 
+                            />
                         </div>
                     )}
                     <div className="prose prose-sm max-w-none text-gray-700">
