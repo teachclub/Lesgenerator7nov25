@@ -7,11 +7,18 @@ interface Props {
 }
 
 export const SelectionPanel = ({ onSelectSource, selectedId }: Props) => {
-  const { sources, removeSource } = useSelectionStore(); // <--- removeSource toegevoegd
+  const { sources, removeSource } = useSelectionStore();
 
-  const getImageUrl = (url?: string) => {
-    if (!url) return null;
-    if (url.includes('kleio') || url.includes('vgn')) {
+  // DE FIX: We kijken nu naar de PROVIDER, niet alleen de URL
+  const getImageUrl = (source: Source) => {
+    if (!source.imageUrl) return null;
+    
+    const url = source.imageUrl;
+    const isCito = source.provider === 'Cito' || source.id.startsWith('cito');
+    const isKleio = source.provider === 'Kleio' || url.includes('kleio') || url.includes('vgn');
+
+    // Als het Cito of Kleio is -> ALTIJD via de proxy
+    if (isCito || isKleio) {
        return `http://localhost:8081/api/image-proxy?url=${encodeURIComponent(url)}`;
     }
     return url;
@@ -37,12 +44,9 @@ export const SelectionPanel = ({ onSelectSource, selectedId }: Props) => {
             ${selectedId === source.id ? 'ring-2 ring-indigo-600 border-indigo-600 shadow-md' : 'border-gray-200'}
           `}
         >
-          {/* --- WEGKLIK KNOP (Verschijnt bij hover) --- */}
+          {/* Wegklik Knop */}
           <button
-            onClick={(e) => {
-                e.stopPropagation(); // Voorkom dat we de bron ook selecteren
-                removeSource(source.id);
-            }}
+            onClick={(e) => { e.stopPropagation(); removeSource(source.id); }}
             className="absolute top-1 right-1 z-10 bg-white text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-gray-200 opacity-0 group-hover:opacity-100 transition-opacity font-bold"
             title="Verwijder deze bron"
           >
@@ -53,10 +57,21 @@ export const SelectionPanel = ({ onSelectSource, selectedId }: Props) => {
              {/* Plaatje */}
              <div className="w-24 bg-gray-100 shrink-0 relative">
                {source.imageUrl ? (
-                 <img src={getImageUrl(source.imageUrl)} className="w-full h-full object-cover" loading="lazy" />
-               ) : (
-                 <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">Geen beeld</div>
-               )}
+                 <img 
+                    src={getImageUrl(source)} 
+                    className="w-full h-full object-cover" 
+                    loading="lazy" 
+                    onError={(e) => {
+                        // Fallback als plaatje echt stuk is
+                        (e.target as HTMLImageElement).style.display = 'none';
+                        (e.target as HTMLImageElement).nextElementSibling?.removeAttribute('hidden');
+                    }}
+                 />
+               ) : null}
+               {/* Fallback div (zichtbaar als img faalt of er niet is) */}
+               <div className={`w-full h-full flex items-center justify-center text-gray-300 text-xs absolute top-0 left-0 bg-gray-100 ${source.imageUrl ? 'hidden' : ''}`}>
+                 Geen beeld
+               </div>
              </div>
              
              {/* Tekst */}
