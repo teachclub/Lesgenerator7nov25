@@ -7,112 +7,111 @@ const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
 router.post('/generate-lesson', async (req, res) => {
     try {
-        // AANGEPAST: We vangen hier 'concept' op, want dat stuurt je frontend nu
         const { concept, sources } = req.body;
 
         if (!concept || !sources) {
             return res.status(400).json({ error: 'Data ontbreekt.' });
         }
 
-        // We gebruiken gewoon de bronnen die de frontend ons stuurt (die zijn al gefilterd)
-        let finalSources = sources;
-        
-        // Maximaal 8 bronnen om de AI niet te overvoeren
+        // 1. Ontdubbelen
+        const uniqueSourcesMap = new Map();
+        sources.forEach(s => uniqueSourcesMap.set(s.id, s));
+        let finalSources = Array.from(uniqueSourcesMap.values());
         if (finalSources.length > 8) finalSources = finalSources.slice(0, 8);
 
+        // 2. Input voorbereiden
         const sourcesText = finalSources.map((s, i) => `
         BRON ${i + 1} (ID: ${s.id})
         Titel: ${s.title}
-        Inhoud: "${s.fullText || s.description || ''}"
+        Inhoud: "${s.fullText || s.content || s.description || ''}"
         `).join('\n---\n');
 
-        // Mapping van Frontend 'concept' naar de variabele die de prompt verwacht
         const proposal = {
-            title: "Historische Les", // Fallback titel
             mainQuestion: concept.hook,
             rationale: concept.context
         };
 
         const prompt = `
-        Je bent een expert in geschiedenisdidactiek.
+        ROL:
+        Je bent een expert in geschiedenisdidactiek en grafisch ontwerp van leermiddelen.
+
+        INPUT:
+        Concept: "${proposal.mainQuestion}"
+        Context: "${proposal.rationale}"
+        Bronnen: (Zie hieronder)
+
+        OPDRACHT:
+        Schrijf een volledig lesplan in Markdown. 
+        De les draait om het ontmantelen van het presentisme in de hoofdvraag.
         
-        CONCEPT: "${proposal.title}"
-        HOOFDVRAAG: "${proposal.mainQuestion}"
-        RATIONALE: "${proposal.rationale}"
-        
+        *Let op: De output wordt geprint op A4 LANDSCAPE. Maak brede tabellen en hou de teksten in de cellen beknopt.*
+
         BRONNEN:
         ${sourcesText}
 
-        OPDRACHT:
-        Schrijf een volledig lesplan in **Markdown**.
-        
-        BELANGRIJK VOOR DE TABELLEN:
-        1. **Samenwerkingstabel**: 
-           - Docentversie: Volledig ingevuld.
-           - Leerlingversie: **Gebruik stippellijntjes (...........) in de lege cellen** zodat de tabel body heeft en printbaar is.
-           - Kolommen: Bron | Wie | Gevoel | Sub-dimensie | Argument
-        
-        2. **Positioneringskwadrant**:
-           - Gebruik de 4 sub-dimensies uit de Rationale.
-           - Maak een duidelijke Markdown tabel.
+        STRUCTUUR & EISEN:
 
-        STRUCTUUR:
-        
-        # Deel 1: DOCENTENVERSIE (Antwoordmodel)
-        ## A. Instructie
-        ## B. Antwoordmodel
-        ## C. Ingevulde Tabellen
-        
-        ### 1. Samenwerkingstabel (Compleet)
-        | Bron | Wie spreekt? | Kerngevoel | Sub-dimensie (Concreet) | Argument / Verklaring |
-        | :--- | :--- | :--- | :--- | :--- |
-        *Vul hier de rij in voor elke bron*
-
-        ### 2. Positioneringskwadrant
-        *Plaats de bronnummers in de vakken waar ze het best passen.*
-        
-        | | **[Sub-dimensie 1]** | **[Sub-dimensie 2]** |
-        | :--- | :--- | :--- |
-        | **[Sub-dimensie 3]** | *Bronnummers...* | *Bronnummers...* |
-        | **[Sub-dimensie 4]** | *Bronnummers...* | *Bronnummers...* |
-
-        ## D. Bronnenlijst
+        # DEEL 1: DOCENTENHANDLEIDING
+        ## A. Didactische Kern
+        - **De Misvatting (Presentisme):** Welk oordeel van nu moeten we parkeren?
+        - **Het Historisch Inzicht:** Wat gaan ze snappen?
+        ## B. Het Antwoordmodel
+        - Geef de volledig ingevulde Samenwerkingstabel (kort & krachtig).
+        - Geef het volledig ingevulde Positioneringskwadrant (plaatsing bronnen).
 
         ---
         
-        # Deel 2: LEERLINGENVERSIE (Werkbladen)
+        # DEEL 2: LEERLINGEN WERKBLADEN (Blanco)
         
-        ## Inleiding & Hoofdvraag
-        > "${proposal.mainQuestion}"
-
-        ## De Bronnen
-        (Alleen Titel + Analysevragen. Tekst = *[Zie Bronnenbijlage]*)
-
-        ## Opdracht 1: De Puzzel
-        *Gebruik de grabbelton om de tabel in te vullen.*
+        ## Startopdracht: De Bril van Nu
+        > **Hoofdvraag:** "${proposal.mainQuestion}"
         
-        **GRABBELTON:**
-        * Wie: [Lijst...]
-        * Gevoel: [Lijst...]
-        * Begrip: [Lijst...]
-        * Argument: [Lijst...]
+        *Bespreek je eerste oordeel. Noteer 3 aannames die je doet vanuit jouw 'nu-bril':*
+        1. ............................................................................................
+        2. ............................................................................................
+        3. ............................................................................................
 
-        | Bron | Wie is aan het woord? | Wat is het kerngevoel? | Welk begrip past hier? | Welk argument geeft de bron? |
+        ## Stap 1: De Bril van Toen (Analyse)
+        **Keuzeargumenten (Checklist):**
+        (Genereer hier een lijst van 6-8 historische argumenten/redenen die in de bronnen te vinden zijn)
+        * [Argument A]
+        * [Argument B]
+        * ...
+
+        **Samenwerkingstabel (Invullen):**
+        *Vul de tabel in. Gebruik de checklist.*
+        
+        | Bron | Oorzaak/Argument | Dimensie (Eco/Pol/Soc/Cult) | Bewijs (Citaat) | Sterkte (+/++) |
         | :--- | :--- | :--- | :--- | :--- |
-        | 1 | ........................................ | ........................................ | ........................................ | ........................................ |
-        | 2 | ........................................ | ........................................ | ........................................ | ........................................ |
-        (Enzovoort voor alle bronnen)
+        | 1 | .............................. | .................... | .............................. | ....... |
+        | 2 | .............................. | .................... | .............................. | ....... |
+        (Rijen voor alle bronnen, met stippellijntjes)
 
-        ## Opdracht 2: Het Positioneringskwadrant
-        *Plaats de bronnummers.*
+        ## Stap 2: Contextualiseren (Het Kwadrant)
+        *Bepaal twee relevante assen (bijv. Eigenbelang vs Idealisme).*
         
-        | | **[Sub-dimensie 1]** | **[Sub-dimensie 2]** |
+        **X-as:** [Label links] <---> [Label rechts]
+        **Y-as:** [Label onder] <---> [Label boven]
+        
+        | | **[Label Boven]** | **[Label Onder]** |
         | :--- | :---: | :---: |
-        | **[Sub-dimensie 3]** | .................... | .................... |
-        | **[Sub-dimensie 4]** | .................... | .................... |
+        | **[Label Links]** | .................... | .................... |
+        | **[Label Rechts]** | .................... | .................... |
 
-        ## Reflectie
-        (3 vragen)
+        ## Stap 3: Reflectie
+        1. Welk argument woog het zwaarst voor de mensen van toen?
+           ................................................................................................
+        2. Kijk terug naar je 'Bril van Nu'. Snap je hun keuze nu beter?
+           ................................................................................................
+        
+        ---
+
+        # BIJLAGE: BRONNENBOEKJE
+        (Genereer per bron 3 vragen:)
+        ### Bron [X]: [Titel]
+        1. **Observatie:** Wat zie/lees je letterlijk?
+        2. **Detail:** Een vraag over een specifiek element.
+        3. **Interpretatie:** Hoe koppel je dit aan de hoofdvraag?
         `;
 
         const modelName = process.env.GEMINI_MODEL_CHIPS || "gemini-1.5-flash";
@@ -121,23 +120,28 @@ router.post('/generate-lesson', async (req, res) => {
         const result = await model.generateContent(prompt);
         let markdown = result.response.text();
 
-        // DE ANTI-HALLUCINATIE TRUC: 
-        // We plakken de ECHTE bronteksten er handmatig achteraan
-        let appendix = "\n\n---\n\n# BRONNENBIJLAGE\n\n";
+        // Schoonmaak
+        const firstHeader = markdown.indexOf('#');
+        if (firstHeader > 0) markdown = markdown.substring(firstHeader);
+
+        // Bronnenbijlage Genereren (Hardcoded = Veilig)
+        let appendix = "\n\n---\n\n# LEESTEKSTEN & AFBEELDINGEN\n\n";
         finalSources.forEach((s, i) => {
-            appendix += `## Bron ${i + 1}: ${s.title}\n\n`;
+            appendix += `### Bron ${i + 1}: ${s.title}\n\n`;
             if (s.imageUrl) appendix += `![Bron ${i + 1}](${s.imageUrl})\n\n`;
-            if (s.fullText || s.description) appendix += `> ${s.fullText || s.description}\n\n`;
-            if (s.link) appendix += `[Link](${s.link})\n\n`;
+            
+            const textContent = s.fullText || s.content || s.description || "Geen tekst beschikbaar.";
+            const formattedText = textContent.split('\n').map(line => `> ${line}`).join('\n');
+            
+            appendix += `${formattedText}\n\n`;
+            if (s.link) appendix += `[Bekijk origineel](${s.link})\n\n`;
             appendix += "---\n\n";
         });
 
-        // We sturen dit terug als JSON object met een 'markdown' veld
-        // Omdat de frontend eerder 'lessonPlan' verwachtte, sturen we beide keys voor compatibiliteit
         const finalDocument = markdown + appendix;
         res.json({ 
-            lessonPlan: finalDocument, // Voor de huidige frontend
-            markdown: finalDocument    // Voor de zekerheid
+            lessonPlan: finalDocument,
+            markdown: finalDocument
         });
 
     } catch (error) {

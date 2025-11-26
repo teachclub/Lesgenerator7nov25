@@ -1,197 +1,120 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const crypto = require('crypto');
 
-// --- 1. DE COMPLETE & RIJKE THESAURUS (KA 1 t/m 49) ---
-const KA_MAPPING = {
-    'ka1': ['jager-verzamelaar', 'nomaden', 'prehistorie', 'paleolithicum', 'grotschildering', 'vuistbijl', 'ijstijd', 'ötzi'],
-    'ka2': ['landbouwrevolutie', 'neolithicum', 'sedentair', 'agrarische samenleving', 'domesticatie', 'akkerbouw', 'veeteelt', 'hunebed'],
-    'ka3': ['stadstaat', 'schrift', 'hiërogliefen', 'spijkerschrift', 'polytheïsme', 'irrigatielandbouw', 'farao', 'mesopotamië', 'uruk'],
-    'ka4': ['polis', 'democratie', 'aristocratie', 'monarchie', 'tirannie', 'filosofie', 'wetenschap', 'athene', 'sparta', 'socrates'],
-    'ka5': ['imperium', 'romanisering', 'republiek', 'keizerrijk', 'pax romana', 'limes', 'julius caesar', 'augustus', 'trajanus'],
-    'ka6': ['klassieke vormentaal', 'zuilen', 'dorisch', 'ionisch', 'korintisch', 'fronton', 'aquaduct', 'amfitheater', 'colosseum', 'pantheon'],
-    'ka7': ['germanen', 'limes', 'volksverhuizingen', 'barbaren', 'bataven', 'bataafse opstand', 'julius civilis', 'arminius'],
-    'ka8': ['monotheïsme', 'jodendom', 'christendom', 'bijbel', 'tenach', 'messias', 'staatsgodsdienst', 'vervolging', 'jezus', 'paulus'],
-    'ka9': ['verspreiding christendom', 'kerstening', 'missionaris', 'klooster', 'paus', 'bisschop', 'willibrord', 'bonifatius', 'clovis'],
-    'ka10': ['islam', 'moslim', 'koran', 'jihad', 'kalief', 'mekka', 'medina', 'mohammed', 'karel martel', 'poitiers'],
-    'ka11': ['hofstelsel', 'horigheid', 'autarkie', 'domein', 'herendiensten', 'vroonhof', 'agrarische samenleving', 'karel de grote'],
-    'ka12': ['feodalisme', 'leenstelsel', 'leenheer', 'leenman', 'vazal', 'ridders', 'adel', 'karel de grote', 'verdrag van verdun'],
-    'ka13': ['handel', 'ambacht', 'markt', 'gilde', 'hanze', 'wisselbrief', 'jaarmarkt', 'brugge', 'gent', 'kogge', 'zwarte dood'],
-    'ka14': ['stadsrechten', 'burgerij', 'patriciërs', 'schepenen', 'stadhuis', 'schutterij', 'guldensporenslag', 'kathedraal'],
-    'ka15': ['investituurstrijd', 'tweezwaardenleer', 'paus', 'keizer', 'ban', 'excommunicatie', 'canossa', 'gregorius vii', 'hendrik iv'],
-    'ka16': ['kruistochten', 'heilige land', 'jeruzalem', 'reconquista', 'expansie', 'tempeliers', 'paus urbanus', 'godfried van bouillon'],
-    'ka17': ['staatsvorming', 'centralisatie', 'uniformering', 'parlement', 'staten-generaal', 'belasting', 'huurleger', 'bourgondiërs'],
-    'ka18': ['ontdekkingsreizen', 'kolonialisme', 'conquistadores', 'factorij', 'wereldhandel', 'columbus', 'vasco da gama', 'magellaan'],
-    'ka19': ['renaissance', 'humanisme', 'uomo universale', 'individualisme', 'carpe diem', 'perspectief', 'boekdrukkunst', 'da vinci', 'erasmus'],
-    'ka20': ['klassieke oudheid', 'classicisme', 'filologie', 'zuilenordes', 'michelangelo', 'rafaël', 'bramante'],
-    'ka21': ['reformatie', 'protestantisme', 'luther', 'calvijn', 'aflaat', '95 stellingen', 'beeldenstorm', 'karel v', 'filips ii'],
-    'ka22': ['opstand', 'tachtigjarige oorlog', 'willem van oranje', 'filips ii', 'alva', 'watergeuzen', 'plakkaat van verlatinghe', 'unie van utrecht'],
-    'ka23': ['absolutisme', 'droit divin', 'hofcultuur', 'mercantilisme', 'centralisatie', 'versailles', 'lodewijk xiv', 'zonnekoning'],
-    'ka24': ['gouden eeuw', 'republiek', 'regenten', 'stadhouder', 'raadpensionaris', 'voc', 'wic', 'johan de witt', 'michiel de ruyter', 'rembrandt'],
-    'ka25': ['handelskapitalisme', 'wereldeconomie', 'voc', 'wic', 'aandelen', 'beurs', 'driehoekshandel', 'plantagekolonie', 'jan pieterszoon coen'],
-    'ka26': ['wetenschappelijke revolutie', 'empirisme', 'rationalisme', 'experiment', 'natuurwet', 'newton', 'galilei', 'kepler', 'descartes'],
-    'ka27': ['verlichting', 'rationalisme', 'natuurrechten', 'trias politica', 'encyclopedie', 'voltaire', 'rousseau', 'locke', 'montesquieu'],
-    'ka28': ['ancien régime', 'standenmaatschappij', 'verlicht absolutisme', 'alles voor het volk', 'frederik de grote', 'catharina de grote'],
-    'ka29': ['slavernij', 'plantagekolonie', 'transatlantische slavenhandel', 'driehoekshandel', 'abolitionisme', 'keti koti', 'toussaint louverture'],
-    'ka30': ['democratische revolutie', 'grondwet', 'grondrechten', 'staatsburgerschap', 'franse revolutie', 'bataafse revolutie', 'amerikaanse revolutie'],
-    'ka31': ['industriële revolutie', 'stoommachine', 'fabriek', 'mechanisatie', 'urbanisatie', 'massaproductie', 'james watt', 'spoorwegen'],
-    'ka32': ['sociale kwestie', 'kinderarbeid', 'arbeidersbeweging', 'vakbond', 'socialisme', 'kinderwetje van houten', 'domela nieuwenhuis'],
-    'ka33': ['modern imperialisme', 'kolonialisme', 'conferentie van berlijn', 'scramble for africa', 'white mans burden', 'atjeh-oorlog', 'multatuli'],
-    'ka34': ['emancipatiebewegingen', 'verzuiling', 'schoolstrijd', 'feminisme', 'confessionalisme', 'aletta jacobs', 'abraham kuyper'],
-    'ka35': ['democratisering', 'kiesrecht', 'grondwet 1848', 'thorbecke', 'parlementair stelsel', 'censuskiesrecht', 'algemeen kiesrecht'],
-    'ka36': ['politieke stromingen', 'liberalisme', 'socialisme', 'confessionalisme', 'nationalisme', 'conservatisme', 'marx'],
-    'ka37': ['eerste wereldoorlog', 'tweede wereldoorlog', 'loopgraven', 'totale oorlog', 'wapenwedloop', 'somme', 'verdun', 'hitler', 'stalin'],
-    'ka38': ['wereldcrisis', 'beurskrach', '1929', 'werkloosheid', 'new deal', 'roosevelt', 'colijn', 'zwarte donderdag', 'keynes'],
-    'ka39': ['totalitaire systemen', 'communisme', 'fascisme', 'nationaalsocialisme', 'dictatuur', 'propaganda', 'hitler', 'mussolini', 'stalin'],
-    'ka40': ['propaganda', 'censuur', 'massaorganisatie', 'indoctrinatie', 'goebbels', 'hitlerjugend', 'radio oranje'],
-    'ka41': ['holocaust', 'genocide', 'antisemitisme', 'jodenvervolging', 'endlösung', 'auschwitz', 'anne frank', 'westerbork'],
-    'ka42': ['bezetting', 'collaboratie', 'verzet', 'onderduik', 'hongerwinter', 'razzia', 'februaristaking', 'seyss-inquart', 'mussert'],
-    'ka43': ['verwoestingen', 'massavernietigingswapens', 'atoombom', 'bombardement', 'hiroshima', 'rotterdam', 'coventry', 'dresden'],
-    'ka44': ['verzet imperialisme', 'dekolonisatie', 'nationalisme azië', 'soekarno', 'gandhi', 'politionele acties', 'onafhankelijkheid'],
-    'ka45': ['koude oorlog', 'ijzeren gordijn', 'sovjet-unie', 'navo', 'berlijnse muur', 'wapenwedloop', 'kennedy', 'korea', 'vietnam', 'cubacrisis'],
-    'ka46': ['dekolonisatie', 'onafhankelijkheid', 'derde wereld', 'suriname', 'papoea', 'suezcrisis', 'lumumba', 'mandela'],
-    'ka47': ['europese eenwording', 'europese unie', 'egks', 'eeg', 'euro', 'schengen', 'verdrag van maastricht', 'monnet', 'kohl'],
-    'ka48': ['welvaart', 'wederopbouw', 'jaren 60', 'provo', 'dolle mina', 'ontzuiling', 'verzorgingsstaat', 'jeugdcultuur', 'hippie', 'drees'],
-    'ka49': ['pluriforme samenleving', 'multicultureel', 'gastarbeiders', 'migratie', 'integratie', 'globalisering', 'internet', 'fortuyn', '9/11']
+// Helper: Is dit plaatje geldig?
+const isValidImage = (src) => {
+    if (!src) return false;
+    const s = src.toLowerCase();
+    if (s.includes('logo') || s.includes('icon') || s.includes('placeholder')) return false;
+    return true;
 };
 
-// --- 2. HULPFUNCTIE: KIES ZOEKWOORDEN ---
-function getSearchTermsForKA(kaID, limit = 6) {
-    const id = String(kaID).toLowerCase();
-    const keywords = KA_MAPPING[id];
-    
-    if (!keywords || keywords.length === 0) {
-        console.warn(`[Kleio] Geen keywords gevonden voor ${id}`);
-        return [];
-    }
-    
-    const shuffled = [...keywords].sort(() => 0.5 - Math.random());
-    const terms = shuffled.slice(0, limit);
-    console.log(`[Kleio] 🎲 Multisearch voor ${id}: ${terms.join(', ')}`);
-    return terms;
-}
-
-// --- 3. SLIMME SCRAPER (Met Elementor Fix) ---
-async function scrapeDetail(url) {
+// Scrape 1 pagina
+const fetchDetail = async (url) => {
     try {
-        // TIMEOUT VERHOOGD NAAR 10 SECONDEN
-        const { data } = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 10000 });
+        const { data } = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 4000 });
         const $ = cheerio.load(data);
-
-        $('script, style, nav, header, footer, .sharedaddy, .jp-relatedposts, #cookie-notice').remove();
-
-        // TEKST ZOEKEN
-        let fullText = '';
-        const elContent = $('.elementor-widget-theme-post-content');
-        if (elContent.length > 0) {
-            fullText = elContent.text();
-        } else {
-            fullText = $('.entry-content').text() || '';
-            if (fullText.length < 50) {
-                $('body p').each((_, p) => {
-                    const t = $(p).text().trim();
-                    if (t.length > 30) fullText += t + '\n\n';
-                });
-            }
+        
+        let fullText = $('.elementor-widget-theme-post-content').text().trim() || $('.entry-content').text().trim();
+        if (!fullText || fullText.length < 50) {
+             $('header, footer, nav').remove();
+             fullText = $('body p').text().trim();
         }
-        fullText = fullText.replace(/\s+/g, ' ').trim();
-        if (!fullText) fullText = "Geen leesbare tekst gevonden.";
 
-        // AFBEELDINGEN ZOEKEN
-        let imageUrl = null;
-        $('img').each((i, el) => {
-            if (imageUrl) return;
-            const src = $(el).attr('src');
-            if (!src) return;
+        let img = $('.elementor-widget-theme-post-content img').attr('src') || $('.entry-content img').attr('src');
+        if (!isValidImage(img)) img = null;
 
-            const isUpload = src.includes('/wp-content/uploads/');
-            const isLogo = src.toLowerCase().includes('logo') || 
-                           ($(el).attr('class')||'').toLowerCase().includes('logo') ||
-                           ($(el).attr('alt')||'').toLowerCase().includes('logo');
+        return { text: fullText.replace(/\s+/g, ' ').substring(0, 600), image: img };
+    } catch (e) { return { text: null, image: null }; }
+};
+
+// Zoek 1 term
+const searchSingleTerm = async (term) => {
+    // Veiligheid: zorg dat term een string is
+    const safeTerm = String(term).trim();
+    if (!safeTerm) return [];
+
+    console.log(`[Kleio] 🔍 Zoeken naar: "${safeTerm}"`);
+    const url = `https://www.vgnkleio.nl/?s=${encodeURIComponent(safeTerm)}`;
+    
+    try {
+        const { data } = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const $ = cheerio.load(data);
+        const results = [];
+
+        $('article').each((i, elem) => {
+            if (results.length >= 5) return;
+            const title = $(elem).find('h2 a, .entry-title a').text().trim();
+            const link = $(elem).find('a').attr('href');
+            let thumb = $(elem).find('img').attr('src');
             
-            const isIcon = src.includes('icon') || src.includes('gravatar') || src.includes('print') || src.includes('share');
-
-            if (isUpload && !isLogo && !isIcon) imageUrl = src;
+            if (title && link) {
+                results.push({ title, link, thumb });
+            }
         });
+        return results;
+    } catch (e) { return []; }
+};
 
-        return { fullText: fullText.substring(0, 3000), imageUrl };
-    } catch (e) {
-        return { fullText: null, imageUrl: null };
-    }
-}
-
-// --- 4. DE MULTI-SEARCH FUNCTIE ---
 const searchKleio = async ({ query, filters }) => {
-    if (filters && filters.kleio === false) return [];
+    if (filters.kleio === false) return [];
 
-    let termsToSearch = [];
-
-    if (query && query.trim().length > 1) {
-        termsToSearch.push(query);
-    } else if (filters.ka && filters.ka.length > 0) {
-        const kaID = filters.ka[0]; 
-        const tags = getSearchTermsForKA(kaID, 6); 
-        termsToSearch = [...termsToSearch, ...tags];
+    // --- INPUT NORMALISATIE (DE FIX) ---
+    let terms = [];
+    
+    if (Array.isArray(query)) {
+        // Als het al een lijst is (vanuit a14), gebruik hem direct
+        terms = query;
+    } else if (typeof query === 'string') {
+        // Als het tekst is, kijk of we moeten splitsen op ' OR '
+        terms = query.includes(' OR ') ? query.split(' OR ') : [query];
     }
 
-    if (termsToSearch.length === 0) {
-        console.log("[Kleio] Geen termen om te zoeken.");
-        return [];
-    }
+    // Filter lege waarden eruit
+    terms = terms.filter(t => t && typeof t === 'string' && t.trim().length > 0);
 
-    console.log(`[Kleio] 🚀 Start multisearch met ${termsToSearch.length} termen...`);
+    if (terms.length === 0) return [];
 
+    console.log(`[Kleio] 🚀 Start Multiquery met ${terms.length} termen...`);
+
+    // Parallel zoeken
+    const allPromises = terms.map(term => searchSingleTerm(term));
+    const resultsPerTerm = await Promise.all(allPromises);
+    
+    // Ontdubbelen
     const uniqueLinks = new Set();
-    let basicResults = [];
+    const flatResults = [];
 
-    // PARALLEL ZOEKEN (Met verhoogde timeout van 15 seconden)
-    await Promise.all(termsToSearch.map(async (term) => {
-        try {
-            const searchUrl = `https://www.vgnkleio.nl/?s=${encodeURIComponent(term)}`;
-            const { data } = await axios.get(searchUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 15000 });
-            const $ = cheerio.load(data);
-
-            $('article, .post, .type-post').each((i, elem) => {
-                const link = $(elem).find('a').first().attr('href');
-                if (link && !uniqueLinks.has(link)) {
-                    const title = $(elem).find('h2, h3, .entry-title a').first().text().trim();
-                    if (title) {
-                        uniqueLinks.add(link); 
-                        basicResults.push({ title, link });
-                    }
-                }
-            });
-        } catch (e) {
-            console.error(`[Kleio] Fout bij term "${term}":`, e.message);
+    resultsPerTerm.flat().forEach(item => {
+        if (!uniqueLinks.has(item.link)) {
+            uniqueLinks.add(item.link);
+            flatResults.push(item);
         }
-    }));
+    });
 
-    console.log(`[Kleio] Totaal ${basicResults.length} unieke links gevonden. Nu verrijken (max 12)...`);
+    console.log(`[Kleio] Totaal ${uniqueLinks.size} unieke hits gevonden. Nu verrijken...`);
 
-    const topResults = basicResults.slice(0, 12);
-
-    const detailedResults = await Promise.all(topResults.map(async (item, index) => {
-        const details = await scrapeDetail(item.link);
-        const id = crypto.createHash('md5').update(item.link).digest('hex').substring(0, 12);
-        const type = details.imageUrl ? 'IMAGE' : 'TEXT';
-
+    // Verrijken
+    const enriched = await Promise.all(flatResults.map(async (item, i) => {
+        const details = await fetchDetail(item.link);
         return {
-            id: id,
+            id: `kleio-${i}`,
             title: item.title,
-            description: details.fullText ? details.fullText.substring(0, 200) + '...' : '',
-            fullText: details.fullText,
-            imageUrl: details.imageUrl,
+            description: details.text || '...',
+            fullText: details.text,
+            imageUrl: details.image || (isValidImage(item.thumb) ? item.thumb : null),
             url: item.link,
             provider: 'Kleio',
-            type: type,
-            tv: [], ka: [] 
+            type: details.image ? 'IMAGE' : 'TEXT'
         };
     }));
 
-    const finalResults = detailedResults.filter(r => r.fullText && r.fullText.length > 10);
-    
-    console.log(`[Kleio] ✅ ${finalResults.length} definitieve resultaten.`);
-    return finalResults;
+    // Filteren
+    return enriched.filter(item => {
+        if (filters.images === false && item.type === 'IMAGE') return false;
+        if (filters.text === false && item.type === 'TEXT') return false;
+        return true;
+    });
 };
 
 module.exports = { searchKleio };

@@ -10,57 +10,59 @@ router.post('/propose-lessons', async (req, res) => {
   try {
     const { selectedSources, query } = req.body;
 
-    console.log('--- Nieuwe Request (Met Sortering) ---');
-    console.log('Totaal bronnen in bakje:', selectedSources.length);
-
     if (!selectedSources || selectedSources.length === 0) {
         return res.status(400).json({ error: 'Geen bronnen geselecteerd.' });
     }
 
-    // Input inkorten
     const inputSources = selectedSources.map(s => ({
       id: s.id, 
       title: s.title,
       type: s.type,
-      content: s.fullText ? s.fullText.substring(0, 350) : (s.description || '').substring(0, 350)
+      content: (s.fullText || s.content || s.description || '').substring(0, 400)
     }));
 
     const model = genAI.getGenerativeModel({ model: modelName });
 
     const prompt = `
-    Je bent een expert in geschiedenisdidactiek (Havo/Vwo Bovenbouw).
-    Je methodiek is "Het Vreemde Verleden" (Tim Huijgen).
+    ROL:
+    Je bent een expert in geschiedenisdidactiek (Havo/Vwo Bovenbouw) en DE STRENGE PORTIER van de lesinhoud.
+    Methode: "Het Vreemde Verleden".
 
-    THEMA: "${query}" (of wat domineert in de bronnen).
-    AANTAL BESCHIKBARE BRONNEN: ${inputSources.length}
+    CONTEXT:
+    Thema/KA: "${query}"
+    Beschikbare Bronnen: ${inputSources.length}
 
     BRONNEN SET:
     ${JSON.stringify(inputSources)}
 
     OPDRACHT:
-    Ontwikkel exact 3 lesvoorstellen (JSON).
+    Selecteer bronnen en ontwikkel exact 3 lesconcepten (JSON).
 
-    ESSENTIEEL - DE TRECHTER (LONGLIST):
-    Je maakt per concept een **RUIME VOORSELECTIE** (Longlist).
-    - Selecteer per concept **MINIMAAL 10 tot 15 bronnen**.
-    
-    SORTERING (CRUCIAAL):
-    Je moet de lijst 'selectedSourceIds' sorteren op RELEVANTIE:
-    - Positie 1 t/m 5: De absolute **TOPBRONNEN** die de kern van dit concept vormen.
-    - Positie 6+: De aanvullende bronnen (verdieping/differentiatie).
-    
-    STIJLGIDS VOOR DE "HOOK":
-    De hook moet klinken als een verontwaardigde of onbegrijpende 16-jarige (Tim Huijgen methodiek).
-    Gebruik woorden als: "gewoon", "toch", "dom", "super", "belachelijk".
+    1. DE SELECTIE (De Strenge Portier):
+       - **Check 1 (KA Match):** Hoort deze bron écht bij het Kenmerkend Aspect "${query}"? Zo nee -> WEG.
+       - **Check 2 (Dimensie Match):** Kan deze bron gebruikt worden om een politiek, sociaal, economisch of cultureel aspect van de hoofdvraag te verklaren? Zo nee -> WEG.
+       - **Resultaat:** Kies per concept 12-15 bronnen die deze checks doorstaan.
+       - Sorteer op relevantie (Top 5 eerst).
 
-    OUTPUT FORMAAT (JSON only):
+    2. DE HOOFDVRAAG (De 'Bias' Hook):
+       - Abstract niveau (boven de bronnen).
+       - Vanuit Hindsight Bias of Presentisme.
+       - Toon: Verbaasd/Betweterig ("Waarom deden ze niet gewoon...").
+       - VERBODEN: "Dom", "Bizar", "Aanvankelijk".
+
+    3. DE RATIONALE (De Verklaring):
+       - Leg in 4 regels uit hoe de geselecteerde bronnen antwoord geven vanuit verschillende sub-dimensies.
+       - Laat zien dat de bronnen de 'bewijsstukken' zijn voor het gedrag van toen.
+
+    OUTPUT:
+    Een JSON-lijst met 3 voorstellen.
     [
       {
         "title": "...",
         "targetAudience": "Havo/Vwo Bovenbouw",
         "hook": "...", 
         "rationale": "...",
-        "selectedSourceIds": ["id_top1", "id_top2", "id_top3", "id_rest1", "id_rest2", ...]
+        "selectedSourceIds": ["..."]
       }
     ]
     `;
@@ -71,7 +73,13 @@ router.post('/propose-lessons', async (req, res) => {
     });
 
     const response = await result.response;
-    let text = response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+    let text = response.text();
+
+    const firstBracket = text.indexOf('[');
+    const lastBracket = text.lastIndexOf(']');
+    if (firstBracket !== -1 && lastBracket !== -1) {
+        text = text.substring(firstBracket, lastBracket + 1);
+    }
 
     try {
         const jsonResponse = JSON.parse(text);

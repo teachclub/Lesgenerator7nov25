@@ -1,63 +1,66 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
+const path = require('path'); // Nodig voor het vinden van de data bestanden
+require('dotenv').config();
+
 const app = express();
+const port = 8081;
 
-// CONFIGURATIE
-const HOST = '127.0.0.1';
-const PORT = process.env.PORT || 8081;
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
 
-// MIDDLEWARE
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '50mb' }));
+// --- 1. IMPORTEER DE LOGICA (ROUTES) ---
+const searchRoutes = require('./routes/a12.search.cjs');
+const presetRoutes = require('./routes/a14.presets.cjs');
+const imageProxyRoutes = require('./routes/image-proxy.cjs');
+const proposalRoutesV2 = require('./routes/a35.proposals-v2.cjs'); // V2 Concepten
+const refineRoutes = require('./routes/a36.refine.cjs');          // Feedback
+const lessonRoutesV2 = require('./routes/a40.lesson-v2.cjs');     // V2 Les
 
-// LOGGING
-app.use((req, res, next) => {
-  console.log(`[LOG] ${req.method} ${req.path}`);
-  next();
-});
+// --- 2. KOPPEL DE LOGICA AAN DE URL'S ---
+app.use('/api', searchRoutes);
+app.use('/api', presetRoutes);
+app.use('/api', imageProxyRoutes);
+app.use('/api', proposalRoutesV2);
+app.use('/api', refineRoutes);
+app.use('/api', lessonRoutesV2);
 
-// --- ROUTES ---
+// --- 3. DE ONTBREKENDE ROUTES: TIJDVAKKEN & KA ---
+// Dit zorgt ervoor dat de dropdowns gevuld worden vanuit data/tijdvakken.cjs
 
-// 1. Zoeken & Filteren
-try { app.use('/api', require('./routes/a12.search.cjs')); } catch (e) { console.error('Search route err:', e.message); }
-
-// 2. AI Concepten (Proposals)
-try { app.use('/api', require('./routes/a25.proposals.cjs')); } catch (e) { console.error('Proposals route err:', e.message); }
-
-// 3. AI Lesgenerator (DEZE MISTE!)
-try { app.use('/api', require('./routes/a30.lesson.cjs')); } catch (e) { console.error('Lesson route err:', e.message); }
-
-// 4. Afbeeldingen Proxy
-try { app.use('/api', require('./routes/a27.imageProxy.cjs')); } catch (e) { console.error('Proxy route err:', e.message); }
-
-// 5. Data (Tijdvakken & KA's)
 app.get('/api/tijdvakken', (req, res) => {
     try {
         const filePath = path.join(__dirname, 'data', 'tijdvakken.cjs');
-        delete require.cache[require.resolve(filePath)];
+        delete require.cache[require.resolve(filePath)]; // Cache wissen voor live updates
         const data = require(filePath);
         const list = Array.isArray(data) ? data : (data.tijdvakken || []);
         res.json(list);
-    } catch (e) { res.status(500).json({ error: "Fout bij laden tijdvakken" }); }
+    } catch (e) { 
+        console.error("Fout bij tijdvakken:", e.message);
+        res.status(500).json({ error: "Kon tijdvakken niet laden." }); 
+    }
 });
 
 app.get('/api/ka', (req, res) => {
     try {
-        const tvId = req.query.tv;
+        const tvId = req.query.tv; // De frontend stuurt ?tv=1
         const filePath = path.join(__dirname, 'data', 'tijdvakken.cjs');
         delete require.cache[require.resolve(filePath)];
         const data = require(filePath);
         const list = Array.isArray(data) ? data : (data.tijdvakken || []);
-        const tv = list.find(t => String(t.id) == String(tvId) || String(t.nummer) == String(tvId));
-        res.json(tv ? (tv.kenmerkendeAspecten || tv.kas || []) : []);
-    } catch (e) { res.json([]); }
+        
+        // Zoek het juiste tijdvak op ID
+        const tv = list.find(t => String(t.id) == String(tvId));
+        res.json(tv ? (tv.kenmerkendeAspecten || []) : []);
+    } catch (e) { 
+        res.json([]); 
+    }
 });
 
-// Health Check
-app.get('/', (req, res) => res.send('Kleio Backend Live on 8081'));
+// --- 4. STARTEN ---
+app.get('/', (req, res) => res.send('🚀 Backend V2 is online!'));
 
-// START
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 Backend luistert op http://${HOST}:${PORT}`);
+app.listen(port, () => {
+  console.log(`🚀 Backend luistert op http://127.0.0.1:${port}`);
+  console.log(`   - Tijdvakken route: /api/tijdvakken (HERSTELD)`);
 });

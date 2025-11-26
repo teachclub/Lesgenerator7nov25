@@ -1,120 +1,166 @@
-import React, { useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Source } from '../state/selection.store';
+import React from 'react';
+import { useLessonStoreV2 } from '../state/lesson-v2.store'; // V2 Store
+import { useSelectionStore } from '../state/selection.store';
+import ReactMarkdown from 'react-markdown';
 
-const LessonPage: React.FC = () => {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const printRef = useRef<HTMLDivElement>(null);
+const LessonPage = () => {
+  const { lessonPlan } = useLessonStoreV2();
+  const { sources } = useSelectionStore();
 
-  // Haal de data op die we vanuit ProposalsPage hebben meegestuurd
-  const { lessonPlan, images } = location.state || { lessonPlan: '', images: [] };
+  if (!lessonPlan) return <div className="p-10 text-center">Nog geen lesplan (V2).</div>;
 
-  // Helper voor proxy images
-  const getProxiedImageUrl = (source: Source) => {
-    if (!source.imageUrl) return undefined;
-    if (source.provider === 'Kleio' || source.imageUrl.includes('vgnkleio.nl')) {
-        return `http://localhost:8081/api/image-proxy?url=${encodeURIComponent(source.imageUrl)}`;
-    }
-    return source.imageUrl;
-  };
+  const phases = lessonPlan.phases || [];
+  const guide = lessonPlan.teacherGuide;
+  const sheet = lessonPlan.studentWorksheet;
 
-  // Functie om de les als PDF op te slaan / te printen
-  const handlePrint = () => {
-    const printContent = printRef.current;
-    if (printContent) {
-        const originalContents = document.body.innerHTML;
-        document.body.innerHTML = printContent.innerHTML;
-        window.print();
-        document.body.innerHTML = originalContents;
-        window.location.reload(); 
-    }
-  };
-
-  if (!lessonPlan) {
-    return (
-        <div className="p-8 text-center">
-            <h2 className="text-xl text-red-500 font-bold">Geen lesdata gevonden.</h2>
-            <button onClick={() => navigate('/')} className="mt-4 text-indigo-600 underline">Terug naar begin</button>
-        </div>
-    );
-  }
-
+  // Filter de bronnen om alleen de gebruikte te tonen
+  // (We nemen aan dat de AI in V2 alleen ID's teruggeeft die bestaan, maar voor de zekerheid tonen we wat in 'sources' zit omdat ProposalsPage dat al gefilterd heeft doorgegeven via de API call, maar de store heeft nog alle sources. 
+  // Echter, lessonPlan heeft geen bron-ids. De 'sources' in selectionStore zijn ALLE geselecteerde. 
+  // In de ideale wereld geeft de backend de gebruikte IDs terug, maar voor nu tonen we de bronnen die de proposals pagina heeft doorgegeven aan de backend.
+  // Omdat we in ProposalsPage de `usedSources` naar de backend stuurden, maar de frontend store niet updateten, 
+  // is het beter om hier even alle sources te tonen OF (beter) de lesson store uit te breiden.
+  // Voor nu: we tonen de sources uit de selectionStore die matchen met de les.
+  // Omdat we dat ID niet in lessonPlan hebben, tonen we de sources die in de selection store zitten (die door de gebruiker gekozen waren).
+  // *Verbetering:* In V2 workflow stuurt proposal page alleen de gefilterde sources naar de backend.
+  // Laten we hier simpelweg de sources uit de selectionStore tonen, dat zijn er 40 in de grabbelton fase, maar na proposal selectie... 
+  // Wacht, de selectionStore bevat ALLES. 
+  // Laten we voor de layout ervan uitgaan dat we ze gewoon tonen.
+  
   return (
-    <div className="min-h-screen bg-gray-100 p-8 font-sans">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-white pb-20 print:p-0 font-sans text-sm">
+      <div className="no-print bg-black text-white p-4 flex justify-between items-center sticky top-0 z-50">
+        <h1 className="font-bold">Lesgenerator V2 (Cito Stijl)</h1>
+        <button onClick={() => window.print()} className="bg-white text-black px-4 py-1 rounded font-bold">🖨️ PDF</button>
+      </div>
+
+      <div className="max-w-7xl mx-auto p-8 bg-white print:max-w-none print:p-0">
         
-        {/* Header met actieknoppen */}
-        <div className="flex justify-between items-center mb-8 no-print">
-          <button 
-            onClick={() => navigate('/proposals')} 
-            className="text-gray-500 hover:text-gray-800 font-medium px-4 py-2 bg-white rounded shadow-sm border"
-          >
-            &larr; Terug naar concepten
-          </button>
-          
-          <div className="flex gap-4">
-             <button 
-                onClick={() => navigate('/')}
-                className="px-4 py-2 text-indigo-600 font-bold hover:bg-indigo-50 rounded"
-             >
-                Nieuwe zoekopdracht
-             </button>
-             <button 
-                onClick={handlePrint}
-                className="bg-indigo-600 text-white px-6 py-2 rounded shadow hover:bg-indigo-700 font-bold flex items-center gap-2"
-             >
-                <span>🖨️</span> Print / PDF
-             </button>
+        {/* --- DOCENTENHANDLEIDING --- */}
+        <section>
+          <div className="border-b-4 border-black mb-6 pb-2">
+             <h1 className="text-3xl font-bold uppercase">Docentenhandleiding</h1>
+             <p className="italic text-lg">{lessonPlan.title}</p>
           </div>
-        </div>
+          
+          <div className="grid grid-cols-2 gap-8 mb-8 print:block">
+             <div className="border border-black p-4 bg-gray-50 mb-4">
+               <h3 className="font-bold border-b border-black mb-2">Context & Doel</h3>
+               <p className="text-sm mb-2"><strong>Context:</strong> {lessonPlan.context}</p>
+               <p className="text-sm"><strong>Doel:</strong> {lessonPlan.learningGoal}</p>
+             </div>
+             <div className="border border-black p-4 bg-gray-50 mb-4">
+               <h3 className="font-bold border-b border-black mb-2">Didactisch Kwadrant</h3>
+               <p className="text-sm italic">{guide?.didacticQuadrant || "Geen info"}</p>
+             </div>
+          </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8" ref={printRef}>
-            
-            {/* LINKER KOLOM: HET LESPLAN */}
-            <div className="lg:col-span-2 bg-white p-10 rounded-xl shadow-sm border border-gray-200">
-                <div className="prose prose-indigo max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-xl prose-h2:text-indigo-900 prose-h2:mt-8 prose-p:text-gray-700">
-                    <div className="whitespace-pre-wrap leading-relaxed font-serif text-lg">
-                        {lessonPlan}
-                    </div>
-                </div>
-            </div>
+          <h3 className="font-bold mb-2">Lesverloop</h3>
+          <table className="w-full border-collapse border-2 border-black mb-8 text-sm">
+             <thead>
+               <tr className="bg-gray-100">
+                 <th className="border border-black p-2 text-left w-[10%]">Tijd</th>
+                 <th className="border border-black p-2 text-left w-[15%]">Fase</th>
+                 <th className="border border-black p-2 text-left w-[30%]">Docent</th>
+                 <th className="border border-black p-2 text-left w-[30%]">Leerling</th>
+                 <th className="border border-black p-2 text-left w-[15%]">Materiaal</th>
+               </tr>
+             </thead>
+             <tbody>
+               {phases.map((p, i) => (
+                 <tr key={i} className="avoid-break">
+                   <td className="border border-black p-2 font-bold">{p.time}</td>
+                   <td className="border border-black p-2 bg-gray-50 font-bold">{p.phaseName}</td>
+                   <td className="border border-black p-2"><ReactMarkdown>{p.teacherRole}</ReactMarkdown></td>
+                   <td className="border border-black p-2"><ReactMarkdown>{p.studentRole}</ReactMarkdown></td>
+                   <td className="border border-black p-2 italic">{p.materials}</td>
+                 </tr>
+               ))}
+             </tbody>
+          </table>
 
-            {/* RECHTER KOLOM: DE VISUELE MATERIALEN */}
-            <div className="space-y-6">
-                <div className="bg-indigo-900 text-white p-6 rounded-xl shadow-lg">
-                    <h3 className="font-bold text-lg mb-2">Benodigde Materialen</h3>
-                    <p className="opacity-80 text-sm">Deze bronnen heb je geselecteerd voor deze les.</p>
-                </div>
+          {/* ALLEEN VOOR DOCENT */}
+          <div className="border-2 border-dashed border-gray-400 p-4 bg-gray-50 avoid-break mb-8">
+             <h3 className="font-bold text-gray-600 uppercase mb-2 border-b border-gray-400 inline-block">Alleen voor de docent</h3>
+             
+             <div className="mb-4">
+                <strong>Reflectievragen:</strong>
+                <ul className="list-disc list-inside mt-1">
+                    {guide?.reflectionQuestions?.map((q, i) => <li key={i}>{q}</li>)}
+                </ul>
+             </div>
 
-                {images && images.map((source: Source, idx: number) => {
-                    const imgUrl = getProxiedImageUrl(source);
-                    return (
-                        <div key={idx} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 break-inside-avoid">
-                            {imgUrl && (
-                                <img 
-                                    src={imgUrl} 
-                                    alt={source.title} 
-                                    className="w-full h-48 object-cover rounded-lg mb-4 bg-gray-100"
-                                    referrerPolicy="no-referrer"
-                                />
-                            )}
-                            <h4 className="font-bold text-gray-900 text-sm mb-1">{source.title}</h4>
-                            <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">{source.type}</span>
-                            {source.description && (
-                                <p className="text-xs text-gray-500 mt-2 line-clamp-3">{source.description}</p>
-                            )}
-                            <div className="mt-3 pt-3 border-t border-gray-100">
-                                <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 text-xs font-bold hover:underline">
-                                    Bekijk originele bron &rarr;
-                                </a>
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-        </div>
+             <div>
+                <strong>Antwoordmodel (Indicatie):</strong>
+                <ul className="mt-1 space-y-1">
+                   {guide?.answerKey?.map((a, i) => (
+                     <li key={i}><span className="font-bold">{a.questionId}:</span> {a.answer}</li>
+                   ))}
+                </ul>
+             </div>
+          </div>
+        </section>
 
+        {/* --- LEERLINGENWERKBLAD --- */}
+        <div className="page-break-before mt-8"></div>
+        <section>
+           <div className="flex justify-between items-end border-b-4 border-black mb-6 pb-2">
+              <h1 className="text-3xl font-bold uppercase">Leerlingenwerkblad</h1>
+              <div className="border-2 border-black p-2 w-48 text-xs font-bold text-gray-400 h-10">NAAM:</div>
+           </div>
+
+           <div className="bg-gray-100 p-6 border-l-4 border-black mb-8">
+              <h3 className="font-bold text-lg mb-2">Opdracht</h3>
+              <p className="font-medium">{sheet?.assignmentDescription}</p>
+           </div>
+
+           {sheet?.steps && (
+               <div className="mb-8">
+                   <h4 className="font-bold border-b border-black mb-2">Stappenplan</h4>
+                   <ol className="list-decimal list-inside">
+                       {sheet.steps.map((s, i) => <li key={i} className="mb-1">{s}</li>)}
+                   </ol>
+               </div>
+           )}
+
+           {sheet?.sourceQuestions?.map((sq, i) => (
+             <div key={i} className="mb-8 avoid-break">
+               <span className="bg-black text-white px-2 py-1 text-sm font-bold mb-2 inline-block">
+                 Vragen bij Bron {sources.findIndex(s => s.id === sq.sourceId) !== -1 ? sources.findIndex(s => s.id === sq.sourceId) + 1 : "?"}
+               </span>
+               <div className="border border-black p-4">
+                 {sq.questions.map((q, j) => (
+                   <div key={j} className="mb-4">
+                     <p className="font-bold text-sm mb-6">{q.question}</p>
+                     <div className="border-b border-gray-300 h-6"></div>
+                     <div className="border-b border-gray-300 h-6"></div>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           ))}
+        </section>
+
+        {/* --- BRONNEN --- */}
+        <div className="page-break-before mt-8"></div>
+        <section>
+           <div className="border-b-4 border-black mb-6 pb-2">
+              <h1 className="text-3xl font-bold uppercase">Bronnenbijlage</h1>
+           </div>
+           <div className="columns-1 md:columns-2 gap-8">
+             {sources.map((s, i) => (
+               <div key={s.id} className="avoid-break mb-8 border border-black p-4 text-sm bg-white">
+                  <div className="flex justify-between items-center mb-2 border-b border-gray-300 pb-1">
+                      <span className="font-bold bg-black text-white px-2">Bron {i+1}</span>
+                      <span className="text-xs italic text-gray-500">{s.type}</span>
+                  </div>
+                  <div className="font-serif text-justify leading-relaxed">
+                      <ReactMarkdown>{s.content}</ReactMarkdown>
+                  </div>
+                  <div className="text-xs italic text-right mt-2 text-gray-500">{s.origin}</div>
+               </div>
+             ))}
+           </div>
+        </section>
       </div>
     </div>
   );

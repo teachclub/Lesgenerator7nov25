@@ -1,95 +1,74 @@
 const express = require('express');
 const router = express.Router();
 
-let citoService;
-let kleioService;
+let citoService, kleioService;
+try { citoService = require('../services/a28.cito.cjs'); } catch(e){}
+try { kleioService = require('../services/a27.kleio.cjs'); } catch(e){}
 
-try { citoService = require('../services/a28.cito.cjs'); } catch (e) { console.error('Cito load err:', e.message); }
-try { kleioService = require('../services/a27.kleio.cjs'); } catch (e) { console.error('Kleio load err:', e.message); }
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
 
-router.post(['/search', '/search-preset'], async (req, res) => {
+router.post('/search', async (req, res) => {
     try {
-        let { query, term, filters, ka, tv } = req.body;
-
-        // 1. Query Fallback & Normalisatie
-        if (!query && term) query = term;
-        let qString = Array.isArray(query) ? query.join(' ') : (query || '');
-
-        // 2. LOGICA VOOR 'NOT' OPERATOR
-        let searchPart = qString;
-        let excludeTerms = [];
-
-        // Check hoofdlettergevoelig en ongevoelig voor de zekerheid
-        const splitPattern = / NOT /i; 
-        if (splitPattern.test(qString)) {
-            const parts = qString.split(splitPattern);
-            searchPart = parts[0].trim(); // Het deel voor de NOT
-            
-            if (parts[1]) {
-                excludeTerms = parts[1]
-                    .trim()
-                    .split(/\s+/)
-                    .filter(t => t.length > 0 && t.toUpperCase() !== 'AND' && t.toUpperCase() !== 'OR');
-            }
-        }
-        
-        // Kleine opschoning voor AND/OR in het zoekdeel
-        searchPart = searchPart.replace(/ AND /gi, ' ').replace(/ OR /gi, ' ').trim();
-
-        // 3. Filters instellen
+        let { query, filters } = req.body;
         if (!filters) filters = {};
-        if (ka) filters.ka = ka; 
-        if (tv) filters.tv = tv;
 
-        // BEPALEN OF WE MOETEN ZOEKEN (HIER ZAT DE FOUT)
-        // We zoeken als er tekst is, OF als er filters (KA/TV) zijn ingesteld.
-        const hasText = searchPart.length > 0;
-        const hasFilters = (filters.ka && filters.ka.length > 0) || (filters.tv && filters.tv.length > 0);
-        const shouldSearch = hasText || hasFilters;
-
-        console.log(`[/api/search] Zoeken naar: "${searchPart}" | Filters actief: ${hasFilters} | Uitsluiten: [${excludeTerms.join(', ')}]`);
+        // Query normalisatie voor Kleio (Array behouden)
+        const termsArray = Array.isArray(query) ? query : [query];
+        
+        // Fallback string voor logs/andere services
+        const queryString = termsArray.join(' ');
 
         let allResults = [];
+        const promises = [];
 
-        // 4. Cito Zoeken
-        const useCito = filters?.cito !== false;
-        if (useCito && citoService && shouldSearch) {
+        // --- 1. CITO ZOEKACTIE ---
+        if (filters?.cito !== false && citoService) {
             try {
-                const citoHits = citoService.searchCito({ query: searchPart, filters });
-                allResults = [...allResults, ...citoHits];
-            } catch (err) { console.error('Cito fout:', err.message); }
-        }
+                // FIX VOOR CITO: filters.ka moet een Array zijn voor .map()
+                // Als het een string/nummer is (bijv "45"), maken we er ["45"] van.
+                if (filters.ka && !Array.isArray(filters.ka)) {
+                    filters.ka = [filters.ka];
+                }
 
-        // 5. Kleio Zoeken
-        const useKleio = filters?.kleio !== false;
-        if (useKleio && kleioService && shouldSearch) {
-            try {
-                const kleioHits = await kleioService.searchKleio({ query: searchPart, filters });
-                allResults = [...allResults, ...kleioHits];
-            } catch (err) { console.error('Kleio fout:', err.message); }
-        }
-
-        // 6. FILTEREN ACHTERAF (NOT logica)
-        if (excludeTerms.length > 0) {
-            const originalCount = allResults.length;
-            allResults = allResults.filter(item => {
-                const content = `${item.title || ''} ${item.description || ''} ${item.fullText || ''} ${item.date || ''}`.toLowerCase();
+                // Als we op KA filteren, hoeven we niet op tekst te zoeken in Cito
+                const citoQ = filters.ka ? "" : queryString;
                 
-                // Return FALSE als een verboden woord erin zit
-                const hasForbiddenWord = excludeTerms.some(term => content.includes(term.toLowerCase()));
-                return !hasForbiddenWord;
-            });
-            console.log(`[/api/search] NOT-filter: ${originalCount} -> ${allResults.length} items over.`);
+                const citoRes = citoService.searchCito({ query: citoQ, filters });
+                allResults.push(...citoRes);
+            } catch(e) { 
+                console.error('Cito error:', e.message); 
+            }
         }
 
-        res.json({
-            sources: allResults,
-            meta: { count: allResults.length, query: qString }
-        });
+        // --- 2. KLEIO ZOEKACTIE ---
+        if (filters?.kleio !== false && kleioService) {
+            promises.push(
+                kleioService.searchKleio({ query: termsArray, filters })
+                    .then(res => allResults.push(...res))
+            );
+        }
+
+        await Promise.all(promises);
+
+        // --- 3. NABEWERKING ---
+        if (filters.images === false) allResults = allResults.filter(i => i.type !== 'IMAGE');
+        if (filters.text === false) allResults = allResults.filter(i => i.type !== 'TEXT');
+
+        if (allResults.length > 40) {
+            allResults = shuffleArray(allResults).slice(0, 40);
+        }
+
+        res.json({ sources: allResults, meta: { count: allResults.length } });
 
     } catch (error) {
-        console.error('[/api/search] CRITICAL ERROR:', error);
-        res.status(500).json({ error: 'Interne serverfout tijdens zoeken.' });
+        console.error('[A12] Fout:', error);
+        res.status(500).json({ error: 'Error' });
     }
 });
 
