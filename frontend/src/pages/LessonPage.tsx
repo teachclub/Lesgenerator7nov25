@@ -1,21 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
-// API Base URL - voor lokaal direct naar backend
-const API_BASE_URL = 'http://localhost:8081/api';
+// Belangrijk: direct naar de backend, NIET via Vite-proxy
+const API_BASE_URL = 'http://127.0.0.1:8081/api';
 
-// Interfaces voor de data
 interface Concept {
   id?: string;
   title: string;
   [key: string]: any;
 }
+
 interface Source {
   id?: string;
   title: string;
   content?: string;
+  fullText?: string;
+  provider?: string;
   [key: string]: any;
 }
+
 interface LessonBundle {
   step1: any;
   step2: any;
@@ -23,10 +26,37 @@ interface LessonBundle {
   step4: any;
 }
 
+// Helper om POST + logging te doen
+async function safePost(path: string, body: any, label: string) {
+  const url = `${API_BASE_URL}${path}`;
+  console.log(`[LESSON] POST naar ${url} met body:`, body);
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const raw = await resp.text();
+  console.log(`[LESSON] [${label}] raw response (status ${resp.status}):`, raw);
+
+  if (!resp.ok) {
+    // laat de tekst doorlopen zodat we de backend-fout zien
+    throw new Error(`Step ${label} faalde (${resp.status}): ${raw}`);
+  }
+
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error(`[LESSON] JSON parse error in ${label}:`, e);
+    throw e;
+  }
+}
+
 const LessonPage: React.FC = () => {
   const location = useLocation() as any;
 
-  // Haal de data uit de state, NIET uit de URL (geen useSearchParams)
   const concept: Concept | undefined = location.state?.concept;
   const sources: Source[] = location.state?.sources ?? [];
 
@@ -35,10 +65,9 @@ const LessonPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Guard: alleen verder als we concept + bronnen hebben
     if (!concept || sources.length === 0) {
       console.error('[LESSON] concept of bronnen ontbreken in location.state', {
-        hasConcept: !!concept,
+        concept,
         sourcesLength: sources.length,
       });
       setError(
@@ -52,73 +81,37 @@ const LessonPage: React.FC = () => {
         setLoading(true);
         setError(null);
 
-        console.log('[LESSON] Start genereren met concept:', concept.title || 'Onbekend');
+        console.log(
+          '[LESSON] Start genereren met concept:',
+          concept.title || 'Onbekend'
+        );
         console.log('[LESSON] Aantal bronnen:', sources.length);
 
-        const base = `${API_BASE_URL}/generate-lesson-v2`;
-
         const [step1, step2, step3, step4] = await Promise.all([
-          // Stap 1
-          fetch(`${base}/step1`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ concept, sources }),
-          }).then(async (r) => {
-            const data = await r.json();
-            if (!r.ok) throw new Error(data.error || 'Fout stap 1');
-            return data;
-          }),
-
-          // Stap 2
-          fetch(`${base}/step2`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ concept }),
-          }).then(async (r) => {
-            const data = await r.json();
-            if (!r.ok) throw new Error(data.error || 'Fout stap 2');
-            return data;
-          }),
-
-          // Stap 3
-          fetch(`${base}/step3`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              concept,
-              sources,
-              quadrantContext: null,
-            }),
-          }).then(async (r) => {
-            const data = await r.json();
-            if (!r.ok) throw new Error(data.error || 'Fout stap 3');
-            return data;
-          }),
-
-          // Stap 4
-          fetch(`${base}/step4`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ concept, sources }),
-          }).then(async (r) => {
-            const data = await r.json();
-            if (!r.ok) throw new Error(data.error || 'Fout stap 4');
-            return data;
-          }),
+          safePost('/generate-lesson-v2/step1', { concept, sources }, 'step1'),
+          safePost('/generate-lesson-v2/step2', { concept }, 'step2'),
+          safePost(
+            '/generate-lesson-v2/step3',
+            { concept, sources, quadrantContext: null },
+            'step3'
+          ),
+          safePost('/generate-lesson-v2/step4', { concept, sources }, 'step4'),
         ]);
 
         console.log('[LESSON] Alle stappen klaar.');
         setLesson({ step1, step2, step3, step4 });
       } catch (err: any) {
         console.error('[LESSON] Fout bij genereren:', err);
-        setError(err.message || 'Er ging iets mis bij het genereren van de les. Controleer de console/backend log voor details.');
+        setError(
+          `Er ging iets mis bij het genereren van de les. Details: ${err?.message || err}`
+        );
       } finally {
         setLoading(false);
       }
     };
 
     run();
-  }, [concept, sources.length]);
+  }, [concept, sources]);
 
   if (error) {
     return <div className="p-4 text-red-600">{error}</div>;
@@ -132,22 +125,46 @@ const LessonPage: React.FC = () => {
     <main className="p-4 space-y-6">
       <section>
         <h1 className="text-2xl font-bold mb-2">
-          {lesson.step1.title || 'Gegenereerde les'}
+          {lesson.step1?.docentenInstructie?.wat ||
+            lesson.step1?.title ||
+            'Gegenereerde les'}
         </h1>
-        <h2 className="font-semibold mb-1">Leerdoelen</h2>
+
+        <h2 className="font-semibold mb-1">Docenteninstructie – WAT / HOE / WAAROM</h2>
         <pre className="whitespace-pre-wrap text-sm">
-          {lesson.step1.learningGoal}
+{JSON.stringify(lesson.step1?.docentenInstructie ?? {}, null, 2)}
+        </pre>
+
+        <h2 className="font-semibold mt-4 mb-1">Lesplanning (tabel)</h2>
+        <pre className="whitespace-pre-wrap text-sm">
+{lesson.step1?.lesPlanning?.tabelMarkdown ?? ''}
         </pre>
       </section>
 
       <section>
-        <h2 className="font-semibold mb-1">Lesfasen</h2>
+        <h2 className="font-semibold mb-1">Leerlingeninleiding & Hoofdvraag</h2>
         <pre className="whitespace-pre-wrap text-sm">
-          {JSON.stringify(lesson.step2, null, 2)}
+Inleiding:
+{lesson.step2?.leerlingInleiding ?? ''}
+
+Hoofdvraag:
+{lesson.step2?.hoofdvraag ?? ''}
         </pre>
       </section>
 
-      {/* Hier kun je later stap 3 en 4 mooi vormgeven */}
+      <section>
+        <h2 className="font-semibold mb-1">Leerlingwerkblad – vragen & tabellen</h2>
+        <pre className="whitespace-pre-wrap text-sm">
+{JSON.stringify(lesson.step3 ?? {}, null, 2)}
+        </pre>
+      </section>
+
+      <section>
+        <h2 className="font-semibold mb-1">Antwoordmodel (docent)</h2>
+        <pre className="whitespace-pre-wrap text-sm">
+{JSON.stringify(lesson.step4 ?? {}, null, 2)}
+        </pre>
+      </section>
     </main>
   );
 };
