@@ -1,0 +1,7 @@
+/* Zorg ervoor dat bronnen altijd in een nieuwe kolom beginnen om te voorkomen dat ze over twee kolommen worden verspreid. */
+@media print {
+    /* Vervang '.lesson-source' door de daadwerkelijke CSS-klasse van uw bron-elementen. */
+    .lesson-source {
+        break-before: column;
+    }
+}

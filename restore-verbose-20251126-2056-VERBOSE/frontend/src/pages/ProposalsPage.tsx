@@ -2,30 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelectionStore, Source } from '../state/selection.store';
 import { useQueryStore } from '../state/query.store';
-import { useLessonStoreV2 } from '../state/lesson-v2.store';
 
 interface Proposal {
-  title: string;
-  targetAudience: string;
-  hook: string;
-  rationale: string;
-  selectedSourceIds: string[];
+  title: string; targetAudience: string; hook: string; rationale: string; selectedSourceIds: string[];
 }
 
-interface ViewingState {
-  source: Source;
-  proposalIndex: number;
-}
+interface ViewingState { source: Source; proposalIndex: number; }
 
 const ProposalsPage: React.FC = () => {
   const navigate = useNavigate();
   const { sources } = useSelectionStore();
   const { query } = useQueryStore();
-  const { setLessonPlan } = useLessonStoreV2();
   
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
-  
   const [feedbackInputs, setFeedbackInputs] = useState<{[key: number]: string}>({});
   const [refiningStates, setRefiningStates] = useState<{[key: number]: boolean}>({});
   const [viewingState, setViewingState] = useState<ViewingState | null>(null);
@@ -34,8 +24,9 @@ const ProposalsPage: React.FC = () => {
   const getProxiedImageUrl = (source: Source) => {
     if (!source || !source.imageUrl) return undefined;
     const url = source.imageUrl.toLowerCase();
-    const needsProxy = source.provider === 'Kleio' || source.provider === 'Cito' || url.includes('vgnkleio') || url.includes('cito');
-    if (needsProxy) return `http://localhost:8081/api/image-proxy?url=${encodeURIComponent(source.imageUrl)}`;
+    if (source.provider === 'Kleio' || source.provider === 'Cito' || url.includes('vgnkleio') || url.includes('cito')) {
+        return `http://localhost:8081/api/image-proxy?url=${encodeURIComponent(source.imageUrl)}`;
+    }
     return source.imageUrl;
   };
 
@@ -84,25 +75,19 @@ const ProposalsPage: React.FC = () => {
     finally { setRefiningStates(prev => ({ ...prev, [idx]: false })); }
   };
 
-  // --- HIER DE TRIGGER VOOR DE ESTAFETTE ---
+  // --- DE FIX: OPEN IN NIEUW TABBLAD ---
   const handleChoose = (prop: Proposal) => {
-      // Reset van eventueel bestaand lesplan
-      setLessonPlan(null);
-      
       const safeIds = prop.selectedSourceIds || [];
-      let usedSources = sources.filter(s => safeIds.includes(s.id));
+      const usedSources = sources.filter(s => safeIds.includes(s.id));
 
-      // Fallback: als filtering faalt, gebruik alle bronnen
-      if (usedSources.length === 0) {
-        console.warn('[PROPOSALS] usedSources is leeg, val terug op alle sources uit selection.store');
-        usedSources = sources;
-      }
+      // 1. Sla data op in LocalStorage (zodat het nieuwe tabblad het kan lezen)
+      localStorage.setItem('lessonContext', JSON.stringify({
+          concept: prop,
+          sources: usedSources
+      }));
 
-      console.log('[PROPOSALS] Start les met concept:', prop.title);
-      console.log('[PROPOSALS] Aantal bronnen voor les:', usedSources.length);
-
-      // Navigeer naar /lesson en geef de startdata mee in de state
-      navigate('/lesson', { state: { concept: prop, sources: usedSources } });
+      // 2. Open nieuw tabblad
+      window.open('/lesson', '_blank');
   };
 
   if (loading) return <div className="p-10 text-center font-bold">🤖 Concepten bedenken...</div>;
@@ -128,7 +113,7 @@ const ProposalsPage: React.FC = () => {
                     <div className="bg-gray-50 p-3 rounded border border-gray-200"><div className="flex gap-2"><input type="text" disabled={isRefining} value={feedbackInputs[idx] || ''} onChange={(e) => setFeedbackInputs({...feedbackInputs, [idx]: e.target.value})} placeholder="Stuur AI bij..." className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"/><button onClick={() => handleRefine(idx)} disabled={isRefining} className="bg-gray-800 text-white text-xs font-bold px-3 py-1 rounded hover:bg-black disabled:opacity-50">{isRefining ? '...' : 'Pas aan'}</button></div></div>
                     <div><h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex justify-between"><span>Bronnenmix</span><span className="bg-gray-100 px-2 rounded text-gray-600">{safeIds.length}</span></h4><div className="space-y-2">{safeIds.map((sourceId, listIdx) => { const source = sources.find(s => s.id === sourceId); if (!source) return null; const imgUrl = getProxiedImageUrl(source); const isTop = listIdx < 5; return ( <div key={sourceId} onClick={() => setViewingState({ source, proposalIndex: idx })} className={`relative flex gap-3 p-2 rounded border cursor-zoom-in transition-colors group ${isTop ? 'border-amber-300 bg-amber-50' : 'border-gray-100 bg-white hover:border-indigo-200'}`}> {isTop && <div className="absolute -top-2 -left-1 text-xs bg-white rounded-full shadow-sm border border-amber-200 px-1">⭐</div>} <div className="w-12 h-12 bg-gray-200 shrink-0 rounded overflow-hidden"> {imgUrl ? <img src={imgUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-[8px] text-gray-400">Geen beeld</div>} </div> <div className="flex-1 min-w-0"> <div className="text-xs font-bold text-gray-900 truncate">{source.title}</div> <div className="text-[10px] text-gray-500 truncate">{source.provider} • {source.type}</div> </div> <button onClick={(e) => { e.stopPropagation(); handleRemoveSource(idx, source.id); }} className="opacity-0 group-hover:opacity-100 absolute top-1 right-1 bg-white text-red-500 hover:bg-red-100 border border-gray-200 rounded p-1 shadow-sm transition-all" title="Verwijder"><span className="text-xs font-bold px-1">✕</span></button> </div> ); })}</div></div>
                 </div>
-                <div className="pt-4 mt-2 border-t border-gray-100"><button onClick={() => handleChoose(prop)} className="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors shadow-md flex justify-center items-center gap-2">Start Les Maken →</button></div>
+                <div className="pt-4 mt-2 border-t border-gray-100"><button onClick={() => handleChoose(prop)} className="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors shadow-md flex justify-center items-center gap-2">Start Les Maken (Nieuw Tabblad) ↗</button></div>
               </div>
             </div>
             );
@@ -148,6 +133,4 @@ const ProposalsPage: React.FC = () => {
     </div>
   );
 };
-
 export default ProposalsPage;
-

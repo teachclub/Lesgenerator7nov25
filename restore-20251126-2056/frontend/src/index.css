@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Simpele extra styles voor als tailwind niet pakt */
+.bronnen-kaart {
+    border: 1px solid #ccc;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    background: white;
+}
+.bron-afbeelding {
+    max-width: 300px;
+    margin-top: 10px;
+    border-radius: 4px;
+}
