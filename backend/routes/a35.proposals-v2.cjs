@@ -106,7 +106,7 @@ router.post('/propose-lessons-v2', async (req, res) => {
     `;
 
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL_CHIPS || 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL_CHIPS || 'gemini-2.5-flash-lite' });
 
     console.log("[A35] 🚀 Start V2 Voorstellen (Met Alle Voorbeelden)...");
     const result = await model.generateContent(prompt);

@@ -1,0 +1,327 @@
+/* === LesGO – globale layout === */
+
+.lesgo-generator-page {
+  min-height: 100vh;
+  background: #f3f4f6;
+  color: #111827;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+.lesgo-generator-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  gap: 1.5rem;
+}
+
+/* === Sidebar (links) === */
+
+.lesgo-sidebar {
+  background: #ffffff;
+  border-radius: 1rem;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.lesgo-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+  letter-spacing: 0.03em;
+}
+
+.lesgo-panel {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.lesgo-panel h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.lesgo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.9rem;
+}
+
+.lesgo-field span {
+  font-size: 0.85rem;
+  color: #4b5563;
+}
+
+.lesgo-field input,
+.lesgo-field textarea {
+  border-radius: 0.5rem;
+  border: 1px solid #d1d5db;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lesgo-field input:focus,
+.lesgo-field textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+.lesgo-hint {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.lesgo-hint code {
+  background: #f3f4f6;
+  padding: 0.1rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+}
+
+/* === Buttons === */
+
+.lesgo-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.lesgo-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid #d1d5db;
+  background: white;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease,
+    transform 0.05s ease;
+}
+
+.lesgo-button.primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.lesgo-button:hover:not(:disabled) {
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  transform: translateY(-1px);
+}
+
+.lesgo-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
+}
+
+.lesgo-error {
+  font-size: 0.8rem;
+  color: #b91c1c;
+}
+
+/* === Main (rechterkant) === */
+
+.lesgo-main {
+  background: #ffffff;
+  border-radius: 1rem;
+  padding: 1.5rem 1.75rem;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  overflow: auto;
+  max-height: calc(100vh - 3rem);
+}
+
+.lesgo-placeholder,
+.lesgo-loading {
+  padding: 2rem 0;
+  text-align: center;
+}
+
+.lesgo-placeholder h2 {
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.lesgo-output-wrapper {
+  border-radius: 0.75rem;
+  border: 1px solid #e5e7eb;
+  padding: 1.25rem 1.5rem;
+  background: #f9fafb;
+}
+
+/* === LesGO-output: algemene tekst === */
+
+#lesgo-output {
+  /* dit id is de hook voor html2pdf */
+}
+
+.lesgo-output {
+  max-width: 900px;
+  margin: 0 auto;
+  background: #ffffff;
+  padding: 1.5rem 1.75rem;
+  border-radius: 0.75rem;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  color: #111827;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+/* Koppen */
+
+.lesgo-output h1 {
+  font-size: 1.8rem;
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  border-bottom: 3px solid #111827;
+  padding-bottom: 0.4rem;
+}
+
+.lesgo-output h2 {
+  font-size: 1.4rem;
+  margin-top: 1.6rem;
+  margin-bottom: 0.4rem;
+  border-bottom: 2px solid #d1d5db;
+  padding-bottom: 0.25rem;
+}
+
+.lesgo-output h3 {
+  font-size: 1.15rem;
+  margin-top: 1.2rem;
+  margin-bottom: 0.35rem;
+}
+
+/* Paragrafen en lijsten */
+
+.lesgo-output p {
+  margin: 0.35rem 0;
+}
+
+.lesgo-output ul,
+.lesgo-output ol {
+  margin: 0.35rem 0 0.35rem 1.25rem;
+}
+
+.lesgo-output li {
+  margin: 0.15rem 0;
+}
+
+/* Code / inline */
+
+.lesgo-output code {
+  background: #f3f4f6;
+  padding: 0.1rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+}
+
+/* === Tabellen (ook samenwerking & kwadrant) === */
+
+.lesgo-output table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+}
+
+.lesgo-output table,
+.lesgo-output th,
+.lesgo-output td {
+  border: 1px solid #d1d5db;
+}
+
+.lesgo-output th,
+.lesgo-output td {
+  padding: 0.45rem 0.5rem;
+  vertical-align: top;
+}
+
+.lesgo-output th {
+  background: #f3f4f6;
+  font-weight: 600;
+  text-align: left;
+}
+
+.lesgo-output tr:nth-child(even) td {
+  background: #fafafa;
+}
+
+/* === Afbeeldingen in bronnen (als Markdown <img>) === */
+
+.lesgo-output img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.75rem auto;
+}
+
+.lesgo-output em {
+  font-style: italic;
+}
+
+/* === Docent- en leerlingblokken (optioneel als je ze later in Markdown gaat labelen) === */
+
+.lesgo-output .docent-blok {
+  background: #fef9c3;
+  border-left: 6px solid #d97706;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  border-radius: 0.5rem;
+}
+
+.lesgo-output .leerling-blok {
+  background: #dbeafe;
+  border-left: 6px solid #1d4ed8;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  border-radius: 0.5rem;
+}
+
+/* === Print/PDF tweaks === */
+
+@media print {
+  .lesgo-generator-page {
+    background: #ffffff;
+  }
+
+  .lesgo-sidebar,
+  .lesgo-title,
+  .lesgo-panel,
+  .lesgo-actions {
+    display: none !important;
+  }
+
+  .lesgo-main {
+    max-height: none;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .lesgo-output-wrapper {
+    border: none;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .lesgo-output {
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+  }
+}
+
