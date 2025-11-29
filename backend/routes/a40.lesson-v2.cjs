@@ -1,364 +1,389 @@
 // routes/a40.lesson-v2.cjs
-// Lessy 2000 – STRICT MODE: Dwingende Markdown-sjablonen voor tabellen en kwadranten
+// IMPLEMENTATIE MASTERPLAN: Schema-Gestuurde Architectuur & Poortwachter Validatie
+// Met interne opsplitsing van stap 3 (3a/3b) en stap 4 (4a/4b)
 
 const express = require('express');
+const router = express.Router();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-const router = express.Router();
-
-// Helper om AI-tekst schoon te maken zodat JSON.parse minder snel crasht
+// Helper: Schoon JSON op (verwijdert markdown fences indien aanwezig)
 function cleanJson(text) {
-  if (!text || typeof text !== 'string') return '';
-
-  let clean = text.trim();
-
-  // 1. Strip ```json ... ``` of ``` ... ```
-  if (clean.startsWith('```')) {
-    clean = clean.replace(/```json/gi, '').replace(/```/g, '').trim();
-  }
-
-  // 2. Pak alleen van eerste { tot laatste }
+  if (!text) return '';
+  let clean = text.replace(/```json/gi, '').replace(/```/g, '');
   const first = clean.indexOf('{');
   const last = clean.lastIndexOf('}');
   if (first !== -1 && last !== -1 && last > first) {
     clean = clean.substring(first, last + 1);
   }
-
-  // 3. Foute escapes: "\|" -> "|"
-  clean = clean.replace(/\\\|/g, '|');
-
-  // 4. Weg met rare control characters (< 0x20 behalve \n\r\t)
-  clean = clean.replace(/[\u0000-\u0019]/g, (c) => {
-    if (c === '\n' || c === '\r' || c === '\t') return c;
-    return ' ';
-  });
-
   return clean.trim();
 }
 
-// 1 centrale model-helper, zodat hij met jouw env-vars werkt
 const getModel = () => {
   const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    throw new Error('GOOGLE_API_KEY ontbreekt in environment.');
-  }
-
+  if (!apiKey) throw new Error('CRITICAL: GOOGLE_API_KEY ontbreekt in environment.');
+  
   const genAI = new GoogleGenerativeAI(apiKey);
-
-  // Volgorde: LESSON → GENERATE → PROPOSALS → CHIPS → fallback
-  const modelName =
-    process.env.GEMINI_MODEL_LESSON ||
-    process.env.GEMINI_MODEL_GENERATE ||
-    process.env.GEMINI_MODEL_PROPOSALS ||
-    process.env.GEMINI_MODEL_CHIPS ||
-    'gemini-2.5-flash-lite';
-
-  console.log('[A40] ▶ Gebruik lesmodel:', modelName);
-
-  return genAI.getGenerativeModel({ model: modelName });
+  const modelName = process.env.GEMINI_MODEL_LESSON_V2 || 'gemini-2.5-flash-lite';
+  
+  return genAI.getGenerativeModel({ 
+    model: modelName,
+    generationConfig: {
+      responseMimeType: "application/json"
+    }
+  });
 };
 
-// DE HARDE REGELS (Worden boven elke prompt geplakt)
-const BASE_RULES = `
-JE ROL:
-- Je bent LESSY 2000, een vakcollega geschiedenis.
-- Je werkt strikt volgens de instructies hieronder.
+// --- VALIDATIES & BRON-MAPPING ---
 
-BRONVEILIGHEID (CRUCIAAL):
-- De bronnen zijn HEILIG. Je mag de brontekst NIET wijzigen, samenvatten of herschrijven.
-- Je mag GEEN nieuwe feiten toevoegen die niet in de bron staan.
-- Baseer je antwoorden 100% op de aangeleverde bronteksten.
+const validateContext = (concept, sources, stepName) => {
+  if (!concept) throw new Error(`[${stepName}] Estafette fout: Geen concept ontvangen.`);
+  if (!sources || !Array.isArray(sources)) throw new Error(`[${stepName}] Estafette fout: Geen bronnenlijst ontvangen.`);
+  if (sources.length === 0) throw new Error(`[${stepName}] Estafette fout: Bronnenlijst is leeg. De AI mag niet hallucineren.`);
+};
 
-CONSISTENTIE:
-- Verwijs alleen naar bestaande bronnummers.
-- Als een bronnummer niet bestaat:
-  - Vul GEEN verzonnen bron in.
-  - Zet validation.status = "error" met een duidelijke melding.
-- Anders validation.status = "ok".
-
-STRUCTUUR:
-- Lever ALTIJD geldige JSON.
-- Voor tabellen en kwadranten MOET je de opgegeven Markdown-structuur letterlijk overnemen.
-- GEEN uitleg eromheen, GEEN markdown-fences (\`\`\`), GEEN platte tekst buiten de JSON.
-`;
-
-// Eén plek waar we AI-output → JSON → response doen
-function respondWithJsonFromModel(res, rawText, contextLabel) {
-  try {
-    const cleaned = cleanJson(rawText);
-    const parsed = JSON.parse(cleaned);
-    return res.json(parsed);
-  } catch (err) {
-    console.error(`[A40] JSON parse-fout bij ${contextLabel}:`, err);
-    console.error('[A40] Ruwe AI-tekst was:\n', rawText);
-    return res.status(500).json({
-      error: 'AI_JSON_PARSE_ERROR',
-      step: contextLabel,
-      message: 'De AI-output kon niet als geldige JSON gelezen worden.',
-    });
-  }
-}
-
-// Bronnen mappen naar iets wat in de prompt leesbaar is
 function mapSourcesForPrompt(sources = []) {
   return sources.map((s, idx) => ({
-    id: s.id || String(idx + 1),
-    number: idx + 1,
-    title: s.title || `Bron ${idx + 1}`,
-    content: s.fullText || s.content || '',
+    id: idx + 1,
+    titel: s.title || `Bron ${idx + 1}`,
+    inhoud: s.fullText || s.content || '(Geen tekst)'
   }));
 }
 
-// --- STAP 1: Docent & Planning ---
-router.post('/generate-lesson-v2/step1', async (req, res) => {
-  try {
-    const { concept, sources } = req.body || {};
-    if (!concept) return res.status(400).json({ error: 'concept ontbreekt' });
-
-    const prompt = `${BASE_RULES}
-TAKENTAAL STAP 1 – DOCENTENINSTRUCTIE & PLANNING
-CONCEPT: ${JSON.stringify(concept)}
-BRONNEN (titels): ${JSON.stringify(
-      mapSourcesForPrompt(sources).map((b) => ({ number: b.number, title: b.title }))
-    )}
-
-TAAK:
-Maak JSON met:
-1. "docentenInstructie": {
-     "wat": string,
-     "hoe": string,
-     "waarom": string
-   }
-2. "lesPlanning": {
-     "tabelMarkdown": string
-   }
-
-Regels voor de lesPlanning-tabel:
-- Gebruik voor de tabel EXACT deze kop (in Markdown):
-
-  | Fase | Tijd | Doel | Wat doet de docent? | Wat doen de leerlingen? | Materialen |
-  |---|---|---|---|---|---|
-
-- Voeg daarna voor elke fase (bijv. Start, Verkenning, Verdieping, Afsluiting) één rij toe.
-
-TECHNIEK:
-- Lever ALLEEN geldige JSON terug, GEEN tekst eromheen.
-`;
-
-    const model = getModel();
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-      },
-    });
-
-    return respondWithJsonFromModel(res, result.response.text(), 'step1');
-  } catch (e) {
-    console.error('[A40] Fout step1:', e);
-    return res.status(500).json({ error: e.message || 'Fout in step1' });
-  }
-});
-
-// --- STAP 2: Inleiding & Dimensies (CONCRETE LABELS) ---
-router.post('/generate-lesson-v2/step2', async (req, res) => {
-  try {
-    const { concept } = req.body || {};
-    if (!concept) return res.status(400).json({ error: 'concept ontbreekt' });
-
-    const prompt = `${BASE_RULES}
-TAKENTAAL STAP 2 – INLEIDING & DIMENSIES
-CONCEPT: ${JSON.stringify(concept)}
-
-BELANGRIJK VOOR HET KWADRANT:
-- Gebruik GEEN abstracte containerbegrippen (zoals "Economisch" of "Politiek") als as-labels.
-- Gebruik CONCRETE, inhoudelijke subdimensies die een dilemma vormen.
-- Voorbeeld GOED: "Geopolitieke rivaliteit" vs "Vreedzaam protest".
-- Voorbeeld FOUT: "Politiek" vs "Sociaal".
-
-TAAK:
-Maak JSON met:
-{
-  "leerlingInleiding": string,  // 80–120 woorden, pakkend, B1
-  "hoofdvraag": string,        // presentistisch, max 20 woorden
-  "kernDimensies": [ string ], // bijv. ["politiek", "sociaal-economisch"]
-  "subDimensies": [ string ],  // concretere labels
-  "kwadrantAsLabels": {
-    "X_links": string,
-    "X_rechts": string,
-    "Y_boven": string,
-    "Y_onder": string
-  }
+// Kortere variant voor snippet-gebruik (minder tokens)
+function mapSourcesForSnippets(sources = [], maxChars = 600) {
+  return sources.map((s, idx) => {
+    const raw = s.fullText || s.content || '(Geen tekst)';
+    return {
+      id: idx + 1,
+      titel: s.title || `Bron ${idx + 1}`,
+      snippet: raw.slice(0, maxChars)
+    };
+  });
 }
 
-TECHNIEK:
-- Alleen geldige JSON, GEEN omringende tekst.
+// Centrale Prompt Regels (SSOT component)
+const BASE_SYSTEM_PROMPT = `
+ROL: Je bent een expert in geschiedenisdidactiek en JSON-constructie.
+DOEL: Genereer lesmateriaal strikt volgens het opgegeven JSON-schema.
+CONSTRAINT: Gebruik ALLEEN de aangeleverde bronnen. Verzin GEEN feiten.
+OUTPUT: Alleen valide JSON.
 `;
 
-    const model = getModel();
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-      },
-    });
+// -----------------------------------------------------
+// STEP 1 – INSTRUCTIE & PLANNING
+// -----------------------------------------------------
+router.post('/generate-lesson-v2/step1', async (req, res) => {
+  try {
+    const { concept, sources } = req.body;
+    validateContext(concept, sources, 'STEP 1');
 
-    return respondWithJsonFromModel(res, result.response.text(), 'step2');
+    const prompt = `
+      ${BASE_SYSTEM_PROMPT}
+      
+      CONTEXT:
+      Concept: ${JSON.stringify(concept)}
+      Bronnen: ${JSON.stringify(mapSourcesForPrompt(sources))}
+
+      TAAK:
+      Genereer de docenteninstructie en planning in dit exacte JSON formaat:
+      {
+        "docentenInstructie": {
+          "wat": "Korte beschrijving van de kernactiviteit (B2 niveau).",
+          "hoe": "Korte beschrijving van de werkvorm en aanpak.",
+          "waarom": "Didactische onderbouwing van de meerwaarde."
+        },
+        "lesPlanning": {
+          "tabelMarkdown": "| Fase | Tijd | Activiteit |\\n|---|---|---|\\n..."
+        }
+      }
+    `;
+
+    const model = getModel();
+    const result = await model.generateContent(prompt);
+    return res.json(JSON.parse(cleanJson(result.response.text())));
   } catch (e) {
-    console.error('[A40] Fout step2:', e);
-    return res.status(500).json({ error: e.message || 'Fout in step2' });
+    console.error('[Step 1 Error]', e.message);
+    return res.status(500).json({ error: e.message });
   }
 });
 
-// --- STAP 3: Werkblad (STRENGE TABEL FORMATTING) ---
+// -----------------------------------------------------
+// STEP 2 – INLEIDING & CONTEXT
+// -----------------------------------------------------
+router.post('/generate-lesson-v2/step2', async (req, res) => {
+  try {
+    const { concept } = req.body;
+    if (!concept) throw new Error("Step 2 mist concept.");
+
+    const prompt = `
+      ${BASE_SYSTEM_PROMPT}
+      CONTEXT: ${JSON.stringify(concept)}
+
+      TAAK:
+      Genereer de inleiding voor de leerling.
+      JSON Formaat:
+      {
+        "hoofdvraag": "Prikkelende, presentistische hoofdvraag (max 20 woorden).",
+        "leerlingInleiding": "Wervende inleiding (80-120 woorden, B1 niveau).",
+        "kwadrantAsLabels": {
+           "X_links": "Label X-as Links (bijv. Angst)",
+           "X_rechts": "Label X-as Rechts (bijv. Hoop)",
+           "Y_boven": "Label Y-as Boven (bijv. Macht)",
+           "Y_onder": "Label Y-as Onder (bijv. Onmacht)"
+        }
+      }
+      Zorg dat de as-labels echte dilemma's of tegenstellingen zijn.
+    `;
+
+    const model = getModel();
+    const result = await model.generateContent(prompt);
+    return res.json(JSON.parse(cleanJson(result.response.text())));
+  } catch (e) {
+    console.error('[Step 2 Error]', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// -----------------------------------------------------
+// INTERNAL 3A – VRAGEN PER BRON
+// -----------------------------------------------------
+async function generateBronVragen(model, concept, sources) {
+  const snippets = mapSourcesForSnippets(sources, 600);
+  const vragen = [];
+
+  for (const bron of snippets) {
+    const prompt = `
+      ${BASE_SYSTEM_PROMPT}
+
+      CONTEXT:
+      Concept: ${JSON.stringify(concept)}
+      Bron:
+      {
+        "bronNummer": ${bron.id},
+        "titel": ${JSON.stringify(bron.titel)},
+        "snippet": ${JSON.stringify(bron.snippet)}
+      }
+
+      TAAK:
+      Maak precies 3 analysevragen voor deze éne bron in onderstaand JSON-formaat:
+      {
+        "bronNummer": ${bron.id},
+        "observeren": "Vraag over wat de leerling letterlijk ziet/leest in deze bron.",
+        "interpreteren": "Vraag over de betekenis of bedoeling van deze bron.",
+        "hoofdvraagRelatie": "Vraag die expliciet de link legt tussen deze bron en de hoofdvraag van de les."
+      }
+
+      Let op:
+      - Gebruik B1/B2-taal.
+      - Geen antwoorden geven, alleen vragen.
+      - Verwijs niet naar andere bronnen.
+    `;
+
+    const result = await model.generateContent(prompt);
+    const parsed = JSON.parse(cleanJson(result.response.text()));
+
+    vragen.push({
+      bronNummer: parsed.bronNummer || bron.id,
+      observeren: parsed.observeren || '',
+      interpreteren: parsed.interpreteren || '',
+      hoofdvraagRelatie: parsed.hoofdvraagRelatie || ''
+    });
+  }
+
+  return vragen;
+}
+
+// -----------------------------------------------------
+// INTERNAL 3B – LEGE TABELLEN + REFLECTIE
+// -----------------------------------------------------
+async function generateLeerlingWerkblad(model, concept, bronVragen, quadrantContext) {
+  const compactVragen = bronVragen.map(v => ({
+    bronNummer: v.bronNummer,
+    observeren: v.observeren,
+    interpreteren: v.interpreteren,
+    hoofdvraagRelatie: v.hoofdvraagRelatie
+  }));
+
+  const prompt = `
+    ${BASE_SYSTEM_PROMPT}
+
+    CONTEXT:
+    Concept: ${JSON.stringify(concept)}
+    BronVragen: ${JSON.stringify(compactVragen)}
+    Assen: ${JSON.stringify(quadrantContext || {})}
+
+    TAAK:
+    Genereer uitsluitend:
+    - een lege samenwerkingstabel,
+    - een leeg kwadrant (2x2),
+    - een reflectieopdracht.
+
+    JSON Formaat:
+    {
+      "samenwerkingTabelLeeg": "| Bron | Wie spreekt? | Kerngevoel | Subdimensie | Verklaring |\\n|---|---|---|---|---|\\n| . | . | . | . | . |",
+      "kwadrantLeeg": "Markdown string van een lege 2x2 tabel met de opgegeven assen.",
+      "reflectieOpdracht": "Een prikkelende eindopdracht voor leerlingen (100-150 woorden, B1)."
+    }
+
+    Richtlijnen:
+    - De tabel moet duidelijk maken wat leerlingen moeten invullen, maar nog geen inhoud bevatten.
+    - Het kwadrant moet de assenlabels bevatten, maar nog geen bronnummers.
+    - De reflectieopdracht verwijst naar de hoofdvraag en het werken met de bronnen.
+  `;
+
+  const result = await model.generateContent(prompt);
+  const parsed = JSON.parse(cleanJson(result.response.text()));
+
+  return {
+    samenwerkingTabelLeeg: parsed.samenwerkingTabelLeeg || '',
+    kwadrantLeeg: parsed.kwadrantLeeg || '',
+    reflectieOpdracht: parsed.reflectieOpdracht || ''
+  };
+}
+
+// -----------------------------------------------------
+// STEP 3 – ANALYSE & TABELLEN (3A + 3B)
+// -----------------------------------------------------
 router.post('/generate-lesson-v2/step3', async (req, res) => {
   try {
     const { concept, sources, quadrantContext } = req.body || {};
-    if (!concept || !sources) return res.status(400).json({ error: 'data ontbreekt' });
-
-    const mapped = mapSourcesForPrompt(sources);
-    const axes = quadrantContext || {
-      X_links: 'Links',
-      X_rechts: 'Rechts',
-      Y_boven: 'Boven',
-      Y_onder: 'Onder',
-    };
-
-    const prompt = `${BASE_RULES}
-TAKENTAAL STAP 3 – WERKBLAD TABELLEN
-CONCEPT: ${JSON.stringify(concept)}
-BRONNEN: ${JSON.stringify(mapped)}
-KWADRANT-ASSEN: ${JSON.stringify(axes)}
-
-JE MOET JE HOUDEN AAN DEZE EXACTE MARKDOWN-FORMATS VOOR DE TABELLEN.
-WIJK NIET AF VAN DE KOLOMMEN.
-
-TAAK 1: Vragen per bron (JSON Array)
-- Maak voor elke bron 3 vragen:
-  - "observeren" (wat zie je / lees je concreet?)
-  - "interpreteren" (wat betekent dat in context?)
-  - "hoofdvraagRelatie" (hoe helpt dat de hoofdvraag te beantwoorden?)
-
-TAAK 2: Samenwerkingstabel (Markdown String)
-- Gebruik EXACT deze kopregel en laat de rijen LEGEN (met puntjes):
-
-| Bron | Wie spreekt? | Kerngevoel / overtuiging | Gekozen subdimensie | Twee verklaringen (kort) |
-|---|---|---|---|---|
-| 1 | ... | ... | ... | ... |
-
-- Voeg voor iedere bron een eigen rij toe, met alleen "..." als placeholders.
-
-TAAK 3: Kwadrant (Markdown String)
-- Maak een 2x2 tabel met EXACT deze indeling. Zet de as-labels op de juiste plek:
-
-| | **${axes.X_links}** | **${axes.X_rechts}** |
-|---|---|---|
-| **${axes.Y_boven}** | ... | ... |
-| **${axes.Y_onder}** | ... | ... |
-
-TAAK 4: Reflectieopdracht (String)
-- Korte opdracht in leerlingtaal (3–4 zinnen) waarin ze hun positie in het kwadrant moeten verantwoorden.
-
-OUTPUT JSON (ENKEL DIT!):
-{
-  "bronVragen": [
-    {
-      "bronNummer": number,
-      "observerenVraag": string,
-      "interpreterenVraag": string,
-      "hoofdvraagRelatieVraag": string
-    }
-  ],
-  "samenwerkingTabelLeeg": "MARKDOWN_STRING",
-  "kwadrantLeeg": "MARKDOWN_STRING",
-  "reflectieOpdracht": string,
-  "validation": { "status": "ok", "message": "" }
-}
-`;
+    validateContext(concept, sources, 'STEP 3');
 
     const model = getModel();
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-      },
-    });
 
-    return respondWithJsonFromModel(res, result.response.text(), 'step3');
+    const bronVragen = await generateBronVragen(model, concept, sources);
+    const werkblad = await generateLeerlingWerkblad(model, concept, bronVragen, quadrantContext);
+
+    return res.json({
+      bronVragen,
+      samenwerkingTabelLeeg: werkblad.samenwerkingTabelLeeg,
+      kwadrantLeeg: werkblad.kwadrantLeeg,
+      reflectieOpdracht: werkblad.reflectieOpdracht
+    });
   } catch (e) {
-    console.error('[A40] Fout step3:', e);
-    return res.status(500).json({ error: e.message || 'Fout in step3' });
+    console.error('[Step 3 Error]', e.message);
+    return res.status(500).json({ error: e.message });
   }
 });
 
-// --- STAP 4: Antwoordmodel (STRENGE TABEL FORMATTING) ---
+// -----------------------------------------------------
+// INTERNAL 4A – INGEVULDE TABELLEN (ANTWOORDMODEL)
+// -----------------------------------------------------
+async function generateIngevuldeTabellen(model, concept, bronVragen) {
+  const compactVragen = bronVragen.map(v => ({
+    bronNummer: v.bronNummer,
+    observeren: v.observeren,
+    interpreteren: v.interpreteren,
+    hoofdvraagRelatie: v.hoofdvraagRelatie
+  }));
+
+  const prompt = `
+    ${BASE_SYSTEM_PROMPT}
+
+    CONTEXT:
+    Concept: ${JSON.stringify(concept)}
+    BronVragen: ${JSON.stringify(compactVragen)}
+
+    TAAK:
+    Geef een ingevuld voorbeeld van:
+    - een samenwerkingstabel,
+    - een kwadrant met bronnummers en heel korte toelichting.
+
+    JSON Formaat:
+    {
+      "samenwerkingTabelIngevuld": "Markdown tabel met ingevulde voorbeeldantwoorden per bron (1 regel per bron).",
+      "kwadrantIngevuld": "Markdown 2x2-tabel met in elk vak de relevante bronnummers en een korte toelichting."
+    }
+
+    Richtlijnen:
+    - Gebruik alleen de genoemde bronnummers.
+    - Antwoorden zijn beknopt, maar inhoudelijk plausibel.
+  `;
+
+  const result = await model.generateContent(prompt);
+  const parsed = JSON.parse(cleanJson(result.response.text()));
+
+  return {
+    samenwerkingTabelIngevuld: parsed.samenwerkingTabelIngevuld || '',
+    kwadrantIngevuld: parsed.kwadrantIngevuld || ''
+  };
+}
+
+// -----------------------------------------------------
+// INTERNAL 4B – RICHTANTWOORDEN PER BRON
+// -----------------------------------------------------
+async function generateBronAntwoorden(model, concept, bronVragen) {
+  const compactVragen = bronVragen.map(v => ({
+    bronNummer: v.bronNummer,
+    observeren: v.observeren,
+    interpreteren: v.interpreteren,
+    hoofdvraagRelatie: v.hoofdvraagRelatie
+  }));
+
+  const prompt = `
+    ${BASE_SYSTEM_PROMPT}
+
+    CONTEXT:
+    Concept: ${JSON.stringify(concept)}
+    BronVragen: ${JSON.stringify(compactVragen)}
+
+    TAAK:
+    Geef per bron korte richtantwoorden in dit JSON-formaat:
+    {
+      "bronAntwoorden": [
+        {
+          "bronNummer": 1,
+          "observerenAntwoord": "Korte beschrijving van wat de leerling idealiter waarneemt.",
+          "interpreterenAntwoord": "Korte uitleg van de betekenis/context.",
+          "hoofdvraagRelatieAntwoord": "Hoe draagt deze bron bij aan het beantwoorden van de hoofdvraag?"
+        }
+        // voor alle bronnummers die in BronVragen voorkomen
+      ]
+    }
+
+    Richtlijnen:
+    - Antwoorden zijn kort (2-3 zinnen), B2 niveau.
+    - Gebruik alleen info die plausibel is op basis van de bronvragen (geen nieuwe feiten uit de lucht grijpen).
+  `;
+
+  const result = await model.generateContent(prompt);
+  const parsed = JSON.parse(cleanJson(result.response.text()));
+
+  const list = parsed.bronAntwoorden || [];
+  return list.map(item => ({
+    bronNummer: item.bronNummer,
+    observerenAntwoord: item.observerenAntwoord || '',
+    interpreterenAntwoord: item.interpreterenAntwoord || '',
+    hoofdvraagRelatieAntwoord: item.hoofdvraagRelatieAntwoord || ''
+  }));
+}
+
+// -----------------------------------------------------
+// STEP 4 – ANTWOORDMODEL (4A + 4B)
+// -----------------------------------------------------
 router.post('/generate-lesson-v2/step4', async (req, res) => {
   try {
-    const { concept, sources } = req.body || {};
-    if (!concept || !sources) return res.status(400).json({ error: 'data ontbreekt' });
-
-    const mapped = mapSourcesForPrompt(sources);
-
-    const prompt = `${BASE_RULES}
-TAKENTAAL STAP 4 – ANTWOORDMODEL
-CONCEPT: ${JSON.stringify(concept)}
-BRONNEN: ${JSON.stringify(mapped)}
-
-JE MOET JE HOUDEN AAN DEZE EXACTE MARKDOWN-FORMATS VOOR DE TABELLEN.
-
-TAAK 1: Antwoorden per bron (JSON Array)
-- Richtantwoorden per bron met velden:
-  - "bronNummer"
-  - "observerenAntwoord"
-  - "interpreterenAntwoord"
-  - "hoofdvraagRelatieAntwoord"
-  - "stereotyperingAnalyseAntwoord"
-
-TAAK 2: Ingevulde Samenwerkingstabel (Markdown String)
-- Vul de tabel in met 1 regel per bron. Gebruik DEZE kopregel:
-
-| Bron | Wie spreekt? | Kerngevoel / overtuiging | Gekozen subdimensie | Twee verklaringen (kort) |
-|---|---|---|---|---|
-
-- Elke rij bevat een korte samenvatting in leerlingtaal.
-
-TAAK 3: Ingevuld Kwadrant (Markdown String)
-- Vul het kwadrant in. Per vakje:
-  - Noem de relevante bronnummers.
-  - Voeg 1 korte zin motivatie toe.
-
-Structuur:
-
-| | **[As Links]** | **[As Rechts]** |
-|---|---|---|
-| **[As Boven]** | (Bron nrs en korte uitleg) | (Bron nrs en korte uitleg) |
-| **[As Onder]** | (Bron nrs en korte uitleg) | (Bron nrs en korte uitleg) |
-
-TAAK 4: Reflectie Antwoorden (Array)
-- 2–4 voorbeeldantwoorden op de reflectieopdracht, in leerlingtaal.
-
-OUTPUT JSON (ENKEL DIT!):
-{
-  "bronAntwoorden": [...],
-  "samenwerkingTabelIngevuld": "MARKDOWN_STRING",
-  "kwadrantIngevuld": "MARKDOWN_STRING",
-  "reflectieAntwoorden": [...],
-  "validation": { "status": "ok", "message": "" }
-}
-`;
+    const { concept, sources, bronVragen } = req.body || {};
+    validateContext(concept, sources, 'STEP 4');
 
     const model = getModel();
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-      },
-    });
 
-    return respondWithJsonFromModel(res, result.response.text(), 'step4');
+    // Als bronVragen niet expliciet zijn meegestuurd, genereer ze opnieuw
+    const vragen = bronVragen && Array.isArray(bronVragen) && bronVragen.length > 0
+      ? bronVragen
+      : await generateBronVragen(model, concept, sources);
+
+    const tabellen = await generateIngevuldeTabellen(model, concept, vragen);
+    const antwoorden = await generateBronAntwoorden(model, concept, vragen);
+
+    return res.json({
+      samenwerkingTabelIngevuld: tabellen.samenwerkingTabelIngevuld,
+      kwadrantIngevuld: tabellen.kwadrantIngevuld,
+      bronAntwoorden: antwoorden
+    });
   } catch (e) {
-    console.error('[A40] Fout step4:', e);
-    return res.status(500).json({ error: e.message || 'Fout in step4' });
+    console.error('[Step 4 Error]', e.message);
+    return res.status(500).json({ error: e.message });
   }
 });
 

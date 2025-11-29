@@ -2,16 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Simpele extra styles voor als tailwind niet pakt */
-.bronnen-kaart {
-    border: 1px solid #ccc;
-    padding: 1rem;
-    margin-bottom: 1rem;
-    border-radius: 8px;
-    background: white;
+/* --- GLOBAL STYLES --- */
+body {
+  font-family: 'Inter', sans-serif; /* Of jouw gekozen font */
+  background-color: #f9fafb;
 }
-.bron-afbeelding {
-    max-width: 300px;
-    margin-top: 10px;
-    border-radius: 4px;
+
+/* --- PRINT OPTIMALISATIE (Visuele Fideliteit) --- */
+@media print {
+  /* 1. Forceer browsers om achtergrondkleuren te printen */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* 2. Voorkom dat tabellen en belangrijke blokken doormidden breken */
+  table, tr, td, th, .break-inside-avoid, .bg-white, article {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* 3. Zorg dat de gekleurde secties (Docent/Leerling/Antwoord) zichtbaar blijven */
+  .bg-blue-50 {
+    background-color: #eff6ff !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+  .bg-green-50 {
+    background-color: #f0fdf4 !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+  .bg-yellow-50 {
+    background-color: #fefce8 !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+  .bg-gray-100 {
+    background-color: #f3f4f6 !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  /* 4. Verberg navigatie, knoppen en debug-info tijdens printen */
+  nav, button, header button, .no-print, details {
+    display: none !important;
+  }
+  
+  /* 5. Reset margins voor papiergebruik */
+  body {
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+  
+  /* 6. Gebruik de volledige breedte van het papier */
+  .max-w-6xl {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
 }
