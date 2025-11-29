@@ -4,6 +4,9 @@ import { useSelectionStore, Source } from '../state/selection.store';
 import { useQueryStore } from '../state/query.store';
 import { useLessonStoreV2 } from '../state/lesson-v2.store';
 
+// <<< HIER DIRECTE BACKEND-URL >>>
+const API_BASE_URL = 'http://127.0.0.1:8081/api';
+
 interface Proposal {
   title: string;
   targetAudience: string;
@@ -41,7 +44,10 @@ const ProposalsPage: React.FC = () => {
       url.includes('cito');
 
     if (needsProxy) {
-      return `/api/image-proxy?url=${encodeURIComponent(source.imageUrl)}`;
+      // via backend, NIET via Vite-proxy
+      return `${API_BASE_URL.replace('/api', '')}/api/image-proxy?url=${encodeURIComponent(
+        source.imageUrl
+      )}`;
     }
 
     return source.imageUrl;
@@ -55,7 +61,7 @@ const ProposalsPage: React.FC = () => {
       }
 
       try {
-        const response = await fetch('/api/propose-lessons-v2', {
+        const response = await fetch(`${API_BASE_URL}/propose-lessons-v2`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -102,7 +108,7 @@ const ProposalsPage: React.FC = () => {
     setRefiningStates(prev => ({ ...prev, [idx]: true }));
 
     try {
-      const response = await fetch('/api/refine-concept', {
+      const response = await fetch(`${API_BASE_URL}/refine-concept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
