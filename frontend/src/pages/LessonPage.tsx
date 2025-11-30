@@ -51,6 +51,7 @@ const LessonPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Load from navigation or sessionStorage
   useEffect(() => {
     if (navConcept && navSources && navSources.length > 0) {
       setConcept(navConcept);
@@ -62,29 +63,24 @@ const LessonPage: React.FC = () => {
       return;
     }
 
-    if (!concept || !sources || sources.length === 0) {
-      try {
-        const storedConcept = sessionStorage.getItem('lessonConcept');
-        const storedSources = sessionStorage.getItem('lessonSources');
-        if (storedConcept && storedSources) {
-          const parsedConcept = JSON.parse(storedConcept);
-          const parsedSources = JSON.parse(storedSources);
-          setConcept(parsedConcept);
-          setSources(parsedSources);
-          return;
-        }
-      } catch {}
-    }
+    try {
+      const storedConcept = sessionStorage.getItem('lessonConcept');
+      const storedSources = sessionStorage.getItem('lessonSources');
+      if (storedConcept && storedSources) {
+        setConcept(JSON.parse(storedConcept));
+        setSources(JSON.parse(storedSources));
+      }
+    } catch {}
   }, [navConcept, navSources]);
 
+  // Fetch the full lesson
   useEffect(() => {
-    if (!concept || !sources || sources.length === 0) {
-      return;
-    }
+    if (!concept || !sources || sources.length === 0) return;
 
     const run = async () => {
       setLoading(true);
       setError(null);
+
       try {
         const res = await fetch(`${API_BASE_URL}/generate-lesson-v2/full`, {
           method: 'POST',
@@ -93,7 +89,7 @@ const LessonPage: React.FC = () => {
         });
 
         if (!res.ok) {
-          throw new Error(`Backend error (${res.status} ${res.statusText})`);
+          throw new Error(`Backend error: ${res.status} ${res.statusText}`);
         }
 
         const data = await res.json();
@@ -137,33 +133,28 @@ const LessonPage: React.FC = () => {
     );
   }
 
+  // ---- ACTUAL RENDER BELOW ----
+
   return (
     <div className="max-w-6xl mx-auto p-8 font-sans text-gray-800 space-y-16 bg-white min-h-screen shadow-xl my-8 rounded-xl border border-gray-100">
+      {/* Step 1 — Docentenversie */}
       <section className="bg-blue-50 p-8 rounded-xl border border-blue-200 shadow-sm print:break-after-page">
         <div className="border-b border-blue-200 pb-4 mb-6">
-          <span className="text-blue-600 font-bold uppercase tracking-wider text-xs">
-            Docentenversie
-          </span>
+          <span className="text-blue-600 font-bold uppercase tracking-wider text-xs">Docentenversie</span>
           <h1 className="text-3xl font-extrabold text-blue-900 mt-1">{concept.title}</h1>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white p-5 rounded-lg shadow-sm border border-blue-100">
-            <h3 className="font-bold text-blue-800 mb-2 border-b border-blue-100 pb-1 text-sm uppercase">
-              Wat
-            </h3>
+            <h3 className="font-bold text-blue-800 mb-2 border-b border-blue-100 pb-1 text-sm uppercase">Wat</h3>
             <p className="text-sm leading-relaxed">{lesson.step1.docentenInstructie?.wat}</p>
           </div>
           <div className="bg-white p-5 rounded-lg shadow-sm border border-blue-100">
-            <h3 className="font-bold text-blue-800 mb-2 border-b border-blue-100 pb-1 text-sm uppercase">
-              Hoe
-            </h3>
+            <h3 className="font-bold text-blue-800 mb-2 border-b border-blue-100 pb-1 text-sm uppercase">Hoe</h3>
             <p className="text-sm leading-relaxed">{lesson.step1.docentenInstructie?.hoe}</p>
           </div>
           <div className="bg-white p-5 rounded-lg shadow-sm border border-blue-100">
-            <h3 className="font-bold text-blue-800 mb-2 border-b border-blue-100 pb-1 text-sm uppercase">
-              Waarom
-            </h3>
+            <h3 className="font-bold text-blue-800 mb-2 border-b border-blue-100 pb-1 text-sm uppercase">Waarom</h3>
             <p className="text-sm leading-relaxed">{lesson.step1.docentenInstructie?.waarom}</p>
           </div>
         </div>
@@ -176,20 +167,15 @@ const LessonPage: React.FC = () => {
         </div>
       </section>
 
+      {/* Step 2 — Werkblad */}
       <section className="print:break-after-page">
         <div className="mb-8 border-b-4 border-gray-900 pb-4">
-          <span className="text-gray-500 font-bold uppercase tracking-wider text-xs">
-            Werkblad Leerling
-          </span>
-          <h1 className="text-4xl font-extrabold text-gray-900 mt-1">
-            Opdracht: Historisch Redeneren
-          </h1>
+          <span className="text-gray-500 font-bold uppercase tracking-wider text-xs">Werkblad Leerling</span>
+          <h1 className="text-4xl font-extrabold text-gray-900 mt-1">Opdracht: Historisch Redeneren</h1>
         </div>
 
         <div className="bg-gray-100 p-8 rounded-xl mb-12 border-l-8 border-gray-800 shadow-sm">
-          <h2 className="text-xl font-bold mb-3 text-gray-800 uppercase tracking-wider">
-            Hoofdvraag
-          </h2>
+          <h2 className="text-xl font-bold mb-3 text-gray-800 uppercase tracking-wider">Hoofdvraag</h2>
           <p className="text-2xl font-serif italic mb-6 text-gray-900">
             "{lesson.step2.hoofdvraag}"
           </p>
@@ -199,11 +185,10 @@ const LessonPage: React.FC = () => {
           </p>
         </div>
 
+        {/* Bronnenonderzoek */}
         <div className="space-y-16 mb-16">
           <div className="flex items-center gap-4 border-b-2 border-gray-200 pb-2 mb-8">
-            <div className="bg-gray-900 text-white w-8 h-8 flex items-center justify-center rounded-full font-bold shadow-sm">
-              A
-            </div>
+            <div className="bg-gray-900 text-white w-8 h-8 flex items-center justify-center rounded-full font-bold shadow-sm">A</div>
             <h2 className="text-2xl font-bold text-gray-900">Bronnenonderzoek</h2>
           </div>
 
@@ -211,10 +196,7 @@ const LessonPage: React.FC = () => {
             const questions = lesson.step3.bronVragen?.find(q => q.bronNummer === idx + 1);
 
             return (
-              <div
-                key={idx}
-                className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden break-inside-avoid"
-              >
+              <div key={idx} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden break-inside-avoid">
                 <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
                   <h3 className="text-lg font-bold text-gray-900">
                     Bron {idx + 1}: {source.title}
@@ -223,39 +205,29 @@ const LessonPage: React.FC = () => {
 
                 <div className="p-6 grid md:grid-cols-2 gap-8">
                   <div>
-                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
-                      Brontekst
-                    </h4>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Brontekst</h4>
                     <div className="prose text-sm text-gray-800 bg-gray-50 p-4 rounded border border-gray-200 h-full italic leading-relaxed whitespace-pre-wrap">
                       {source.fullText || source.content || 'Geen tekst beschikbaar.'}
                     </div>
                   </div>
 
                   <div>
-                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
-                      Analyse
-                    </h4>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Analyse</h4>
                     {questions ? (
                       <div className="space-y-4">
                         <div className="p-3 rounded border-l-4 border-blue-500 bg-blue-50">
-                          <span className="block text-xs font-bold text-blue-700 mb-1 uppercase tracking-wide">
-                            1. Observeren
-                          </span>
+                          <span className="block text-xs font-bold text-blue-700 mb-1 uppercase tracking-wide">1. Observeren</span>
                           <p className="text-sm text-gray-800">{questions.observeren}</p>
                         </div>
+
                         <div className="p-3 rounded border-l-4 border-purple-500 bg-purple-50">
-                          <span className="block text-xs font-bold text-purple-700 mb-1 uppercase tracking-wide">
-                            2. Interpreteren
-                          </span>
+                          <span className="block text-xs font-bold text-purple-700 mb-1 uppercase tracking-wide">2. Interpreteren</span>
                           <p className="text-sm text-gray-800">{questions.interpreteren}</p>
                         </div>
+
                         <div className="p-3 rounded border-l-4 border-green-500 bg-green-50">
-                          <span className="block text-xs font-bold text-green-700 mb-1 uppercase tracking-wide">
-                            3. Relatie
-                          </span>
-                          <p className="text-sm text-gray-800">
-                            {questions.hoofdvraagRelatie}
-                          </p>
+                          <span className="block text-xs font-bold text-green-700 mb-1 uppercase tracking-wide">3. Relatie</span>
+                          <p className="text-sm text-gray-800">{questions.hoofdvraagRelatie}</p>
                         </div>
                       </div>
                     ) : (
@@ -268,60 +240,55 @@ const LessonPage: React.FC = () => {
           })}
         </div>
 
-        <div className="space-y-16">
-          <section className="break-inside-avoid">
-            <div className="flex items-center gap-4 border-b-2 border-gray-200 pb-2 mb-6">
-              <div className="bg-gray-900 text-white w-8 h-8 flex items-center justify-center rounded-full font-bold shadow-sm">
-                B
-              </div>
-              <h2 className="text-2xl font-bold">Verwerken: Samenwerkingstabel</h2>
-            </div>
-            <div className="bg-white border border-gray-300 p-4 rounded overflow-x-auto shadow-sm">
-              <pre className="text-sm font-mono whitespace-pre-wrap text-gray-700">
-                {lesson.step3.samenwerkingTabelLeeg}
-              </pre>
-            </div>
-          </section>
+        {/* Samenwerkingstabel */}
+        <section className="break-inside-avoid">
+          <div className="flex items-center gap-4 border-b-2 border-gray-200 pb-2 mb-6">
+            <div className="bg-gray-900 text-white w-8 h-8 flex items-center justify-center rounded-full font-bold shadow-sm">B</div>
+            <h2 className="text-2xl font-bold">Verwerken: Samenwerkingstabel</h2>
+          </div>
+          <div className="bg-white border border-gray-300 p-4 rounded overflow-x-auto shadow-sm">
+            <pre className="text-sm font-mono whitespace-pre-wrap text-gray-700">
+              {lesson.step3.samenwerkingTabelLeeg}
+            </pre>
+          </div>
+        </section>
 
-          <section className="break-inside-avoid">
-            <div className="flex items-center gap-4 border-b-2 border-gray-200 pb-2 mb-6">
-              <div className="bg-gray-900 text-white w-8 h-8 flex items-center justify-center rounded-full font-bold shadow-sm">
-                C
-              </div>
-              <h2 className="text-2xl font-bold">Contextualiseren: Het Kwadrant</h2>
-            </div>
-            <div className="bg-white border border-gray-300 p-4 rounded overflow-x-auto shadow-sm">
-              <pre className="text-sm font-mono whitespace-pre-wrap text-gray-700">
-                {lesson.step3.kwadrantLeeg}
-              </pre>
-            </div>
-          </section>
+        {/* Kwadrant */}
+        <section className="break-inside-avoid">
+          <div className="flex items-center gap-4 border-b-2 border-gray-200 pb-2 mb-6">
+            <div className="bg-gray-900 text-white w-8 h-8 flex items-center justify-center rounded-full font-bold shadow-sm">C</div>
+            <h2 className="text-2xl font-bold">Contextualiseren: Het Kwadrant</h2>
+          </div>
+          <div className="bg-white border border-gray-300 p-4 rounded overflow-x-auto shadow-sm">
+            <pre className="text-sm font-mono whitespace-pre-wrap text-gray-700">
+              {lesson.step3.kwadrantLeeg}
+            </pre>
+          </div>
+        </section>
 
-          <section className="break-inside-avoid bg-white border-2 border-gray-100 p-8 rounded-xl shadow-sm">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="bg-gray-900 text-white w-8 h-8 flex items-center justify-center rounded-full font-bold shadow-sm">
-                D
-              </div>
-              <h2 className="text-2xl font-bold">Reflectie</h2>
-            </div>
-            <div className="prose max-w-none text-gray-800">
-              <pre className="font-sans whitespace-pre-wrap text-base leading-relaxed">
-                {lesson.step3.reflectieOpdracht}
-              </pre>
-            </div>
-          </section>
-        </div>
+        {/* Reflectie */}
+        <section className="break-inside-avoid bg-white border-2 border-gray-100 p-8 rounded-xl shadow-sm">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="bg-gray-900 text-white w-8 h-8 flex items-center justify-center rounded-full font-bold shadow-sm">D</div>
+            <h2 className="text-2xl font-bold">Reflectie</h2>
+          </div>
+          <div className="prose max-w-none text-gray-800">
+            <pre className="font-sans whitespace-pre-wrap text-base leading-relaxed">
+              {lesson.step3.reflectieOpdracht}
+            </pre>
+          </div>
+        </section>
       </section>
 
+      {/* Step 4 — Antwoordmodel */}
       <section className="mt-24 pt-12 border-t-8 border-green-600 bg-green-50 rounded-b-xl p-8 print:break-before-page">
         <div className="mb-8">
-          <span className="text-green-700 font-bold uppercase tracking-wider text-xs">
-            Alleen voor docent
-          </span>
+          <span className="text-green-700 font-bold uppercase tracking-wider text-xs">Alleen voor docent</span>
           <h1 className="text-3xl font-extrabold text-green-900 mt-1">Antwoordmodel</h1>
         </div>
 
         <div className="space-y-12">
+          {/* Samenwerkingstabel */}
           <div>
             <h3 className="text-lg font-bold mb-3 text-green-800 uppercase tracking-wide border-b border-green-200 pb-1">
               A. Ingevulde Samenwerkingstabel
@@ -333,6 +300,7 @@ const LessonPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Kwadrant */}
           <div>
             <h3 className="text-lg font-bold mb-3 text-green-800 uppercase tracking-wide border-b border-green-200 pb-1">
               B. Ingevuld Kwadrant
@@ -344,6 +312,7 @@ const LessonPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Bronantwoorden */}
           <div>
             <h3 className="text-lg font-bold mb-3 text-green-800 uppercase tracking-wide border-b border-green-200 pb-1">
               C. Richtantwoorden per bron
@@ -351,35 +320,22 @@ const LessonPage: React.FC = () => {
             {lesson.step4.bronAntwoorden ? (
               <div className="grid md:grid-cols-2 gap-4">
                 {lesson.step4.bronAntwoorden.map((a, i) => (
-                  <div
-                    key={i}
-                    className="bg-white p-4 rounded border border-green-200 text-sm shadow-sm"
-                  >
+                  <div key={i} className="bg-white p-4 rounded border border-green-200 text-sm shadow-sm">
                     <div className="flex justify-between mb-2">
-                      <strong className="text-green-700 font-bold">
-                        Bron {a.bronNummer}
-                      </strong>
+                      <strong className="text-green-700 font-bold">Bron {a.bronNummer}</strong>
                     </div>
+
                     <div className="space-y-2">
                       <p>
-                        <span className="font-semibold text-gray-500 text-xs uppercase">
-                          Observeren:
-                        </span>
-                        <br />
+                        <span className="font-semibold text-gray-500 text-xs uppercase">Observeren:</span><br />
                         {a.observerenAntwoord}
                       </p>
                       <p>
-                        <span className="font-semibold text-gray-500 text-xs uppercase">
-                          Interpreteren:
-                        </span>
-                        <br />
+                        <span className="font-semibold text-gray-500 text-xs uppercase">Interpreteren:</span><br />
                         {a.interpreterenAntwoord}
                       </p>
                       <p>
-                        <span className="font-semibold text-gray-500 text-xs uppercase">
-                          Relatie:
-                        </span>
-                        <br />
+                        <span className="font-semibold text-gray-500 text-xs uppercase">Relatie:</span><br />
                         {a.hoofdvraagRelatieAntwoord}
                       </p>
                     </div>
