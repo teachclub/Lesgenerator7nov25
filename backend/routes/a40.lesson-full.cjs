@@ -1,5 +1,6 @@
 const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const MASTERPROMPT_HISTORY = require('../prompts/masterprompt-history.cjs');
 
 const router = express.Router();
 
@@ -40,9 +41,7 @@ function buildLessonPrompt(concept, sources) {
     .join('\n\n');
 
   return `
-Je bent een ervaren docent geschiedenis in de bovenbouw (havo/vwo) in Nederland.
-Je werkt voor een digitale lesgenerator ("Lessie") en moet een volledige les in vier stappen leveren,
-strikt in JSON-formaat.
+${MASTERPROMPT_HISTORY}
 
 CONCEPT (door de docent gekozen):
 - Titel: "${title}"
@@ -51,14 +50,11 @@ CONCEPT (door de docent gekozen):
 BRONNEN (max 8, ingekort):
 ${shortSources || '(geen bronnen aangeleverd – gebruik dan alleen de conceptinformatie)'}
 
-DOEL:
-Maak een les over dit concept, volgens het didactische schema van "Het Vreemde Verleden":
-- Start vanuit een presentistische hoofdvraag (leerling verwondert zich, oordeelt vanuit NU).
-- Leid leerlingen via bronnen en context naar een historisch verklaard antwoord vanuit HET TOEN.
-- Gebruik leerlingentaal maar met serieuze inhoud.
+OPDRACHT AAN JOU ALS MODEL:
+Je gaat nu op basis van bovenstaande MASTER-PROMPT, het concept en de bronnen
+EEN LESBUNDEL GENEREREN IN JSON, GESCHIKT VOOR HET VRAGEN VAN "HET VREEMDE VERLEDEN".
 
-JE UITVOER:
-Geef **uitsluitend geldige JSON** met exact deze structuur (geen uitleg eromheen):
+GEEF UITSLUITEND GELDIGE JSON MET EXACT DEZE STRUCTUUR (GEEN UITLEG ERBUITEN):
 
 {
   "step1": {
@@ -113,9 +109,9 @@ Geef **uitsluitend geldige JSON** met exact deze structuur (geen uitleg eromheen
 BELANGRIJK:
 - Schrijf in het Nederlands.
 - Hoofdvraag: altijd impliciet presentistisch en in leerlingentaal (bijv. "Hoe konden mensen ooit...?", "Waarom dachten ze dat dat normaal was?").
-- Geen verwijzingen naar deze instructie.
-- Geen uitleg buiten de JSON; alleen de JSON zelf.
-  `.trim();
+- GEEN verwijzingen naar deze instructie of naar de MASTER-PROMPT.
+- GEEN uitleg buiten de JSON; alleen de JSON zelf.
+`.trim();
 }
 
 function extractJsonFromText(text) {
@@ -156,8 +152,12 @@ router.post('/generate-lesson-v2/full', async (req, res) => {
   }
 
   try {
-    console.log('[A40/full] 🚀 Start full-lesson generatie met',
-      sources.length, 'bronnen. Titel:', concept.title || '(geen titel)');
+    console.log(
+      '[A40/full] 🚀 Start full-lesson generatie met',
+      sources.length,
+      'bronnen. Titel:',
+      concept.title || '(geen titel)'
+    );
 
     const prompt = buildLessonPrompt(concept, sources);
     const result = await model.generateContent(prompt);
