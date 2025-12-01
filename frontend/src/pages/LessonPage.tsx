@@ -1,10 +1,21 @@
 import React, { useState } from "react";
 import { useLocation } from "react-router-dom";
-import { useSelectionStore, Source } from "../state/selection.store";
 
 type Concept = {
   title: string;
   hook: string;
+};
+
+type Source = {
+  id: string;
+  title?: string;
+  provider?: string;
+  type?: string;
+  fullText?: string;
+  content?: string;
+  description?: string;
+  imageUrl?: string;
+  url?: string;
 };
 
 type DocentenInstructie = {
@@ -47,6 +58,8 @@ type Step3 = {
   samenwerkingTabelLeeg: string;
   kwadrantLeeg: string;
   reflectieOpdracht: string;
+  samenwerkingBegrippen?: string[];
+  kwadrantBegrippen?: string[];
 };
 
 type BronAntwoord = {
@@ -71,69 +84,60 @@ type FullLesson = {
 
 type LocationState = {
   concept?: Concept;
+  sources?: Source[];
 };
 
 type Status = "idle" | "loading" | "success" | "error";
 
-// 👉 Rechtstreeks naar backend, Vite-proxy omzeilen
 const API_BASE = "http://127.0.0.1:8081";
 
-/**
- * Exact dezelfde image-logica als in A18.SelectionPanel:
- * - gebruikt source.imageUrl
- * - proxy voor Cito + Kleio (+ urls met 'kleio')
- */
-const getImageUrl = (source: Source): string | null => {
-  if (!source.imageUrl) return null;
-  const url = source.imageUrl;
-  // Proxy gebruiken voor Cito en Kleio
+function shuffle<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = copy[i];
+    copy[i] = copy[j];
+    copy[j] = tmp;
+  }
+  return copy;
+}
+
+function getProxiedImageUrl(source: Source): string | undefined {
+  if (!source.imageUrl) return undefined;
+  const raw = source.imageUrl;
+  const url = raw.toLowerCase();
+
   const needsProxy =
-    source.provider === "Cito" ||
     source.provider === "Kleio" ||
-    url.includes("kleio");
+    source.provider === "Cito" ||
+    url.includes("vgnkleio") ||
+    url.includes("kleio") ||
+    url.includes("cito") ||
+    url.includes("googleusercontent.com");
 
   if (needsProxy) {
-    return `http://localhost:8081/api/image-proxy?url=${encodeURIComponent(
-      url
-    )}`;
+    return `${API_BASE}/api/image-proxy?url=${encodeURIComponent(raw)}`;
   }
-  return url;
-};
-
-// Helper: Is dit een "echt" plaatje of een placeholder?
-const isValidImage = (url?: string): boolean => {
-  if (!url) return false;
-  // Filter specifiek het grijze poppetje van Google/Cito
-  if (url.includes("profile/picture")) return false;
-  return true;
-};
-
-const getSourceText = (source: Source): string => {
-  return (
-    (source as any).fullText ||
-    (source as any).content ||
-    (source as any).description ||
-    "Geen tekst beschikbaar."
-  );
-};
+  return raw;
+}
 
 const LessonPage: React.FC = () => {
   const location = useLocation();
-  const { concept } = (location.state || {}) as LocationState;
-
-  // 🔥 Belangrijk: we gebruiken nu exact dezelfde bron-data als de selectie-kolom
-  const { sources } = useSelectionStore();
+  const { concept, sources } = (location.state || {}) as LocationState;
 
   const [lesson, setLesson] = useState<FullLesson | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  const [showSamenwerkingHints, setShowSamenwerkingHints] = useState(true);
+  const [showKwadrantHints, setShowKwadrantHints] = useState(true);
 
   const hasInput = !!concept && Array.isArray(sources) && sources.length > 0;
 
   const handleGenerateLesson = async () => {
     if (!hasInput) {
       setError(
-        "Er is geen concept of bronnen gevonden. Ga eerst terug en kies een lesvoorstel + bronnen."
+        "Er is geen concept of bronnen gevonden in de navigatie-state. Ga eerst terug en kies een lesvoorstel + bronnen."
       );
       setStatus("error");
       return;
@@ -162,19 +166,8 @@ const LessonPage: React.FC = () => {
         );
       }
 
-      const data = (await response.json()) as {
-        fullLesson?: FullLesson;
-        [key: string]: any;
-      };
-
-      if (!data.fullLesson) {
-        console.error("Onverwacht les-formaat ontvangen:", data);
-        throw new Error(
-          "De backend stuurde een les terug in een onverwacht formaat."
-        );
-      }
-
-      setLesson(data.fullLesson);
+      const data = (await response.json()) as FullLesson;
+      setLesson(data);
       setStatus("success");
     } catch (err: any) {
       console.error("Fout bij het genereren van de les:", err);
@@ -183,17 +176,45 @@ const LessonPage: React.FC = () => {
     }
   };
 
+  const getSourceText = (source: Source): string => {
+    return (
+      source.fullText ||
+      source.content ||
+      source.description ||
+      "(Geen tekst beschikbaar voor deze bron.)"
+    );
+  };
+
+  const getDisplayTitle = (source: Source): string => {
+    if (source.title && source.title.trim().length > 0) return source.title;
+    if (source.provider === "Kleio") return "Kleio-beeldbron (zonder titel)";
+    return "Ongetitelde bron";
+  };
+
   const getBronVragenFor = (bronNummer: number): BronVraag | undefined =>
     lesson?.step3?.bronVragen?.find((b) => b.bronNummer === bronNummer);
 
-  const getBronAntwoordenFor = (
-    bronNummer: number
-  ): BronAntwoord | undefined =>
+  const getBronAntwoordenFor = (bronNummer: number): BronAntwoord | undefined =>
     lesson?.step4?.bronAntwoorden?.find((b) => b.bronNummer === bronNummer);
 
   const renderMarkdownPre = (markdown?: string) => {
     if (!markdown) return null;
-    return <pre className="markdown-block">{markdown}</pre>;
+    return (
+      <pre
+        className="markdown-block"
+        style={{
+          whiteSpace: "pre",
+          background: "#f9fafb",
+          padding: "0.75rem 1rem",
+          borderRadius: "0.5rem",
+          border: "1px solid #e5e7eb",
+          overflowX: "auto",
+          fontSize: "0.85rem",
+        }}
+      >
+        {markdown}
+      </pre>
+    );
   };
 
   return (
@@ -267,13 +288,14 @@ const LessonPage: React.FC = () => {
       {!hasInput && (
         <section style={{ marginBottom: "2rem", color: "#b91c1c" }}>
           <p>
-            Er zijn geen bronnen of concept meegegeven. Ga terug naar de vorige
-            stap en kies een lesvoorstel + bronnen.
+            Er zijn geen bronnen of concept meegegeven aan deze pagina. Ga terug
+            naar de vorige stap en kies een lesvoorstel + bronnen, zodat{" "}
+            <strong>LessonPage</strong> weet wat hij moet genereren.
           </p>
         </section>
       )}
 
-      {/* Als er nog geen les is, maar wel input, kun je alvast de bronnen tonen */}
+      {/* PREVIEW vóór genereren */}
       {hasInput && !lesson && (
         <section style={{ marginBottom: "2rem" }}>
           <h3>Gekozen bronnen (preview)</h3>
@@ -281,10 +303,9 @@ const LessonPage: React.FC = () => {
             Dit zijn de bronnen die naar de lesgenerator gestuurd worden.
           </p>
           <div style={{ display: "grid", gap: "1rem" }}>
-            {sources.map((s, index) => {
-              const hasImage = isValidImage(s.imageUrl);
-              const imgUrl = hasImage ? getImageUrl(s) : null;
-
+            {sources!.map((s, index) => {
+              const imgUrl = getProxiedImageUrl(s);
+              const displayTitle = getDisplayTitle(s);
               return (
                 <article
                   key={s.id ?? index}
@@ -296,8 +317,7 @@ const LessonPage: React.FC = () => {
                   }}
                 >
                   <h4 style={{ margin: 0, marginBottom: "0.25rem" }}>
-                    Bron {index + 1}
-                    {s.title ? ` – ${s.title}` : ""}
+                    Bron {index + 1} – {displayTitle}
                   </h4>
                   <p
                     style={{
@@ -311,20 +331,24 @@ const LessonPage: React.FC = () => {
                   </p>
 
                   {imgUrl && (
-                    <div style={{ marginTop: "0.5rem" }}>
+                    <div
+                      style={{
+                        marginTop: "0.5rem",
+                        marginBottom: "0.5rem",
+                        background: "#e5e7eb",
+                        padding: "0.25rem",
+                        borderRadius: "0.5rem",
+                      }}
+                    >
                       <img
                         src={imgUrl}
-                        alt={s.title || `Afbeelding bron ${index + 1}`}
                         style={{
-                          maxWidth: "100%",
-                          borderRadius: "0.5rem",
+                          maxHeight: 200,
+                          width: "100%",
+                          objectFit: "contain",
                           display: "block",
+                          background: "#f9fafb",
                         }}
-                        loading="lazy"
-                        onError={(e) =>
-                          ((e.target as HTMLImageElement).style.display =
-                            "none")
-                        }
                       />
                     </div>
                   )}
@@ -391,7 +415,7 @@ const LessonPage: React.FC = () => {
             </div>
           </section>
 
-          {/* LEERLINGENVERSIE – Inleiding + Hoofdvraag */}
+          {/* LEERLINGENVERSIE */}
           <section>
             <h2>Leerlingversie</h2>
             <article
@@ -424,7 +448,7 @@ const LessonPage: React.FC = () => {
               </p>
             </article>
 
-            {/* Bronnen + vragen */}
+            {/* Bronnenonderzoek met plaatjes */}
             <article
               style={{
                 border: "1px solid #e5e7eb",
@@ -440,8 +464,8 @@ const LessonPage: React.FC = () => {
                     const bronNummer = index + 1;
                     const vragen = getBronVragenFor(bronNummer);
                     const antwoorden = getBronAntwoordenFor(bronNummer);
-                    const hasImage = isValidImage(s.imageUrl);
-                    const imgUrl = hasImage ? getImageUrl(s) : null;
+                    const imgUrl = getProxiedImageUrl(s);
+                    const displayTitle = getDisplayTitle(s);
 
                     return (
                       <div
@@ -454,8 +478,7 @@ const LessonPage: React.FC = () => {
                         }}
                       >
                         <h4 style={{ marginTop: 0 }}>
-                          Bron {bronNummer}
-                          {s.title ? ` – ${s.title}` : ""}
+                          Bron {bronNummer} – {displayTitle}
                         </h4>
                         <p
                           style={{
@@ -469,22 +492,24 @@ const LessonPage: React.FC = () => {
                         </p>
 
                         {imgUrl && (
-                          <div style={{ marginTop: "0.5rem" }}>
+                          <div
+                            style={{
+                              marginTop: "0.5rem",
+                              marginBottom: "0.5rem",
+                              background: "#e5e7eb",
+                              padding: "0.25rem",
+                              borderRadius: "0.5rem",
+                            }}
+                          >
                             <img
                               src={imgUrl}
-                              alt={
-                                s.title || `Afbeelding bron ${bronNummer}`
-                              }
                               style={{
-                                maxWidth: "100%",
-                                borderRadius: "0.5rem",
+                                maxHeight: 240,
+                                width: "100%",
+                                objectFit: "contain",
                                 display: "block",
+                                background: "#f9fafb",
                               }}
-                              loading="lazy"
-                              onError={(e) =>
-                                ((e.target as HTMLImageElement).style.display =
-                                  "none")
-                              }
                             />
                           </div>
                         )}
@@ -503,7 +528,6 @@ const LessonPage: React.FC = () => {
                                 paddingLeft: "1.25rem",
                                 margin: 0,
                                 listStyleType: "decimal",
-                                listStylePosition: "outside",
                               }}
                             >
                               <li>{vragen.observeren}</li>
@@ -553,7 +577,7 @@ const LessonPage: React.FC = () => {
               )}
             </article>
 
-            {/* Tabellen + reflectie */}
+            {/* Tabellen + woordbank */}
             <article
               style={{
                 border: "1px solid #e5e7eb",
@@ -562,7 +586,54 @@ const LessonPage: React.FC = () => {
                 marginBottom: "1.5rem",
               }}
             >
-              <h3 style={{ marginTop: 0 }}>Samenwerkingstabel (leerlingen)</h3>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "0.5rem",
+                }}
+              >
+                <h3 style={{ marginTop: 0, marginBottom: 0 }}>
+                  Samenwerkingstabel (leerlingen)
+                </h3>
+                {lesson.step3.samenwerkingBegrippen && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowSamenwerkingHints((prev) => !prev)
+                    }
+                    style={{
+                      fontSize: "0.8rem",
+                      padding: "0.25rem 0.6rem",
+                      borderRadius: "999px",
+                      border: "1px solid #d1d5db",
+                      background: "#f9fafb",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showSamenwerkingHints
+                      ? "Laat leerlingen zelf invullen"
+                      : "Toon invulbegrippen"}
+                  </button>
+                )}
+              </div>
+
+              {lesson.step3.samenwerkingBegrippen &&
+                showSamenwerkingHints && (
+                  <p
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "#4b5563",
+                      marginTop: 0,
+                      marginBottom: "0.5rem",
+                    }}
+                  >
+                    <strong>Begrippen om in te vullen:</strong>{" "}
+                    {shuffle(lesson.step3.samenwerkingBegrippen).join(" · ")}
+                  </p>
+                )}
+
               {renderMarkdownPre(lesson.step3.samenwerkingTabelLeeg)}
             </article>
 
@@ -574,7 +645,51 @@ const LessonPage: React.FC = () => {
                 marginBottom: "1.5rem",
               }}
             >
-              <h3 style={{ marginTop: 0 }}>Context-kwadrant (leerlingen)</h3>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "0.5rem",
+                }}
+              >
+                <h3 style={{ marginTop: 0, marginBottom: 0 }}>
+                  Context-kwadrant (leerlingen)
+                </h3>
+                {lesson.step3.kwadrantBegrippen && (
+                  <button
+                    type="button"
+                    onClick={() => setShowKwadrantHints((prev) => !prev)}
+                    style={{
+                      fontSize: "0.8rem",
+                      padding: "0.25rem 0.6rem",
+                      borderRadius: "999px",
+                      border: "1px solid #d1d5db",
+                      background: "#f9fafb",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showKwadrantHints
+                      ? "Laat leerlingen zelf invullen"
+                      : "Toon invulbegrippen"}
+                  </button>
+                )}
+              </div>
+
+              {lesson.step3.kwadrantBegrippen && showKwadrantHints && (
+                <p
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "#4b5563",
+                    marginTop: 0,
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  <strong>Begrippen om in te vullen:</strong>{" "}
+                  {shuffle(lesson.step3.kwadrantBegrippen).join(" · ")}
+                </p>
+              )}
+
               {renderMarkdownPre(lesson.step3.kwadrantLeeg)}
             </article>
 
@@ -593,7 +708,7 @@ const LessonPage: React.FC = () => {
             </article>
           </section>
 
-          {/* DOCENT – Antwoordmodellen / ingevulde tabellen */}
+          {/* DOCENT – Antwoordmodel */}
           <section>
             <h2>Docent – Antwoordmodel & ingevulde tabellen</h2>
 

@@ -1,98 +1,208 @@
+// routes/a25.proposals.cjs
+// -------------------------------------------
+// LESVOORSTELLEN (DUMMY, ZONDER GEMINI)
+// - oude route-pad blijft behouden: POST /api/propose-lessons
+// - geen afhankelijkheid meer van GOOGLE_API_KEY (API is nu toch verlopen)
+// - nieuwe response-shape:
+//   {
+//     allSources: Source[],           // max 40
+//     proposals: LessonProposal[],    // 3 voorstellen, elk met max 15 sourceIds
+//     meta: { countAll, countProposals }
+//   }
+//
+// BACKWARDS COMPATIBLE INPUT:
+// - oude frontend stuurde: { selectedSources, query }
+// - nieuwe variant kan sturen: { sources, tv, ka, conceptHint }
+//
+// Wij ondersteunen beide vormen:
+//   - allSources = selectedSources || sources || []
+//   - conceptHint = conceptHint || query || (concept?.title)
+
 const express = require('express');
 const router = express.Router();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-require('dotenv').config();
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const modelName = process.env.GEMINI_MODEL_CHIPS || "gemini-1.5-flash";
+/**
+ * Helper: maak een nette string voor tijdvak/KA context.
+ */
+function buildContextLabel(tv, ka) {
+  const tvPart = tv ? `Tijdvak ${tv}` : null;
+  const kaPart = ka ? `KA${ka}` : null;
 
-router.post('/propose-lessons', async (req, res) => {
-  try {
-    const { selectedSources, query } = req.body;
+  if (tvPart && kaPart) return `${tvPart} – ${kaPart}`;
+  if (tvPart) return tvPart;
+  if (kaPart) return kaPart;
+  return 'Geen specifieke TV/KA';
+}
 
-    if (!selectedSources || selectedSources.length === 0) {
-        return res.status(400).json({ error: 'Geen bronnen geselecteerd.' });
-    }
+/**
+ * Helper: zorg dat elke bron een string-id krijgt.
+ * - Eerst source.id
+ * - Anders source._id
+ * - Anders index
+ */
+function ensureSourceIds(allSources) {
+  return allSources.map((src, index) => {
+    if (!src) return src;
+    const id = String(src.id || src._id || index);
+    return { ...src, id };
+  });
+}
 
-    const inputSources = selectedSources.map(s => ({
-      id: s.id, 
-      title: s.title,
-      type: s.type,
-      content: (s.fullText || s.content || s.description || '').substring(0, 400)
-    }));
+/**
+ * Helper: kies unieke indices (maxCount) uit [0..length-1]
+ * via een simpele Fisher–Yates shuffle.
+ */
+function pickUniqueIndices(maxCount, length) {
+  if (!length || length <= 0) return [];
+  const indices = Array.from({ length }, (_, i) => i);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = indices[i];
+    indices[i] = indices[j];
+    indices[j] = tmp;
+  }
+  const limit = Math.min(maxCount, length);
+  return indices.slice(0, limit);
+}
 
-    const model = genAI.getGenerativeModel({ model: modelName });
+/**
+ * Bouw 3 dummy-lesvoorstellen op basis van allSources.
+ * - max 15 bronnen per voorstel (via sourceIds)
+ * - later kan hier een echte Gemini-call “onder” gehangen worden,
+ *   zonder dat de frontend-structuur wijzigt.
+ */
+function buildDummyProposals(allSources, tv, ka, conceptHint, query) {
+  const contextLabel = buildContextLabel(tv, ka);
 
-    const prompt = `
-    ROL:
-    Je bent een expert in geschiedenisdidactiek (Havo/Vwo Bovenbouw) en DE STRENGE PORTIER van de lesinhoud.
-    Methode: "Het Vreemde Verleden".
+  const baseTitles = [
+    'Onderwerp – Concept 1',
+    'Onderwerp – Concept 2',
+    'Onderwerp – Concept 3',
+  ];
 
-    CONTEXT:
-    Thema/KA: "${query}"
-    Beschikbare Bronnen: ${inputSources.length}
+  const baseHooks = [
+    'Waarom vonden tijdgenoten dit zo vanzelfsprekend – en wij helemaal niet meer?',
+    'Hoe kan het dat mensen dit toen normaal vonden?',
+    'Wat zegt dit onderwerp over de angsten en hoop van mensen in die tijd?',
+  ];
 
-    BRONNEN SET:
-    ${JSON.stringify(inputSources)}
+  const baseHoofdvraag = [
+    'Hoe keken mensen in die tijd zelf naar dit onderwerp?',
+    'Hoe kon dit onderwerp zo’n grote rol spelen in de geschiedenis?',
+    'Wat leert dit onderwerp ons over macht, angst en verandering?',
+  ];
 
-    OPDRACHT:
-    Selecteer bronnen en ontwikkel exact 3 lesconcepten (JSON).
+  const proposals = [];
+  const hint = (conceptHint && String(conceptHint).trim()) ||
+               (query && String(query).trim()) ||
+               '';
 
-    1. DE SELECTIE (De Strenge Portier):
-       - **Check 1 (KA Match):** Hoort deze bron écht bij het Kenmerkend Aspect "${query}"? Zo nee -> WEG.
-       - **Check 2 (Dimensie Match):** Kan deze bron gebruikt worden om een politiek, sociaal, economisch of cultureel aspect van de hoofdvraag te verklaren? Zo nee -> WEG.
-       - **Resultaat:** Kies per concept 12-15 bronnen die deze checks doorstaan.
-       - Sorteer op relevantie (Top 5 eerst).
+  for (let i = 0; i < 3; i++) {
+    const proposalId = `p${i + 1}`;
 
-    2. DE HOOFDVRAAG (De 'Bias' Hook):
-       - Abstract niveau (boven de bronnen).
-       - Vanuit Hindsight Bias of Presentisme.
-       - Toon: Verbaasd/Betweterig ("Waarom deden ze niet gewoon...").
-       - VERBODEN: "Dom", "Bizar", "Aanvankelijk".
+    const title = hint
+      ? `${hint} – voorstel ${i + 1}`
+      : baseTitles[i];
 
-    3. DE RATIONALE (De Verklaring):
-       - Leg in 4 regels uit hoe de geselecteerde bronnen antwoord geven vanuit verschillende sub-dimensies.
-       - Laat zien dat de bronnen de 'bewijsstukken' zijn voor het gedrag van toen.
+    const hook = baseHooks[i];
+    const hoofdvraag = baseHoofdvraag[i];
 
-    OUTPUT:
-    Een JSON-lijst met 3 voorstellen.
-    [
-      {
-        "title": "...",
-        "targetAudience": "Havo/Vwo Bovenbouw",
-        "hook": "...", 
-        "rationale": "...",
-        "selectedSourceIds": ["..."]
-      }
-    ]
-    `;
+    // Kies per voorstel max 15 bronnen uit allSources
+    const indices = pickUniqueIndices(15, allSources.length);
+    const sourceIds = indices.map((idx) => {
+      const src = allSources[idx];
+      if (!src) return null;
+      return String(src.id || src._id || idx);
+    }).filter(Boolean);
 
-    const result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.85 }
+    proposals.push({
+      id: proposalId,
+      concept: {
+        id: proposalId,
+        title,
+        hook,
+        hoofdvraag,
+        tv: tv ?? null,
+        ka: ka ?? null,
+        contextLabel,
+        targetAudience: 'Havo/Vwo Bovenbouw',
+      },
+      sourceIds,
     });
+  }
 
-    const response = await result.response;
-    let text = response.text();
+  return proposals;
+}
 
-    const firstBracket = text.indexOf('[');
-    const lastBracket = text.lastIndexOf(']');
-    if (firstBracket !== -1 && lastBracket !== -1) {
-        text = text.substring(firstBracket, lastBracket + 1);
+/**
+ * HOOFDFUNCTIE: propose-lessons
+ * Oude pad: POST /api/propose-lessons
+ * - ondersteunt zowel oude body ({ selectedSources, query })
+ *   als nieuwe body ({ sources, tv, ka, conceptHint })
+ */
+router.post('/propose-lessons', (req, res) => {
+  try {
+    const body = req.body || {};
+
+    // Oud: { selectedSources, query }
+    const selectedSources = Array.isArray(body.selectedSources)
+      ? body.selectedSources
+      : [];
+
+    // Nieuw: { sources }
+    const sources = Array.isArray(body.sources)
+      ? body.sources
+      : [];
+
+    // Houd beide vormen in ere, voorkom dubbele logica.
+    let allSources = selectedSources.length > 0 ? selectedSources : sources;
+    // Max 40 contextbronnen
+    allSources = (allSources || []).slice(0, 40);
+    allSources = ensureSourceIds(allSources);
+
+    const tv = body.tv ?? body.tijdvak ?? null;
+    const ka = body.ka ?? body.kenmerkendAspect ?? null;
+    const conceptHint =
+      body.conceptHint ||
+      (body.concept && body.concept.title) ||
+      '';
+    const query = body.query || '';
+
+    if (!allSources.length) {
+      console.warn('[A25] ⚠️ /propose-lessons: geen bronnen in request-body (selectedSources/sources leeg).');
     }
 
-    try {
-        const jsonResponse = JSON.parse(text);
-        res.json(jsonResponse);
-    } catch (parseError) {
-        console.error('JSON Parse fout:', parseError);
-        res.json([]); 
-    }
+    const proposals = buildDummyProposals(
+      allSources,
+      tv,
+      ka,
+      conceptHint,
+      query
+    );
 
+    console.log(
+      `[A25/DEBUG] propose-lessons: tv=${tv ?? 'null'} ka=${ka ?? 'null'} query="${query}" #all=${allSources.length} #proposals=${proposals.length}`
+    );
+
+    return res.json({
+      allSources,
+      proposals,
+      meta: {
+        countAll: allSources.length,
+        countProposals: proposals.length,
+        inputShape: {
+          selectedSources: selectedSources.length,
+          sources: sources.length,
+        },
+      },
+    });
   } catch (error) {
-    console.error('[AI Proposals] Fout:', error);
-    res.status(500).json({ error: 'Kon geen lesvoorstellen genereren.' });
+    console.error('[A25] Fout in /propose-lessons:', error);
+    return res.status(500).json({
+      error: 'Kon geen lesvoorstellen genereren (dummy A25).',
+    });
   }
 });
 
 module.exports = router;
+

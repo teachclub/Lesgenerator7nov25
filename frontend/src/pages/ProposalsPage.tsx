@@ -4,15 +4,46 @@ import { useSelectionStore, Source } from '../state/selection.store';
 import { useQueryStore } from '../state/query.store';
 import { useLessonStoreV2 } from '../state/lesson-v2.store';
 
-// <<< HIER DIRECTE BACKEND-URL >>>
+// Backend direct aanspreken, Vite-proxy omzeilen
 const API_BASE_URL = 'http://127.0.0.1:8081/api';
 
-interface Proposal {
+// ---- Types die aansluiten op de backend-response ----
+type ProposalConcept = {
+  id: string;
+  title: string;
+  hook: string;
+  hoofdvraag: string;
+  tv: number | null;
+  ka: number | null;
+  contextLabel: string;
+  targetAudience: string;
+};
+
+type LessonProposal = {
+  id: string;
+  concept: ProposalConcept;
+  sourceIds: string[];
+};
+
+type ProposalsResponse = {
+  allSources: Source[];
+  proposals: LessonProposal[];
+  meta?: {
+    countAll?: number;
+    countProposals?: number;
+    inputShape?: any;
+  };
+};
+
+// UI-shape: flatten + concept bewaren
+interface UiProposal {
+  id: string;
   title: string;
   targetAudience: string;
   hook: string;
   rationale: string;
-  selectedSourceIds: string[];
+  sourceIds: string[];
+  concept: ProposalConcept;
 }
 
 interface ViewingState {
@@ -25,10 +56,11 @@ const ProposalsPage: React.FC = () => {
   const { sources } = useSelectionStore();
   const { query } = useQueryStore();
   const { setLessonPlan } = useLessonStoreV2();
-  
-  const [proposals, setProposals] = useState<Proposal[]>([]);
+
+  const [allSources, setAllSources] = useState<Source[]>([]);
+  const [proposals, setProposals] = useState<UiProposal[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
   const [feedbackInputs, setFeedbackInputs] = useState<{ [key: number]: string }>({});
   const [refiningStates, setRefiningStates] = useState<{ [key: number]: boolean }>({});
   const [viewingState, setViewingState] = useState<ViewingState | null>(null);
@@ -57,25 +89,61 @@ const ProposalsPage: React.FC = () => {
     const fetchProposals = async () => {
       if (!sources || sources.length === 0) {
         setLoading(false);
+        setError('Geen bronnen geselecteerd. Ga terug en selecteer eerst bronnen.');
         return;
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/propose-lessons-v2`, {
+        const response = await fetch(`${API_BASE_URL}/propose-lessons`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            // Query op basis van KA + zoekterm
+            query: query || 'KA-lessen',
+            // Niet strikt nodig voor backend-stub, maar netjes meegeven
+            tv: null,
+            ka: null,
+            // Backend bewaakt: max 40 bronnen in context, max 15 per voorstel
             selectedSources: sources,
-            query: query || 'Onderwerp'
-          })
+          }),
         });
 
         if (!response.ok) {
-          throw new Error(`propose-lessons-v2 fout: ${response.status}`);
+          throw new Error(`propose-lessons fout: ${response.status}`);
         }
 
-        const data = await response.json();
-        setProposals(data);
+        const data = (await response.json()) as ProposalsResponse;
+
+        // Bewaar de "master set" bronnen uit de backend
+        setAllSources(data.allSources || []);
+
+        // Map backend-proposals naar UI-vriendelijke vorm
+        const uiProposals: UiProposal[] = (data.proposals || []).map((p) => {
+          const concept = p.concept;
+          // Simpele rationale gebaseerd op hoofdvraag + context
+          const rationaleLines: string[] = [];
+          if (concept.hoofdvraag) {
+            rationaleLines.push(`Hoofdvraag: ${concept.hoofdvraag}`);
+          }
+          if (concept.contextLabel) {
+            rationaleLines.push(`Context: ${concept.contextLabel}`);
+          }
+          const rationale =
+            rationaleLines.join(' · ') ||
+            'Deze les richt zich op een kernvraag binnen dit kenmerkend aspect.';
+
+          return {
+            id: p.id,
+            title: concept.title,
+            targetAudience: concept.targetAudience || 'Havo/Vwo Bovenbouw',
+            hook: concept.hook,
+            rationale,
+            sourceIds: p.sourceIds || [],
+            concept,
+          };
+        });
+
+        setProposals(uiProposals);
       } catch (err: any) {
         console.error('[Proposals] fout bij ophalen voorstellen', err);
         setError('Backend offline of voorstel-endpoint faalt.');
@@ -92,7 +160,7 @@ const ProposalsPage: React.FC = () => {
     const prop = newProposals[proposalIndex];
 
     if (prop) {
-      prop.selectedSourceIds = (prop.selectedSourceIds || []).filter(id => id !== sourceId);
+      prop.sourceIds = (prop.sourceIds || []).filter((id) => id !== sourceId);
       setProposals(newProposals);
 
       if (viewingState && viewingState.source.id === sourceId) {
@@ -105,52 +173,91 @@ const ProposalsPage: React.FC = () => {
     const feedback = feedbackInputs[idx];
     if (!feedback) return;
 
-    setRefiningStates(prev => ({ ...prev, [idx]: true }));
+    setRefiningStates((prev) => ({ ...prev, [idx]: true }));
 
     try {
+      // Optioneel: refine blijft gekoppeld aan oude endpoint
       const response = await fetch(`${API_BASE_URL}/refine-concept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           currentProposal: proposals[idx],
           feedback: feedback,
-          sources: sources
-        })
+          sources: allSources.length ? allSources : sources,
+        }),
       });
 
       if (!response.ok) {
         throw new Error(`refine-concept fout: ${response.status}`);
       }
 
-      const updatedProposal = await response.json();
+      const updated = await response.json();
       const newProposals = [...proposals];
-      newProposals[idx] = updatedProposal;
+
+      // We verwachten vergelijkbare shape terug; anders laten we oude staan
+      if (updated && updated.concept && updated.sourceIds) {
+        const concept = updated.concept as ProposalConcept;
+        const rationaleLines: string[] = [];
+        if (concept.hoofdvraag) {
+          rationaleLines.push(`Hoofdvraag: ${concept.hoofdvraag}`);
+        }
+        if (concept.contextLabel) {
+          rationaleLines.push(`Context: ${concept.contextLabel}`);
+        }
+        const rationale =
+          rationaleLines.join(' · ') ||
+          'Deze les richt zich op een kernvraag binnen dit kenmerkend aspect.';
+
+        newProposals[idx] = {
+          id: updated.id,
+          title: concept.title,
+          targetAudience: concept.targetAudience || 'Havo/Vwo Bovenbouw',
+          hook: concept.hook,
+          rationale,
+          sourceIds: updated.sourceIds || [],
+          concept,
+        };
+      }
+
       setProposals(newProposals);
-      setFeedbackInputs(prev => ({ ...prev, [idx]: '' }));
+      setFeedbackInputs((prev) => ({ ...prev, [idx]: '' }));
     } catch (e) {
       console.error('[Proposals] refine mislukt', e);
       alert('Mislukt');
     } finally {
-      setRefiningStates(prev => ({ ...prev, [idx]: false }));
+      setRefiningStates((prev) => ({ ...prev, [idx]: false }));
     }
   };
 
-  const handleChoose = (prop: Proposal) => {
+  const handleChoose = (prop: UiProposal) => {
+    // Reset oude lesplan-state (V1)
     setLessonPlan(null);
 
-    const safeIds = prop.selectedSourceIds || [];
-    let usedSources = sources.filter(s => safeIds.includes(s.id));
+    const safeIds = prop.sourceIds || [];
 
+    // Bronnen bij dit voorstel: eerst uit allSources (backend), anders fallback op selection-store
+    let usedSources =
+      allSources.length > 0
+        ? allSources.filter((s) => safeIds.includes(s.id))
+        : sources.filter((s) => safeIds.includes(s.id));
+
+    // Fall-back: als bronlijst leeg is (bv. dummy of bug), gebruik alle allSources/sources
     if (usedSources.length === 0) {
-      console.warn('[PROPOSALS] usedSources is leeg, val terug op alle sources');
-      usedSources = sources;
+      console.warn('[PROPOSALS] usedSources is leeg, val terug op allSources/sources');
+      usedSources = allSources.length ? allSources : sources;
     }
 
+    // Naar LessonPage → concept + bronnen
     navigate('/lesson', {
       state: {
-        concept: prop,
-        sources: usedSources
-      }
+        concept: {
+          title: prop.concept.title,
+          hook: prop.concept.hook,
+          // extra velden blijven gewoon meekomen, LessonPage gebruikt title + hook
+          ...prop.concept,
+        },
+        sources: usedSources,
+      },
     });
   };
 
@@ -170,6 +277,14 @@ const ProposalsPage: React.FC = () => {
     );
   }
 
+  if (!proposals.length) {
+    return (
+      <div className="p-10 text-center text-gray-600">
+        Geen voorstellen ontvangen van de backend.
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 p-8 font-sans">
       <div className="max-w-7xl mx-auto">
@@ -179,12 +294,12 @@ const ProposalsPage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {proposals.map((prop, idx) => {
-            const safeIds = prop.selectedSourceIds || [];
+            const safeIds = prop.sourceIds || [];
             const isRefining = refiningStates[idx];
 
             return (
               <div
-                key={idx}
+                key={prop.id || idx}
                 className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden hover:shadow-xl transition-all h-[800px]"
               >
                 <div className="bg-indigo-50 p-5 border-b border-indigo-100 shrink-0">
@@ -224,7 +339,7 @@ const ProposalsPage: React.FC = () => {
                           onChange={(e) =>
                             setFeedbackInputs({
                               ...feedbackInputs,
-                              [idx]: e.target.value
+                              [idx]: e.target.value,
                             })
                           }
                           placeholder="Stuur AI bij..."
@@ -249,7 +364,9 @@ const ProposalsPage: React.FC = () => {
                       </h4>
                       <div className="space-y-2">
                         {safeIds.map((sourceId, listIdx) => {
-                          const source = sources.find(s => s.id === sourceId);
+                          const source =
+                            allSources.find((s) => s.id === sourceId) ||
+                            sources.find((s) => s.id === sourceId);
                           if (!source) return null;
 
                           const imgUrl = getProxiedImageUrl(source);
@@ -261,7 +378,7 @@ const ProposalsPage: React.FC = () => {
                               onClick={() =>
                                 setViewingState({
                                   source,
-                                  proposalIndex: idx
+                                  proposalIndex: idx,
                                 })
                               }
                               className={`relative flex gap-3 p-2 rounded border cursor-zoom-in transition-colors group ${
@@ -361,7 +478,10 @@ const ProposalsPage: React.FC = () => {
                 )}
                 <div className="prose prose-sm max-w-none text-gray-700">
                   <p className="whitespace-pre-wrap">
-                    {viewingState.source.fullText || viewingState.source.content}
+                    {viewingState.source.fullText ||
+                      viewingState.source.content ||
+                      viewingState.source.description ||
+                      ''}
                   </p>
                 </div>
               </div>
