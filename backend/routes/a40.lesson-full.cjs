@@ -1,118 +1,183 @@
 // routes/a40.lesson-full.cjs
-// SUPER EENVOUDIGE DEBUG-STUB VOOR /api/generate-lesson-v2/full
-// - GEEN Gemini
-// - GEEN env-gedoe
-// - GEEFT ALTIJD GELDIGE JSON TERUG
+// Dummy-implementatie voor een volledige les in hetzelfde formaat
+// als de frontend verwacht (step1..step4).
 
 const express = require('express');
 const router = express.Router();
 
-router.post('/generate-lesson-v2/full', (req, res) => {
+/**
+ * Helper: veilige string
+ */
+function safe(s, fallback = "") {
+  if (s === null || s === undefined) return fallback;
+  return String(s);
+}
+
+/**
+ * POST /api/generate-lesson-v2/full
+ *
+ * Verwacht in req.body:
+ * {
+ *   concept: { title, hook },
+ *   sources: [ { id, title, ... } ],
+ *   quadrantContext: { ... } (optioneel)
+ * }
+ *
+ * Stuurt terug:
+ * {
+ *   concept,
+ *   sources,
+ *   quadrantContext,
+ *   fullLesson: {
+ *     step1, step2, step3, step4   // zoals de frontend FullLesson verwacht
+ *   }
+ * }
+ */
+router.post('/generate-lesson-v2/full', async (req, res) => {
   try {
-    const { concept = {}, sources = [] } = req.body || {};
+    const { concept, sources = [], quadrantContext = null } = req.body || {};
 
-    const title = concept.title || 'DEBUG-les (geen titel meegegeven)';
-    const hook =
-      concept.hook ||
-      'DEBUG-verwonderingsvraag: waarom waren mensen zo bang / zo raar bezig?';
+    const title = safe(concept && concept.title, "Onbekend onderwerp");
+    const hook = safe(concept && concept.hook, "");
 
-    console.log(
-      '[A40/full DEBUG] full lesson request:',
-      'titel =',
-      title,
-      '| hook =',
-      hook,
-      '| #bronnen =',
-      Array.isArray(sources) ? sources.length : 0
-    );
-
-    const dummy = {
-      step1: {
-        docentenInstructie: {
-          wat: `DEBUG-les op basis van concept: "${title}". Dit is een dummy-les om de keten proposals → lesson → backend → frontend te testen.`,
-          hoe: 'Leerlingen lezen de gekozen bronnen, beantwoorden voorbeeldvragen en bespreken de hoofdvraag klassikaal.',
-          waarom:
-            'We testen alleen of de techniek werkt. Deze les is NIET inhoudelijk bedoeld, maar laat wel zien hoe de structuur eruitziet.',
-        },
-        lesPlanning: {
-          tabelMarkdown:
-            '| Fase | Tijd | Activiteit |\n' +
-            '|---|---|---|\n' +
-            '| 1 | 5 min | Uitleg dat dit een DEBUG-les is |\n' +
-            '| 2 | 20 min | Leerlingen lezen de gekozen bronnen |\n' +
-            '| 3 | 20 min | Leerlingen beantwoorden vragen per bron |\n' +
-            '| 4 | 15 min | Klassengesprek over de verwonderingsvraag |\n' +
-            '| 5 | 10 min | Reflectie & afronding |\n',
-        },
+    // ---------- STEP 1: Docenteninstructie + Lesplanning ----------
+    const step1 = {
+      docentenInstructie: {
+        wat: `De leerlingen onderzoeken: ${title}. (DUMMY-les, backend versie)`,
+        hoe:
+          "Deze les is een dummy-voorbeeld zonder echte AI. De docent bespreekt de bronnen klassikaal " +
+          "en laat leerlingen in groepjes de bronnen analyseren aan de hand van observatie- en interpretatievragen.",
+        waarom:
+          "Deze dummy-les is bedoeld om de technische keten tussen Lessie-frontend en backend te testen. " +
+          "Als dit werkt, kunnen we later de echte Gemini-logica koppelen zonder dat de UI omvalt."
       },
-      step2: {
-        hoofdvraag:
-          hook ||
-          'DEBUG-hoofdvraag: Waarom maakten mensen zich zo druk over dit onderwerp?',
-        leerlingInleiding:
-          'DIT IS EEN DEBUG-TEKST. Als je dit op de Lessie-lespagina ziet, dan werkt de hele keten: je koos een concept en bronnen, klikte op "Genereer volledige les", de frontend stuurde een POST naar /api/generate-lesson-v2/full, en de backend stuurde deze JSON terug. In een echte versie vult Gemini hier een echte historische inleiding in.',
-        kwadrantAsLabels: {
-          X_links: 'Meer dreiging',
-          X_rechts: 'Minder dreiging',
-          Y_boven: 'Meer confrontatie',
-          Y_onder: 'Minder confrontatie',
-        },
-      },
-      step3: {
-        bronVragen: [
-          {
-            bronNummer: 1,
-            observeren:
-              'DEBUG: Wat zie/lees je letterlijk in Bron 1? Noem 2 concrete dingen.',
-            interpreteren:
-              'DEBUG: Wat denk je dat de maker met Bron 1 wil bereiken? (Bijv. overtuigen, waarschuwen, kritiek geven...)',
-            hoofdvraagRelatie:
-              'DEBUG: Hoe helpt Bron 1 om iets te zeggen over de (verwonderings)vraag?',
-          },
-        ],
-        samenwerkingTabelLeeg:
-          '| Bron | Wie spreekt/maakt? | Kerngevoel / Overtuiging | Gekozen Subdimensie | Twee Verklaringen (kort) |\n' +
-          '|---|---|---|---|---|\n' +
-          '| 1 |  |  |  |  |\n',
-        kwadrantLeeg:
-          '|  | Meer dreiging | Minder dreiging |\n' +
-          '|---|---|---|\n' +
-          '| Meer confrontatie |  |  |\n' +
-          '| Minder confrontatie |  |  |\n',
-        reflectieOpdracht:
-          'DEBUG: Schrijf in 5–8 zinnen wat jou opvalt aan de spanning en emoties in de bronnen. Hoe zou jij reageren als je in die tijd had geleefd? Vergelijk dat met hoe jij nu tegen dit onderwerp aankijkt.',
-      },
-      step4: {
-        samenwerkingTabelIngevuld:
-          '| Bron | Wie spreekt/maakt? | Kerngevoel / Overtuiging | Gekozen Subdimensie | Twee Verklaringen (kort) |\n' +
-          '|---|---|---|---|---|\n' +
-          '| 1 | DEBUG | Angst / spanning | Meer dreiging | 1. Dummy-verklaring. 2. Nog een dummy-verklaring. |\n',
-        kwadrantIngevuld:
-          '|  | Meer dreiging | Minder dreiging |\n' +
-          '|---|---|---|\n' +
-          '| Meer confrontatie | Bron 1 (DEBUG) |  |\n' +
-          '| Minder confrontatie |  |  |\n',
-        bronAntwoorden: [
-          {
-            bronNummer: 1,
-            observerenAntwoord:
-              'DEBUG: voorbeeldobservatie bij Bron 1 (leerling noemt wat hij/zij letterlijk ziet/leest).',
-            interpreterenAntwoord:
-              'DEBUG: voorbeeldinterpretatie (wat wil de maker bereiken?).',
-            hoofdvraagRelatieAntwoord:
-              'DEBUG: voorbeeldlink tussen Bron 1 en de hoofdvraag.',
-          },
-        ],
-      },
+      lesPlanning: {
+        tabelMarkdown: [
+          "| Fase | Duur | Activiteit |",
+          "|------|------|-----------|",
+          "| Start | 5 min | Introductie van het onderwerp en de verwonderingsvraag. |",
+          "| Verkennen | 15 min | Leerlingen lezen de bronnen en noteren eerste observaties. |",
+          "| Analyseren | 20 min | In groepjes beantwoorden leerlingen de bronvragen. |",
+          "| Plenair | 15 min | Bespreking van antwoorden en koppeling aan de hoofdvraag. |",
+          "| Reflectie | 10 min | Leerlingen vullen kwadrant en reflectieopdracht in. |"
+        ].join("\n")
+      }
     };
 
-    return res.json(dummy);
-  } catch (err) {
-    console.error('[A40/full DEBUG] onverwachte fout:', err);
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: err.message || 'Onbekende fout in full-lesson DEBUG-route.',
+    // ---------- STEP 2: Hoofdvraag, inleiding, kwadrant-labels ----------
+    const step2 = {
+      hoofdvraag:
+        hook && hook.trim().length > 0
+          ? hook
+          : `Welke spanningen en belangen spelen een rol bij het onderwerp "${title}"?`,
+      leerlingInleiding: [
+        `Je gaat in deze les werken met verschillende bronnen over "${title}".`,
+        "",
+        "Eerst ga je goed observeren wat je precies ziet of leest.",
+        "Daarna ga je interpreteren: wat betekent dit? Wat zegt dit over de tijd waarin de bron is gemaakt?",
+        "Tot slot koppel je jouw bevindingen aan de hoofdvraag van de les."
+      ].join("\n"),
+      kwadrantAsLabels: {
+        X_links: "Dicht bij het dagelijks leven van mensen",
+        X_rechts: "Ver van het dagelijks leven van mensen",
+        Y_boven: "Grote historische veranderingen",
+        Y_onder: "Kleine, geleidelijke veranderingen"
+      }
+    };
+
+    // ---------- STEP 3: Bronvragen, samenwerkingstabel, kwadrant-leeg, reflectie ----------
+    const bronVragen = sources.map((src, index) => {
+      const bronNummer = index + 1;
+      const bronTitel = safe(src && src.title, `Bron ${bronNummer}`);
+
+      return {
+        bronNummer,
+        observeren: `Wat zie je / lees je precies in ${bronTitel}? Noem minimaal drie concrete elementen.`,
+        interpreteren:
+          `Wat probeert de maker met ${bronTitel} duidelijk te maken? ` +
+          `Leg uit wat de bron zegt over de tijd en de betrokken personen of landen.`,
+        hoofdvraagRelatie:
+          `Hoe helpt ${bronTitel} jou om de hoofdvraag van de les beter te beantwoorden?`
+      };
     });
+
+    const samenwerkingTabelLeeg = [
+      "| Groep | Bron(nen) | Belangrijkste observaties | Interpretatie | Link met hoofdvraag |",
+      "|-------|-----------|---------------------------|--------------|----------------------|",
+      "| A | ... | ... | ... | ... |",
+      "| B | ... | ... | ... | ... |",
+      "| C | ... | ... | ... | ... |"
+    ].join("\n");
+
+    const kwadrantLeeg = [
+      "|                | Dicht bij dagelijks leven | Ver van dagelijks leven |",
+      "|----------------|--------------------------|-------------------------|",
+      "| Grote veranderingen | ... | ... |",
+      "| Kleine veranderingen | ... | ... |"
+    ].join("\n");
+
+    const reflectieOpdracht = [
+      "1. Wat vond je de meest verrassende bron en waarom?",
+      "2. In welk vak van het kwadrant zou jij het onderwerp van deze les plaatsen? Licht je keuze toe.",
+      "3. Wat zegt dit onderwerp volgens jou over de tijd waarin wij nu leven? Noem één overeenkomst en één verschil."
+    ].join("\n");
+
+    const step3 = {
+      bronVragen,
+      samenwerkingTabelLeeg,
+      kwadrantLeeg,
+      reflectieOpdracht
+    };
+
+    // ---------- STEP 4: Voorbeeldantwoorden (dummy) ----------
+    const bronAntwoorden = sources.map((src, index) => {
+      const bronNummer = index + 1;
+      const bronTitel = safe(src && src.title, `Bron ${bronNummer}`);
+
+      return {
+        bronNummer,
+        observerenAntwoord:
+          `Leerlingen noemen concrete elementen uit ${bronTitel}, zoals personen, symbolen, jaartallen of citaten.`,
+        interpreterenAntwoord:
+          `Leerlingen leggen uit welke boodschap de maker met ${bronTitel} wil overbrengen en plaatsen dit in de context van de tijd.`,
+        hoofdvraagRelatieAntwoord:
+          `Leerlingen maken een duidelijke koppeling tussen ${bronTitel} en de hoofdvraag, bijvoorbeeld door een spanning of dilemma te benoemen.`
+      };
+    });
+
+    const samenwerkingTabelIngevuld = [
+      "| Groep | Bron(nen) | Belangrijkste observaties | Interpretatie | Link met hoofdvraag |",
+      "|-------|-----------|---------------------------|--------------|----------------------|",
+      "| A | 1–2 | Leerlingen zien de rol van grote mogendheden. | De bronnen laten spanningen en belangen zien. | Laat zien hoe het onderwerp past in de Koude Oorlog. |",
+      "| B | 3–4 | Leerlingen zien protesten en reacties van burgers. | De samenleving reageert actief op beleid van machthebbers. | Verduidelijkt de impact op gewone mensen. |"
+    ].join("\n");
+
+    const kwadrantIngevuld = [
+      "|                | Dicht bij dagelijks leven | Ver van dagelijks leven |",
+      "|----------------|--------------------------|-------------------------|",
+      "| Grote veranderingen | Voorbeelden van oorlog, revolutie of machtsblokken. | Ontwikkeling van nieuwe wapens, internationale verdragen. |",
+      "| Kleine veranderingen | Veranderingen in mening of houding van mensen. | Langzame verschuiving van machtsverhoudingen. |"
+    ].join("\n");
+
+    const step4 = {
+      samenwerkingTabelIngevuld,
+      kwadrantIngevuld,
+      bronAntwoorden
+    };
+
+    const fullLesson = { step1, step2, step3, step4 };
+
+    return res.json({
+      concept: concept || null,
+      sources,
+      quadrantContext,
+      fullLesson
+    });
+  } catch (err) {
+    console.error("[A40/full] Fout bij genereren volledige les:", err);
+    return res
+      .status(500)
+      .json({ error: "Er ging iets mis bij het genereren van de volledige les." });
   }
 });
 

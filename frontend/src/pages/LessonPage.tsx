@@ -1,22 +1,10 @@
 import React, { useState } from "react";
 import { useLocation } from "react-router-dom";
-
-// >>> zelfde truc als ProposalsPage: direct naar backend, niet via Vite-proxy
-const API_BASE_URL = "http://127.0.0.1:8081/api";
+import { useSelectionStore, Source } from "../state/selection.store";
 
 type Concept = {
   title: string;
   hook: string;
-};
-
-type Source = {
-  id: string;
-  title?: string;
-  provider?: string;
-  type?: string;
-  fullText?: string;
-  content?: string;
-  description?: string;
 };
 
 type DocentenInstructie = {
@@ -83,14 +71,58 @@ type FullLesson = {
 
 type LocationState = {
   concept?: Concept;
-  sources?: Source[];
 };
 
 type Status = "idle" | "loading" | "success" | "error";
 
+// 👉 Rechtstreeks naar backend, Vite-proxy omzeilen
+const API_BASE = "http://127.0.0.1:8081";
+
+/**
+ * Exact dezelfde image-logica als in A18.SelectionPanel:
+ * - gebruikt source.imageUrl
+ * - proxy voor Cito + Kleio (+ urls met 'kleio')
+ */
+const getImageUrl = (source: Source): string | null => {
+  if (!source.imageUrl) return null;
+  const url = source.imageUrl;
+  // Proxy gebruiken voor Cito en Kleio
+  const needsProxy =
+    source.provider === "Cito" ||
+    source.provider === "Kleio" ||
+    url.includes("kleio");
+
+  if (needsProxy) {
+    return `http://localhost:8081/api/image-proxy?url=${encodeURIComponent(
+      url
+    )}`;
+  }
+  return url;
+};
+
+// Helper: Is dit een "echt" plaatje of een placeholder?
+const isValidImage = (url?: string): boolean => {
+  if (!url) return false;
+  // Filter specifiek het grijze poppetje van Google/Cito
+  if (url.includes("profile/picture")) return false;
+  return true;
+};
+
+const getSourceText = (source: Source): string => {
+  return (
+    (source as any).fullText ||
+    (source as any).content ||
+    (source as any).description ||
+    "Geen tekst beschikbaar."
+  );
+};
+
 const LessonPage: React.FC = () => {
   const location = useLocation();
-  const { concept, sources } = (location.state || {}) as LocationState;
+  const { concept } = (location.state || {}) as LocationState;
+
+  // 🔥 Belangrijk: we gebruiken nu exact dezelfde bron-data als de selectie-kolom
+  const { sources } = useSelectionStore();
 
   const [lesson, setLesson] = useState<FullLesson | null>(null);
   const [status, setStatus] = useState<Status>("idle");
@@ -101,7 +133,7 @@ const LessonPage: React.FC = () => {
   const handleGenerateLesson = async () => {
     if (!hasInput) {
       setError(
-        "Er is geen concept of bronnen gevonden in de navigatie-state. Ga eerst terug en kies een lesvoorstel + bronnen."
+        "Er is geen concept of bronnen gevonden. Ga eerst terug en kies een lesvoorstel + bronnen."
       );
       setStatus("error");
       return;
@@ -111,7 +143,7 @@ const LessonPage: React.FC = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/generate-lesson-v2/full`, {
+      const response = await fetch(`${API_BASE}/api/generate-lesson-v2/full`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -130,8 +162,19 @@ const LessonPage: React.FC = () => {
         );
       }
 
-      const data = (await response.json()) as FullLesson;
-      setLesson(data);
+      const data = (await response.json()) as {
+        fullLesson?: FullLesson;
+        [key: string]: any;
+      };
+
+      if (!data.fullLesson) {
+        console.error("Onverwacht les-formaat ontvangen:", data);
+        throw new Error(
+          "De backend stuurde een les terug in een onverwacht formaat."
+        );
+      }
+
+      setLesson(data.fullLesson);
       setStatus("success");
     } catch (err: any) {
       console.error("Fout bij het genereren van de les:", err);
@@ -140,19 +183,12 @@ const LessonPage: React.FC = () => {
     }
   };
 
-  const getSourceText = (source: Source): string => {
-    return (
-      source.fullText ||
-      source.content ||
-      source.description ||
-      "(Geen tekst beschikbaar voor deze bron.)"
-    );
-  };
-
   const getBronVragenFor = (bronNummer: number): BronVraag | undefined =>
     lesson?.step3?.bronVragen?.find((b) => b.bronNummer === bronNummer);
 
-  const getBronAntwoordenFor = (bronNummer: number): BronAntwoord | undefined =>
+  const getBronAntwoordenFor = (
+    bronNummer: number
+  ): BronAntwoord | undefined =>
     lesson?.step4?.bronAntwoorden?.find((b) => b.bronNummer === bronNummer);
 
   const renderMarkdownPre = (markdown?: string) => {
@@ -231,13 +267,13 @@ const LessonPage: React.FC = () => {
       {!hasInput && (
         <section style={{ marginBottom: "2rem", color: "#b91c1c" }}>
           <p>
-            Er zijn geen bronnen of concept meegegeven aan deze pagina. Ga terug
-            naar de vorige stap en kies een lesvoorstel + bronnen, zodat{" "}
-            <strong>LessonPage</strong> weet wat hij moet genereren.
+            Er zijn geen bronnen of concept meegegeven. Ga terug naar de vorige
+            stap en kies een lesvoorstel + bronnen.
           </p>
         </section>
       )}
 
+      {/* Als er nog geen les is, maar wel input, kun je alvast de bronnen tonen */}
       {hasInput && !lesson && (
         <section style={{ marginBottom: "2rem" }}>
           <h3>Gekozen bronnen (preview)</h3>
@@ -245,36 +281,72 @@ const LessonPage: React.FC = () => {
             Dit zijn de bronnen die naar de lesgenerator gestuurd worden.
           </p>
           <div style={{ display: "grid", gap: "1rem" }}>
-            {sources!.map((s, index) => (
-              <article
-                key={s.id ?? index}
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "0.75rem",
-                  padding: "0.75rem 1rem",
-                  background: "#f9fafb",
-                }}
-              >
-                <h4 style={{ margin: 0, marginBottom: "0.25rem" }}>
-                  Bron {index + 1}
-                  {s.title ? ` – ${s.title}` : ""}
-                </h4>
-                <p style={{ margin: 0, fontSize: "0.8rem", color: "#6b7280" }}>
-                  {s.provider && <>Provider: {s.provider} · </>}
-                  {s.type && <>Type: {s.type}</>}
-                </p>
-                <p style={{ marginTop: "0.5rem", whiteSpace: "pre-wrap" }}>
-                  {getSourceText(s).slice(0, 400)}
-                  {getSourceText(s).length > 400 ? "…" : ""}
-                </p>
-              </article>
-            ))}
+            {sources.map((s, index) => {
+              const hasImage = isValidImage(s.imageUrl);
+              const imgUrl = hasImage ? getImageUrl(s) : null;
+
+              return (
+                <article
+                  key={s.id ?? index}
+                  style={{
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "0.75rem",
+                    padding: "0.75rem 1rem",
+                    background: "#f9fafb",
+                  }}
+                >
+                  <h4 style={{ margin: 0, marginBottom: "0.25rem" }}>
+                    Bron {index + 1}
+                    {s.title ? ` – ${s.title}` : ""}
+                  </h4>
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: "0.8rem",
+                      color: "#6b7280",
+                    }}
+                  >
+                    {s.provider && <>Provider: {s.provider} · </>}
+                    {s.type && <>Type: {s.type}</>}
+                  </p>
+
+                  {imgUrl && (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <img
+                        src={imgUrl}
+                        alt={s.title || `Afbeelding bron ${index + 1}`}
+                        style={{
+                          maxWidth: "100%",
+                          borderRadius: "0.5rem",
+                          display: "block",
+                        }}
+                        loading="lazy"
+                        onError={(e) =>
+                          ((e.target as HTMLImageElement).style.display =
+                            "none")
+                        }
+                      />
+                    </div>
+                  )}
+
+                  <p
+                    style={{
+                      marginTop: "0.5rem",
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {getSourceText(s)}
+                  </p>
+                </article>
+              );
+            })}
           </div>
         </section>
       )}
 
       {lesson && (
         <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+          {/* DOCENTENVERSIE */}
           <section>
             <h2>Docentenversie</h2>
             <div
@@ -293,10 +365,12 @@ const LessonPage: React.FC = () => {
               >
                 <h3 style={{ marginTop: 0 }}>Docenteninstructie</h3>
                 <p>
-                  <strong>Wat:</strong> {lesson.step1.docentenInstructie.wat}
+                  <strong>Wat:</strong>{" "}
+                  {lesson.step1.docentenInstructie.wat}
                 </p>
                 <p>
-                  <strong>Hoe:</strong> {lesson.step1.docentenInstructie.hoe}
+                  <strong>Hoe:</strong>{" "}
+                  {lesson.step1.docentenInstructie.hoe}
                 </p>
                 <p>
                   <strong>Waarom:</strong>{" "}
@@ -317,6 +391,7 @@ const LessonPage: React.FC = () => {
             </div>
           </section>
 
+          {/* LEERLINGENVERSIE – Inleiding + Hoofdvraag */}
           <section>
             <h2>Leerlingversie</h2>
             <article
@@ -349,6 +424,7 @@ const LessonPage: React.FC = () => {
               </p>
             </article>
 
+            {/* Bronnen + vragen */}
             <article
               style={{
                 border: "1px solid #e5e7eb",
@@ -364,6 +440,8 @@ const LessonPage: React.FC = () => {
                     const bronNummer = index + 1;
                     const vragen = getBronVragenFor(bronNummer);
                     const antwoorden = getBronAntwoordenFor(bronNummer);
+                    const hasImage = isValidImage(s.imageUrl);
+                    const imgUrl = hasImage ? getImageUrl(s) : null;
 
                     return (
                       <div
@@ -389,6 +467,28 @@ const LessonPage: React.FC = () => {
                           {s.provider && <>Provider: {s.provider} · </>}
                           {s.type && <>Type: {s.type}</>}
                         </p>
+
+                        {imgUrl && (
+                          <div style={{ marginTop: "0.5rem" }}>
+                            <img
+                              src={imgUrl}
+                              alt={
+                                s.title || `Afbeelding bron ${bronNummer}`
+                              }
+                              style={{
+                                maxWidth: "100%",
+                                borderRadius: "0.5rem",
+                                display: "block",
+                              }}
+                              loading="lazy"
+                              onError={(e) =>
+                                ((e.target as HTMLImageElement).style.display =
+                                  "none")
+                              }
+                            />
+                          </div>
+                        )}
+
                         <p style={{ whiteSpace: "pre-wrap" }}>
                           {getSourceText(s)}
                         </p>
@@ -402,6 +502,8 @@ const LessonPage: React.FC = () => {
                               style={{
                                 paddingLeft: "1.25rem",
                                 margin: 0,
+                                listStyleType: "decimal",
+                                listStylePosition: "outside",
                               }}
                             >
                               <li>{vragen.observeren}</li>
@@ -451,6 +553,7 @@ const LessonPage: React.FC = () => {
               )}
             </article>
 
+            {/* Tabellen + reflectie */}
             <article
               style={{
                 border: "1px solid #e5e7eb",
@@ -459,9 +562,7 @@ const LessonPage: React.FC = () => {
                 marginBottom: "1.5rem",
               }}
             >
-              <h3 style={{ marginTop: 0 }}>
-                Samenwerkingstabel (leerlingen)
-              </h3>
+              <h3 style={{ marginTop: 0 }}>Samenwerkingstabel (leerlingen)</h3>
               {renderMarkdownPre(lesson.step3.samenwerkingTabelLeeg)}
             </article>
 
@@ -492,6 +593,7 @@ const LessonPage: React.FC = () => {
             </article>
           </section>
 
+          {/* DOCENT – Antwoordmodellen / ingevulde tabellen */}
           <section>
             <h2>Docent – Antwoordmodel & ingevulde tabellen</h2>
 

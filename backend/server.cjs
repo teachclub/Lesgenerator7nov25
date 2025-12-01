@@ -4,7 +4,10 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
-const port = 8081;
+
+// ✅ Poort en host uit .env, met fallback
+const PORT = process.env.PORT || 8081;
+const HOST = process.env.HOST || '127.0.0.1';
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -58,8 +61,9 @@ app.get('/api/ka', (req, res) => {
 // --- ROOT ---
 app.get('/', (req, res) => res.send('🚀 Backend V2 is online!'));
 
-app.listen(port, () => {
-  console.log(`🚀 Backend luistert op http://127.0.0.1:${port}`);
+// --- START SERVER ---
+app.listen(PORT, () => {
+  console.log(`🚀 Backend luistert op http://${HOST}:${PORT}`);
   console.log('   - Tijdvakken route: /api/tijdvakken (HERSTELD)');
 });
 
