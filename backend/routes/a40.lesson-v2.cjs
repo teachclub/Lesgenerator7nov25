@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-require('dotenv').config();
+require('dotenv').config({ override: true });
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const modelName = process.env.GEMINI_MODEL_CHIPS || 'gemini-1.5-flash';
@@ -162,18 +162,8 @@ EINDE PROMPT
 `;
 }
 
-/**
- * Helper: draai Gemini + parse JSON + pak juiste step
- */
-async function runGeminiStep(body, stepKey) {
-  const { tv, ka, tvLabel, kaLabel, concept, sources } = body || {};
-
-  if (!concept || !sources) {
-    const err = new Error('concept en sources zijn verplicht');
-    err.statusCode = 400;
-    throw err;
-  }
-
+// Helper: één keer Gemini aanroepen, JSON parsen, hele object teruggeven
+async function runGeminiAndParse({ tv, ka, tvLabel, kaLabel, concept, sources }) {
   const prompt = buildMasterpromptV4({
     tv,
     ka,
@@ -186,26 +176,28 @@ async function runGeminiStep(body, stepKey) {
   const result = await model.generateContent(prompt);
   const rawText = result.response.text().trim();
 
-  // BRUTE: verwijder ```json en ``` uit de output, dan pas parsen
-  let jsonText = rawText
-    .replace(/```json\s*/gi, '')
-    .replace(/```/g, '')
-    .trim();
+  // Strip eventuele ```json ``` code fences
+  let jsonText = rawText;
+  const fenceIndex = jsonText.indexOf('```');
+  if (fenceIndex !== -1) {
+    const firstBrace = jsonText.indexOf('{', fenceIndex);
+    const lastBrace = jsonText.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      jsonText = jsonText.slice(firstBrace, lastBrace + 1);
+    }
+  }
 
   let parsed;
   try {
     parsed = JSON.parse(jsonText);
   } catch (e) {
-    console.error('[runGeminiStep] JSON parse error');
+    console.error('[a40] JSON parse error');
     console.error('rawText begin:', rawText.slice(0, 200));
     console.error('jsonText begin:', jsonText.slice(0, 200));
-    const err = new Error('Gemini-output kon niet als JSON geparsed worden.');
-    err.statusCode = 500;
-    err.rawSnippet = jsonText.slice(0, 400);
-    throw err;
+    throw new Error('Gemini-output kon niet als JSON geparsed worden.');
   }
 
-  return parsed[stepKey] || parsed;
+  return parsed;
 }
 
 /**
@@ -220,77 +212,73 @@ router.get('/', (req, res) => {
 });
 
 /**
- * STEP 1 – Docenteninstructie + lesplanning
+ * STEP 1 – Docenteninstructie & lesplanning
  */
 router.post('/step1', async (req, res) => {
   try {
-    const step1 = await runGeminiStep(req.body, 'step1');
+    const { tv, ka, tvLabel, kaLabel, concept, sources } = req.body || {};
+
+    if (!concept || !sources) {
+      return res.status(400).json({
+        error: 'concept en sources zijn verplicht voor step1.',
+      });
+    }
+
+    const parsed = await runGeminiAndParse({
+      tv,
+      ka,
+      tvLabel,
+      kaLabel,
+      concept,
+      sources,
+    });
+
+    const step1 = parsed.step1 || parsed;
+
     return res.json({
       step: 1,
       data: step1,
     });
   } catch (err) {
     console.error('[a40.step1] error:', err);
-    return res.status(err.statusCode || 500).json({
+    return res.status(500).json({
       error: err.message || 'Internal server error in /step1',
-      rawSnippet: err.rawSnippet,
     });
   }
 });
 
 /**
- * STEP 2 – Hoofdvraag + leerlinginleiding + kwadrantlabels
+ * STEP 2 – Hoofdvraag, leerlinginleiding & kwadrant-aslabels
  */
 router.post('/step2', async (req, res) => {
   try {
-    const step2 = await runGeminiStep(req.body, 'step2');
+    const { tv, ka, tvLabel, kaLabel, concept, sources } = req.body || {};
+
+    if (!concept || !sources) {
+      return res.status(400).json({
+        error: 'concept en sources zijn verplicht voor step2.',
+      });
+    }
+
+    const parsed = await runGeminiAndParse({
+      tv,
+      ka,
+      tvLabel,
+      kaLabel,
+      concept,
+      sources,
+    });
+
+    const step2 = parsed.step2 || parsed;
+
     return res.json({
       step: 2,
       data: step2,
     });
   } catch (err) {
     console.error('[a40.step2] error:', err);
-    return res.status(err.statusCode || 500).json({
+    return res.status(500).json({
       error: err.message || 'Internal server error in /step2',
-      rawSnippet: err.rawSnippet,
-    });
-  }
-});
-
-/**
- * STEP 3 – Bronvragen, samenwerkingstabel, hints, kwadrant, reflectie
- */
-router.post('/step3', async (req, res) => {
-  try {
-    const step3 = await runGeminiStep(req.body, 'step3');
-    return res.json({
-      step: 3,
-      data: step3,
-    });
-  } catch (err) {
-    console.error('[a40.step3] error:', err);
-    return res.status(err.statusCode || 500).json({
-      error: err.message || 'Internal server error in /step3',
-      rawSnippet: err.rawSnippet,
-    });
-  }
-});
-
-/**
- * STEP 4 – Antwoordmodellen
- */
-router.post('/step4', async (req, res) => {
-  try {
-    const step4 = await runGeminiStep(req.body, 'step4');
-    return res.json({
-      step: 4,
-      data: step4,
-    });
-  } catch (err) {
-    console.error('[a40.step4] error:', err);
-    return res.status(err.statusCode || 500).json({
-      error: err.message || 'Internal server error in /step4',
-      rawSnippet: err.rawSnippet,
     });
   }
 });
@@ -302,7 +290,8 @@ router.post('/full', async (req, res) => {
   try {
     return res.json({
       status: 'ok',
-      message: 'full-endpoint placeholder – hier komt de volledige Gemini-lesson (step1–4)',
+      message:
+        'full-endpoint placeholder – hier komt de volledige Gemini-lesson (step1–4)',
     });
   } catch (err) {
     console.error('[a40.full] error:', err);

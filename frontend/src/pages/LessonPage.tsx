@@ -1,21 +1,21 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 type Concept = {
-  title: string;
-  hook: string;
+  hoofdvraag?: string;
+  hook?: string;
+  context?: string;
+  [key: string]: any;
 };
 
 type Source = {
-  id: string;
+  id: number | string;
   title?: string;
-  provider?: string;
   type?: string;
   fullText?: string;
   content?: string;
   description?: string;
-  imageUrl?: string;
-  url?: string;
+  [key: string]: any;
 };
 
 type DocentenInstructie = {
@@ -28,720 +28,425 @@ type LesPlanning = {
   tabelMarkdown: string;
 };
 
-type Step1 = {
+type Step1Data = {
   docentenInstructie: DocentenInstructie;
   lesPlanning: LesPlanning;
 };
 
-type KwadrantLabels = {
+type KwadrantAsLabels = {
   X_links: string;
   X_rechts: string;
   Y_boven: string;
   Y_onder: string;
 };
 
-type Step2 = {
+type Step2Data = {
   hoofdvraag: string;
   leerlingInleiding: string;
-  kwadrantAsLabels: KwadrantLabels;
-};
-
-type BronVraag = {
-  bronNummer: number;
-  observeren: string;
-  interpreteren: string;
-  hoofdvraagRelatie: string;
-};
-
-type Step3 = {
-  bronVragen: BronVraag[];
-  samenwerkingTabelLeeg: string;
-  kwadrantLeeg: string;
-  reflectieOpdracht: string;
-  samenwerkingBegrippen?: string[];
-  kwadrantBegrippen?: string[];
-};
-
-type BronAntwoord = {
-  bronNummer: number;
-  observerenAntwoord: string;
-  interpreterenAntwoord: string;
-  hoofdvraagRelatieAntwoord: string;
-};
-
-type Step4 = {
-  samenwerkingTabelIngevuld: string;
-  kwadrantIngevuld: string;
-  bronAntwoorden: BronAntwoord[];
-};
-
-type FullLesson = {
-  step1: Step1;
-  step2: Step2;
-  step3: Step3;
-  step4: Step4;
+  kwadrantAsLabels: KwadrantAsLabels;
 };
 
 type LocationState = {
+  tv?: number;
+  ka?: string;
+  tvLabel?: string;
+  kaLabel?: string;
   concept?: Concept;
   sources?: Source[];
 };
 
-type Status = "idle" | "loading" | "success" | "error";
-
-const API_BASE = "http://127.0.0.1:8081";
-
-function shuffle<T>(arr: T[]): T[] {
-  const copy = [...arr];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = copy[i];
-    copy[i] = copy[j];
-    copy[j] = tmp;
-  }
-  return copy;
-}
-
-function getProxiedImageUrl(source: Source): string | undefined {
-  if (!source.imageUrl) return undefined;
-  const raw = source.imageUrl;
-  const url = raw.toLowerCase();
-
-  const needsProxy =
-    source.provider === "Kleio" ||
-    source.provider === "Cito" ||
-    url.includes("vgnkleio") ||
-    url.includes("kleio") ||
-    url.includes("cito") ||
-    url.includes("googleusercontent.com");
-
-  if (needsProxy) {
-    return `${API_BASE}/api/image-proxy?url=${encodeURIComponent(raw)}`;
-  }
-  return raw;
-}
-
 const LessonPage: React.FC = () => {
   const location = useLocation();
-  const { concept, sources } = (location.state || {}) as LocationState;
+  const state = (location.state || {}) as LocationState;
 
-  const [lesson, setLesson] = useState<FullLesson | null>(null);
-  const [status, setStatus] = useState<Status>("idle");
+  const [loadingStep1, setLoadingStep1] = useState(false);
+  const [loadingStep2, setLoadingStep2] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [step1Data, setStep1Data] = useState<Step1Data | null>(null);
+  const [step2Data, setStep2Data] = useState<Step2Data | null>(null);
 
-  const [showSamenwerkingHints, setShowSamenwerkingHints] = useState(true);
-  const [showKwadrantHints, setShowKwadrantHints] = useState(true);
+  // Kleine helper: payload bouwen uit state, met een veilige fallback
+  const buildPayload = useCallback(() => {
+    const {
+      tv = 10,
+      ka = "KA47",
+      tvLabel = "Tijdvak 10",
+      kaLabel = "KA47 voorbeeld",
+      concept,
+      sources,
+    } = state;
 
-  const hasInput = !!concept && Array.isArray(sources) && sources.length > 0;
+    const fallbackConcept: Concept = {
+      hoofdvraag:
+        concept?.hoofdvraag ||
+        "Waarom dachten mensen toen dat dit logisch was?",
+      hook: concept?.hook || "Waarom deden ze dit eigenlijk?",
+      context:
+        concept?.context ||
+        "Leerlingen denken nu dat dit vanzelfsprekend of dom was.",
+      ...concept,
+    };
 
-  const handleGenerateLesson = async () => {
-    if (!hasInput) {
-      setError(
-        "Er is geen concept of bronnen gevonden in de navigatie-state. Ga eerst terug en kies een lesvoorstel + bronnen."
-      );
-      setStatus("error");
-      return;
-    }
+    const fallbackSources: Source[] =
+      sources && sources.length > 0
+        ? sources
+        : [
+            {
+              id: 1,
+              title: "Bron 1 (fallback)",
+              type: "tekst",
+              fullText:
+                "Dit is een testbron... (fallback omdat er geen bronnen in state zaten).",
+            },
+          ];
 
-    setStatus("loading");
-    setError(null);
+    return {
+      tv,
+      ka,
+      tvLabel,
+      kaLabel,
+      concept: fallbackConcept,
+      sources: fallbackSources,
+    };
+  }, [state]);
 
+  const fetchStep1 = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/generate-lesson-v2/full`, {
+      setLoadingStep1(true);
+      setError(null);
+
+      const payload = buildPayload();
+
+      const res = await fetch("/api/generate-lesson-v2/step1", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          concept,
-          sources,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        const text = await response.text();
-        console.error("Full lesson error:", text);
+      if (!res.ok) {
+        const text = await res.text();
         throw new Error(
-          `Backend-fout (${response.status}): ${response.statusText}`
+          `Step1 failed: ${res.status} ${res.statusText} – ${text}`,
         );
       }
 
-      const data = (await response.json()) as FullLesson;
-      setLesson(data);
-      setStatus("success");
-    } catch (err: any) {
-      console.error("Fout bij het genereren van de les:", err);
-      setError(err.message || "Onbekende fout bij het genereren van de les.");
-      setStatus("error");
+      const json = await res.json();
+      if (!json || !json.data) {
+        throw new Error("Onverwachte response-structuur van step1-endpoint.");
+      }
+
+      setStep1Data(json.data as Step1Data);
+    } catch (e: any) {
+      console.error("[LessonPage] step1 error:", e);
+      setError(e.message || "Er ging iets mis bij het ophalen van de les (step 1).");
+    } finally {
+      setLoadingStep1(false);
     }
+  }, [buildPayload]);
+
+  const fetchStep2 = useCallback(async () => {
+    try {
+      setLoadingStep2(true);
+      setError(null);
+
+      const payload = buildPayload();
+
+      const res = await fetch("/api/generate-lesson-v2/step2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(
+          `Step2 failed: ${res.status} ${res.statusText} – ${text}`,
+        );
+      }
+
+      const json = await res.json();
+      if (!json || !json.data) {
+        throw new Error("Onverwachte response-structuur van step2-endpoint.");
+      }
+
+      setStep2Data(json.data as Step2Data);
+    } catch (e: any) {
+      console.error("[LessonPage] step2 error:", e);
+      setError(
+        e.message ||
+          "Er ging iets mis bij het ophalen van de leerlinginleiding (step 2).",
+      );
+    } finally {
+      setLoadingStep2(false);
+    }
+  }, [buildPayload]);
+
+  // Optioneel: automatisch step1 laden bij binnenkomen
+  useEffect(() => {
+    fetchStep1();
+  }, [fetchStep1]);
+
+  const handleRegenerateStep1 = () => {
+    fetchStep1();
   };
 
-  const getSourceText = (source: Source): string => {
-    return (
-      source.fullText ||
-      source.content ||
-      source.description ||
-      "(Geen tekst beschikbaar voor deze bron.)"
-    );
+  const handleGenerateStep2 = () => {
+    fetchStep2();
   };
 
-  const getDisplayTitle = (source: Source): string => {
-    if (source.title && source.title.trim().length > 0) return source.title;
-    if (source.provider === "Kleio") return "Kleio-beeldbron (zonder titel)";
-    return "Ongetitelde bron";
-  };
-
-  const getBronVragenFor = (bronNummer: number): BronVraag | undefined =>
-    lesson?.step3?.bronVragen?.find((b) => b.bronNummer === bronNummer);
-
-  const getBronAntwoordenFor = (bronNummer: number): BronAntwoord | undefined =>
-    lesson?.step4?.bronAntwoorden?.find((b) => b.bronNummer === bronNummer);
-
-  const renderMarkdownPre = (markdown?: string) => {
-    if (!markdown) return null;
-    return (
-      <pre
-        className="markdown-block"
-        style={{
-          whiteSpace: "pre",
-          background: "#f9fafb",
-          padding: "0.75rem 1rem",
-          borderRadius: "0.5rem",
-          border: "1px solid #e5e7eb",
-          overflowX: "auto",
-          fontSize: "0.85rem",
-        }}
-      >
-        {markdown}
-      </pre>
-    );
-  };
+  const isAnyLoading = loadingStep1 || loadingStep2;
 
   return (
-    <div
-      className="lesson-page"
-      style={{ padding: "1.5rem", maxWidth: 1200, margin: "0 auto" }}
-    >
+    <div className="lesson-page" style={{ padding: "1.5rem", maxWidth: 1000 }}>
       <header style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ marginBottom: "0.5rem" }}>
-          Lessie Lesgenerator – Volledige les
-        </h1>
-        {concept ? (
-          <>
-            <h2 style={{ margin: 0 }}>{concept.title}</h2>
-            {concept.hook && (
-              <p style={{ marginTop: "0.25rem", fontStyle: "italic" }}>
-                Verwonderingsvraag: {concept.hook}
-              </p>
-            )}
-          </>
-        ) : (
-          <p style={{ color: "#b00" }}>
-            Geen concept gevonden. Deze pagina verwacht een concept in{" "}
-            <code>location.state</code>.
-          </p>
-        )}
+        <h1 style={{ marginBottom: "0.25rem" }}>Lesgenerator – Les Go v2</h1>
+        <p style={{ color: "#555", margin: 0 }}>
+          Tijdvak {state.tv ?? 10} · {state.tvLabel ?? "Tijdvak 10"} –{" "}
+          {state.ka ?? "KA47"} · {state.kaLabel ?? "KA47 voorbeeld"}
+        </p>
       </header>
 
       <section
         style={{
+          marginBottom: "1rem",
           display: "flex",
-          gap: "1rem",
-          alignItems: "center",
-          marginBottom: "1.5rem",
+          gap: "0.75rem",
           flexWrap: "wrap",
         }}
       >
         <button
-          onClick={handleGenerateLesson}
-          disabled={status === "loading" || !hasInput}
+          type="button"
+          onClick={handleRegenerateStep1}
+          disabled={loadingStep1 || isAnyLoading}
           style={{
-            padding: "0.6rem 1.2rem",
-            borderRadius: 999,
-            border: "none",
-            cursor:
-              status === "loading" || !hasInput ? "not-allowed" : "pointer",
-            background: "#2563eb",
-            color: "white",
-            fontWeight: 600,
+            padding: "0.5rem 1rem",
+            borderRadius: 6,
+            border: "1px solid #ccc",
+            cursor: isAnyLoading ? "wait" : "pointer",
           }}
         >
-          {status === "loading" ? "Les genereren..." : "Genereer volledige les"}
+          {loadingStep1 ? "Les genereren…" : "Les opnieuw genereren (step 1)"}
         </button>
 
-        {status === "idle" && (
-          <span style={{ fontSize: "0.9rem", color: "#555" }}>
-            Gebruik de geselecteerde bronnen en het concept om een volledige les
-            te genereren.
-          </span>
-        )}
-        {status === "success" && (
-          <span style={{ fontSize: "0.9rem", color: "#15803d" }}>
-            Les succesvol gegenereerd.
-          </span>
-        )}
-        {status === "error" && error && (
-          <span style={{ fontSize: "0.9rem", color: "#b91c1c" }}>{error}</span>
-        )}
+        <button
+          type="button"
+          onClick={handleGenerateStep2}
+          disabled={loadingStep2 || isAnyLoading}
+          style={{
+            padding: "0.5rem 1rem",
+            borderRadius: 6,
+            border: "1px solid #ccc",
+            cursor: isAnyLoading ? "wait" : "pointer",
+          }}
+        >
+          {loadingStep2
+            ? "Leerlinggedeelte genereren…"
+            : "Genereer leerlinggedeelte (step 2)"}
+        </button>
       </section>
 
-      {!hasInput && (
-        <section style={{ marginBottom: "2rem", color: "#b91c1c" }}>
-          <p>
-            Er zijn geen bronnen of concept meegegeven aan deze pagina. Ga terug
-            naar de vorige stap en kies een lesvoorstel + bronnen, zodat{" "}
-            <strong>LessonPage</strong> weet wat hij moet genereren.
-          </p>
-        </section>
-      )}
-
-      {/* PREVIEW vóór genereren */}
-      {hasInput && !lesson && (
-        <section style={{ marginBottom: "2rem" }}>
-          <h3>Gekozen bronnen (preview)</h3>
-          <p style={{ fontSize: "0.9rem", color: "#555" }}>
-            Dit zijn de bronnen die naar de lesgenerator gestuurd worden.
-          </p>
-          <div style={{ display: "grid", gap: "1rem" }}>
-            {sources!.map((s, index) => {
-              const imgUrl = getProxiedImageUrl(s);
-              const displayTitle = getDisplayTitle(s);
-              return (
-                <article
-                  key={s.id ?? index}
-                  style={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: "0.75rem",
-                    padding: "0.75rem 1rem",
-                    background: "#f9fafb",
-                  }}
-                >
-                  <h4 style={{ margin: 0, marginBottom: "0.25rem" }}>
-                    Bron {index + 1} – {displayTitle}
-                  </h4>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: "0.8rem",
-                      color: "#6b7280",
-                    }}
-                  >
-                    {s.provider && <>Provider: {s.provider} · </>}
-                    {s.type && <>Type: {s.type}</>}
-                  </p>
-
-                  {imgUrl && (
-                    <div
-                      style={{
-                        marginTop: "0.5rem",
-                        marginBottom: "0.5rem",
-                        background: "#e5e7eb",
-                        padding: "0.25rem",
-                        borderRadius: "0.5rem",
-                      }}
-                    >
-                      <img
-                        src={imgUrl}
-                        style={{
-                          maxHeight: 200,
-                          width: "100%",
-                          objectFit: "contain",
-                          display: "block",
-                          background: "#f9fafb",
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  <p
-                    style={{
-                      marginTop: "0.5rem",
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    {getSourceText(s)}
-                  </p>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {lesson && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
-          {/* DOCENTENVERSIE */}
-          <section>
-            <h2>Docentenversie</h2>
-            <div
-              style={{
-                display: "grid",
-                gap: "1rem",
-                gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)",
-              }}
-            >
-              <article
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "0.75rem",
-                  padding: "1rem",
-                }}
-              >
-                <h3 style={{ marginTop: 0 }}>Docenteninstructie</h3>
-                <p>
-                  <strong>Wat:</strong>{" "}
-                  {lesson.step1.docentenInstructie.wat}
-                </p>
-                <p>
-                  <strong>Hoe:</strong>{" "}
-                  {lesson.step1.docentenInstructie.hoe}
-                </p>
-                <p>
-                  <strong>Waarom:</strong>{" "}
-                  {lesson.step1.docentenInstructie.waarom}
-                </p>
-              </article>
-
-              <article
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "0.75rem",
-                  padding: "1rem",
-                }}
-              >
-                <h3 style={{ marginTop: 0 }}>Lesplanning</h3>
-                {renderMarkdownPre(lesson.step1.lesPlanning.tabelMarkdown)}
-              </article>
-            </div>
-          </section>
-
-          {/* LEERLINGENVERSIE */}
-          <section>
-            <h2>Leerlingversie</h2>
-            <article
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <h3 style={{ marginTop: 0 }}>Inleiding & Hoofdvraag</h3>
-              <p>
-                <strong>Hoofdvraag:</strong> {lesson.step2.hoofdvraag}
-              </p>
-              <p style={{ whiteSpace: "pre-wrap" }}>
-                {lesson.step2.leerlingInleiding}
-              </p>
-              <p
-                style={{
-                  marginTop: "0.75rem",
-                  fontSize: "0.9rem",
-                  color: "#4b5563",
-                }}
-              >
-                <strong>Kwadrant-assen:</strong>{" "}
-                {lesson.step2.kwadrantAsLabels.X_links} ↔{" "}
-                {lesson.step2.kwadrantAsLabels.X_rechts} &nbsp; | &nbsp;
-                {lesson.step2.kwadrantAsLabels.Y_boven} ↕{" "}
-                {lesson.step2.kwadrantAsLabels.Y_onder}
-              </p>
-            </article>
-
-            {/* Bronnenonderzoek met plaatjes */}
-            <article
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <h3 style={{ marginTop: 0 }}>Bronnenonderzoek</h3>
-              {sources && sources.length > 0 ? (
-                <div style={{ display: "grid", gap: "1rem" }}>
-                  {sources.map((s, index) => {
-                    const bronNummer = index + 1;
-                    const vragen = getBronVragenFor(bronNummer);
-                    const antwoorden = getBronAntwoordenFor(bronNummer);
-                    const imgUrl = getProxiedImageUrl(s);
-                    const displayTitle = getDisplayTitle(s);
-
-                    return (
-                      <div
-                        key={s.id ?? bronNummer}
-                        style={{
-                          border: "1px solid #e5e7eb",
-                          borderRadius: "0.75rem",
-                          padding: "0.75rem 1rem",
-                          background: "#f9fafb",
-                        }}
-                      >
-                        <h4 style={{ marginTop: 0 }}>
-                          Bron {bronNummer} – {displayTitle}
-                        </h4>
-                        <p
-                          style={{
-                            fontSize: "0.8rem",
-                            color: "#6b7280",
-                            marginTop: 0,
-                          }}
-                        >
-                          {s.provider && <>Provider: {s.provider} · </>}
-                          {s.type && <>Type: {s.type}</>}
-                        </p>
-
-                        {imgUrl && (
-                          <div
-                            style={{
-                              marginTop: "0.5rem",
-                              marginBottom: "0.5rem",
-                              background: "#e5e7eb",
-                              padding: "0.25rem",
-                              borderRadius: "0.5rem",
-                            }}
-                          >
-                            <img
-                              src={imgUrl}
-                              style={{
-                                maxHeight: 240,
-                                width: "100%",
-                                objectFit: "contain",
-                                display: "block",
-                                background: "#f9fafb",
-                              }}
-                            />
-                          </div>
-                        )}
-
-                        <p style={{ whiteSpace: "pre-wrap" }}>
-                          {getSourceText(s)}
-                        </p>
-
-                        {vragen && (
-                          <div style={{ marginTop: "0.75rem" }}>
-                            <h5 style={{ margin: "0.5rem 0" }}>
-                              Vragen bij deze bron
-                            </h5>
-                            <ol
-                              style={{
-                                paddingLeft: "1.25rem",
-                                margin: 0,
-                                listStyleType: "decimal",
-                              }}
-                            >
-                              <li>{vragen.observeren}</li>
-                              <li>{vragen.interpreteren}</li>
-                              <li>{vragen.hoofdvraagRelatie}</li>
-                            </ol>
-                          </div>
-                        )}
-
-                        {antwoorden && (
-                          <details style={{ marginTop: "0.75rem" }}>
-                            <summary
-                              style={{
-                                cursor: "pointer",
-                                fontSize: "0.9rem",
-                              }}
-                            >
-                              Voorbeeldantwoorden (docent)
-                            </summary>
-                            <div
-                              style={{
-                                marginTop: "0.5rem",
-                                fontSize: "0.9rem",
-                              }}
-                            >
-                              <p>
-                                <strong>Observeren:</strong>{" "}
-                                {antwoorden.observerenAntwoord}
-                              </p>
-                              <p>
-                                <strong>Interpreteren:</strong>{" "}
-                                {antwoorden.interpreterenAntwoord}
-                              </p>
-                              <p>
-                                <strong>Relatie met hoofdvraag:</strong>{" "}
-                                {antwoorden.hoofdvraagRelatieAntwoord}
-                              </p>
-                            </div>
-                          </details>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p>Geen bronnen gevonden.</p>
-              )}
-            </article>
-
-            {/* Tabellen + woordbank */}
-            <article
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                <h3 style={{ marginTop: 0, marginBottom: 0 }}>
-                  Samenwerkingstabel (leerlingen)
-                </h3>
-                {lesson.step3.samenwerkingBegrippen && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowSamenwerkingHints((prev) => !prev)
-                    }
-                    style={{
-                      fontSize: "0.8rem",
-                      padding: "0.25rem 0.6rem",
-                      borderRadius: "999px",
-                      border: "1px solid #d1d5db",
-                      background: "#f9fafb",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {showSamenwerkingHints
-                      ? "Laat leerlingen zelf invullen"
-                      : "Toon invulbegrippen"}
-                  </button>
-                )}
-              </div>
-
-              {lesson.step3.samenwerkingBegrippen &&
-                showSamenwerkingHints && (
-                  <p
-                    style={{
-                      fontSize: "0.8rem",
-                      color: "#4b5563",
-                      marginTop: 0,
-                      marginBottom: "0.5rem",
-                    }}
-                  >
-                    <strong>Begrippen om in te vullen:</strong>{" "}
-                    {shuffle(lesson.step3.samenwerkingBegrippen).join(" · ")}
-                  </p>
-                )}
-
-              {renderMarkdownPre(lesson.step3.samenwerkingTabelLeeg)}
-            </article>
-
-            <article
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                <h3 style={{ marginTop: 0, marginBottom: 0 }}>
-                  Context-kwadrant (leerlingen)
-                </h3>
-                {lesson.step3.kwadrantBegrippen && (
-                  <button
-                    type="button"
-                    onClick={() => setShowKwadrantHints((prev) => !prev)}
-                    style={{
-                      fontSize: "0.8rem",
-                      padding: "0.25rem 0.6rem",
-                      borderRadius: "999px",
-                      border: "1px solid #d1d5db",
-                      background: "#f9fafb",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {showKwadrantHints
-                      ? "Laat leerlingen zelf invullen"
-                      : "Toon invulbegrippen"}
-                  </button>
-                )}
-              </div>
-
-              {lesson.step3.kwadrantBegrippen && showKwadrantHints && (
-                <p
-                  style={{
-                    fontSize: "0.8rem",
-                    color: "#4b5563",
-                    marginTop: 0,
-                    marginBottom: "0.5rem",
-                  }}
-                >
-                  <strong>Begrippen om in te vullen:</strong>{" "}
-                  {shuffle(lesson.step3.kwadrantBegrippen).join(" · ")}
-                </p>
-              )}
-
-              {renderMarkdownPre(lesson.step3.kwadrantLeeg)}
-            </article>
-
-            <article
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <h3 style={{ marginTop: 0 }}>Reflectieopdracht</h3>
-              <p style={{ whiteSpace: "pre-wrap" }}>
-                {lesson.step3.reflectieOpdracht}
-              </p>
-            </article>
-          </section>
-
-          {/* DOCENT – Antwoordmodel */}
-          <section>
-            <h2>Docent – Antwoordmodel & ingevulde tabellen</h2>
-
-            <article
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <h3 style={{ marginTop: 0 }}>
-                Samenwerkingstabel (voorbeeldantwoorden)
-              </h3>
-              {renderMarkdownPre(lesson.step4.samenwerkingTabelIngevuld)}
-            </article>
-
-            <article
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: "0.75rem",
-                padding: "1rem",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <h3 style={{ marginTop: 0 }}>
-                Context-kwadrant (voorbeeldinvulling)
-              </h3>
-              {renderMarkdownPre(lesson.step4.kwadrantIngevuld)}
-            </article>
-          </section>
+      {error && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "0.75rem 1rem",
+            borderRadius: 6,
+            background: "#ffe5e5",
+            border: "1px solid #ffaaaa",
+            color: "#660000",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          <strong>Fout:</strong> {error}
         </div>
       )}
+
+      {!step1Data && !isAnyLoading && !error && (
+        <p style={{ color: "#777" }}>
+          Nog geen les geladen. Klik op{" "}
+          <em>“Les opnieuw genereren (step 1)”</em> om te starten.
+        </p>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        {/* DOCENTENINSTRUCTIE – STEP 1 */}
+        {step1Data && (
+          <section
+            style={{
+              padding: "1rem 1.25rem",
+              borderRadius: 8,
+              border: "1px solid #ddd",
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>Docenteninstructie (step 1)</h2>
+            <div style={{ marginBottom: "0.75rem" }}>
+              <h3 style={{ marginBottom: "0.25rem" }}>Wat</h3>
+              <p style={{ marginTop: 0 }}>{step1Data.docentenInstructie.wat}</p>
+            </div>
+            <div style={{ marginBottom: "0.75rem" }}>
+              <h3 style={{ marginBottom: "0.25rem" }}>Hoe</h3>
+              <p style={{ marginTop: 0 }}>{step1Data.docentenInstructie.hoe}</p>
+            </div>
+            <div>
+              <h3 style={{ marginBottom: "0.25rem" }}>Waarom</h3>
+              <p style={{ marginTop: 0 }}>
+                {step1Data.docentenInstructie.waarom}
+              </p>
+            </div>
+          </section>
+        )}
+
+        {/* LESPLANNING – STEP 1 */}
+        {step1Data && (
+          <section
+            style={{
+              padding: "1rem 1.25rem",
+              borderRadius: 8,
+              border: "1px solid #ddd",
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>Lesplanning (Markdown-tabel)</h2>
+            <p style={{ marginTop: 0, color: "#666" }}>
+              Dit is de Markdown-tabel zoals het backend-endpoint step1 die
+              aanlevert. Je kunt deze later door je eigen Markdown-component
+              laten renderen.
+            </p>
+            <pre
+              style={{
+                background: "#f7f7f7",
+                padding: "0.75rem",
+                borderRadius: 6,
+                overflowX: "auto",
+                fontSize: "0.9rem",
+                lineHeight: 1.4,
+              }}
+            >
+{step1Data.lesPlanning.tabelMarkdown}
+            </pre>
+          </section>
+        )}
+
+        {/* LEERLINGINLEIDING & KWADRANT – STEP 2 */}
+        {step2Data && (
+          <section
+            style={{
+              padding: "1rem 1.25rem",
+              borderRadius: 8,
+              border: "1px solid #ddd",
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>
+              Leerlinginleiding & kwadrant (step 2)
+            </h2>
+
+            <div style={{ marginBottom: "0.75rem" }}>
+              <h3 style={{ marginBottom: "0.25rem" }}>Hoofdvraag</h3>
+              <p style={{ marginTop: 0 }}>{step2Data.hoofdvraag}</p>
+            </div>
+
+            <div style={{ marginBottom: "0.75rem" }}>
+              <h3 style={{ marginBottom: "0.25rem" }}>Inleiding voor leerlingen</h3>
+              <p
+                style={{
+                  marginTop: 0,
+                  whiteSpace: "pre-line",
+                }}
+              >
+                {step2Data.leerlingInleiding}
+              </p>
+            </div>
+
+            <div>
+              <h3 style={{ marginBottom: "0.25rem" }}>Kwadrant-assen</h3>
+              <table
+                style={{
+                  borderCollapse: "collapse",
+                  fontSize: "0.9rem",
+                }}
+              >
+                <tbody>
+                  <tr>
+                    <td
+                      style={{
+                        border: "1px solid #ccc",
+                        padding: "0.25rem 0.5rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      X-links
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #ccc",
+                        padding: "0.25rem 0.5rem",
+                      }}
+                    >
+                      {step2Data.kwadrantAsLabels.X_links}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style={{
+                        border: "1px solid #ccc",
+                        padding: "0.25rem 0.5rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      X-rechts
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #ccc",
+                        padding: "0.25rem 0.5rem",
+                      }}
+                    >
+                      {step2Data.kwadrantAsLabels.X_rechts}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style={{
+                        border: "1px solid #ccc",
+                        padding: "0.25rem 0.5rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Y-boven
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #ccc",
+                        padding: "0.25rem 0.5rem",
+                      }}
+                    >
+                      {step2Data.kwadrantAsLabels.Y_boven}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style={{
+                        border: "1px solid #ccc",
+                        padding: "0.25rem 0.5rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Y-onder
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #ccc",
+                        padding: "0.25rem 0.5rem",
+                      }}
+                    >
+                      {step2Data.kwadrantAsLabels.Y_onder}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+      </div>
     </div>
   );
 };

@@ -1,7 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config();
+
+// 🔹 .env mag ALTIJD de shell overrulen (oude exports negeren)
+require('dotenv').config({ override: true });
+
+console.log(
+  '[CONFIG] GOOGLE_API_KEY begint met:',
+  (process.env.GOOGLE_API_KEY || '').slice(0, 8) + '…'
+);
 
 const app = express();
 const port = 8081;
@@ -37,7 +44,10 @@ app.use('/api', proposalsRoutes);
 app.use('/api', proposalRoutesV2);
 
 app.use('/api', refineRoutes);
+
+// 🔹 V2-lesgenerator: alles onder /api/generate-lesson-v2/...
 app.use('/api/generate-lesson-v2', lessonRoutesV2);
+
 app.use('/api', lessonFullRoutes);
 
 // --- TIJDVAKKEN & KA ---
