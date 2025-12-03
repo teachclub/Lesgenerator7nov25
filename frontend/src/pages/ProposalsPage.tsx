@@ -21,13 +21,13 @@ type ProposalConcept = {
 
 type LessonProposal = {
   id: string;
-  concept: ProposalConcept;
-  sourceIds: string[];
+  concept?: Partial<ProposalConcept>; // defensief: concept kan ontbreken of deels gevuld zijn
+  sourceIds?: string[];
 };
 
 type ProposalsResponse = {
-  allSources: Source[];
-  proposals: LessonProposal[];
+  allSources?: Source[];
+  proposals?: LessonProposal[];
   meta?: {
     countAll?: number;
     countProposals?: number;
@@ -94,66 +94,91 @@ const ProposalsPage: React.FC = () => {
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/propose-lessons`, {
+        // Let op: we gebruiken nu het A35-endpoint /proposals-v2
+        const response = await fetch(`${API_BASE_URL}/proposals-v2`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            // Query op basis van KA + zoekterm
-            query: query || 'KA-lessen',
-            // Niet strikt nodig voor backend-stub, maar netjes meegeven
+            // tv/ka voorlopig nog niet ingevuld
             tv: null,
             ka: null,
-            // Backend bewaakt: max 40 bronnen in context, max 15 per voorstel
-            selectedSources: sources,
+            conceptHint: query || '',
+            // A35 verwacht "sources" als array
+            sources,
           }),
         });
 
         if (!response.ok) {
-          throw new Error(`propose-lessons fout: ${response.status}`);
+          throw new Error(`proposals-v2 fout: ${response.status}`);
         }
 
         const data = (await response.json()) as ProposalsResponse;
 
-        // Bewaar de "master set" bronnen uit de backend
-        setAllSources(data.allSources || []);
+        if (!data || !Array.isArray(data.proposals)) {
+          console.warn('[Proposals] onverwachte response-structuur:', data);
+          throw new Error('Onverwachte response-structuur van het voorstel-endpoint.');
+        }
 
-        // Map backend-proposals naar UI-vriendelijke vorm
-        const uiProposals: UiProposal[] = (data.proposals || []).map((p) => {
-          const concept = p.concept;
-          // Simpele rationale gebaseerd op hoofdvraag + context
+        // Bewaar de "master set" bronnen uit de backend (max 40 in A35)
+        setAllSources(Array.isArray(data.allSources) ? data.allSources : []);
+
+        // Map backend-proposals naar UI-vriendelijke vorm, super-defensief
+        const uiProposals: UiProposal[] = data.proposals.map((p, index) => {
+          const c = p.concept || {};
+          const safeConcept: ProposalConcept = {
+            id: String(c.id ?? p.id ?? `p${index + 1}`),
+            title: String(c.title ?? `Lesvoorstel ${index + 1}`),
+            hook: String(
+              c.hook ??
+                'Waarom vonden tijdgenoten dit zo vanzelfsprekend – en wij helemaal niet meer?'
+            ),
+            hoofdvraag: String(
+              c.hoofdvraag ??
+                'Hoe keken mensen in die tijd zelf naar dit onderwerp?'
+            ),
+            tv: (c.tv as number | null) ?? null,
+            ka: (c.ka as number | null) ?? null,
+            contextLabel: String(c.contextLabel ?? 'Geen specifieke TV/KA'),
+            targetAudience: String(c.targetAudience ?? 'Havo/Vwo Bovenbouw'),
+          };
+
           const rationaleLines: string[] = [];
-          if (concept.hoofdvraag) {
-            rationaleLines.push(`Hoofdvraag: ${concept.hoofdvraag}`);
+          if (safeConcept.hoofdvraag) {
+            rationaleLines.push(`Hoofdvraag: ${safeConcept.hoofdvraag}`);
           }
-          if (concept.contextLabel) {
-            rationaleLines.push(`Context: ${concept.contextLabel}`);
+          if (safeConcept.contextLabel) {
+            rationaleLines.push(`Context: ${safeConcept.contextLabel}`);
           }
           const rationale =
             rationaleLines.join(' · ') ||
             'Deze les richt zich op een kernvraag binnen dit kenmerkend aspect.';
 
           return {
-            id: p.id,
-            title: concept.title,
-            targetAudience: concept.targetAudience || 'Havo/Vwo Bovenbouw',
-            hook: concept.hook,
+            id: safeConcept.id,
+            title: safeConcept.title,
+            targetAudience: safeConcept.targetAudience,
+            hook: safeConcept.hook,
             rationale,
-            sourceIds: p.sourceIds || [],
-            concept,
+            sourceIds: Array.isArray(p.sourceIds) ? p.sourceIds : [],
+            concept: safeConcept,
           };
         });
 
         setProposals(uiProposals);
       } catch (err: any) {
         console.error('[Proposals] fout bij ophalen voorstellen', err);
-        setError('Backend offline of voorstel-endpoint faalt.');
+        setError(
+          err?.message === 'Onverwachte response-structuur van het voorstel-endpoint.'
+            ? err.message
+            : 'Backend offline of voorstel-endpoint faalt.'
+        );
       } finally {
         setLoading(false);
       }
     };
 
     fetchProposals();
-  }, []);
+  }, [sources, query]);
 
   const handleRemoveSource = (proposalIndex: number, sourceId: string) => {
     const newProposals = [...proposals];
@@ -176,7 +201,8 @@ const ProposalsPage: React.FC = () => {
     setRefiningStates((prev) => ({ ...prev, [idx]: true }));
 
     try {
-      // Optioneel: refine blijft gekoppeld aan oude endpoint
+      // refine-concept laten we zoals hij was; als endpoint nog niet bestaat,
+      // krijg je alleen een fout bij klikken op "Pas aan".
       const response = await fetch(`${API_BASE_URL}/refine-concept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -194,28 +220,50 @@ const ProposalsPage: React.FC = () => {
       const updated = await response.json();
       const newProposals = [...proposals];
 
-      // We verwachten vergelijkbare shape terug; anders laten we oude staan
       if (updated && updated.concept && updated.sourceIds) {
-        const concept = updated.concept as ProposalConcept;
+        const c = updated.concept as Partial<ProposalConcept>;
+        const safeConcept: ProposalConcept = {
+          id: String(c.id ?? updated.id ?? `p${idx + 1}`),
+          title: String(c.title ?? proposals[idx].title),
+          hook: String(
+            c.hook ??
+              proposals[idx].hook ??
+              'Waarom vonden tijdgenoten dit zo vanzelfsprekend – en wij helemaal niet meer?'
+          ),
+          hoofdvraag: String(
+            c.hoofdvraag ??
+              proposals[idx].concept.hoofdvraag ??
+              'Hoe keken mensen in die tijd zelf naar dit onderwerp?'
+          ),
+          tv: (c.tv as number | null) ?? proposals[idx].concept.tv ?? null,
+          ka: (c.ka as number | null) ?? proposals[idx].concept.ka ?? null,
+          contextLabel: String(
+            c.contextLabel ?? proposals[idx].concept.contextLabel ?? 'Geen specifieke TV/KA'
+          ),
+          targetAudience: String(
+            c.targetAudience ?? proposals[idx].concept.targetAudience ?? 'Havo/Vwo Bovenbouw'
+          ),
+        };
+
         const rationaleLines: string[] = [];
-        if (concept.hoofdvraag) {
-          rationaleLines.push(`Hoofdvraag: ${concept.hoofdvraag}`);
+        if (safeConcept.hoofdvraag) {
+          rationaleLines.push(`Hoofdvraag: ${safeConcept.hoofdvraag}`);
         }
-        if (concept.contextLabel) {
-          rationaleLines.push(`Context: ${concept.contextLabel}`);
+        if (safeConcept.contextLabel) {
+          rationaleLines.push(`Context: ${safeConcept.contextLabel}`);
         }
         const rationale =
           rationaleLines.join(' · ') ||
           'Deze les richt zich op een kernvraag binnen dit kenmerkend aspect.';
 
         newProposals[idx] = {
-          id: updated.id,
-          title: concept.title,
-          targetAudience: concept.targetAudience || 'Havo/Vwo Bovenbouw',
-          hook: concept.hook,
+          id: safeConcept.id,
+          title: safeConcept.title,
+          targetAudience: safeConcept.targetAudience,
+          hook: safeConcept.hook,
           rationale,
-          sourceIds: updated.sourceIds || [],
-          concept,
+          sourceIds: Array.isArray(updated.sourceIds) ? updated.sourceIds : [],
+          concept: safeConcept,
         };
       }
 
@@ -253,7 +301,6 @@ const ProposalsPage: React.FC = () => {
         concept: {
           title: prop.concept.title,
           hook: prop.concept.hook,
-          // extra velden blijven gewoon meekomen, LessonPage gebruikt title + hook
           ...prop.concept,
         },
         sources: usedSources,
@@ -348,7 +395,7 @@ const ProposalsPage: React.FC = () => {
                         <button
                           onClick={() => handleRefine(idx)}
                           disabled={isRefining}
-                          className="bg-gray-800 text-white text-xs font-bold px-3 py-1 rounded hover:bg-black disabled:opacity-50"
+                          className="bg-gray-800 text-white text-xs font-bold px-3 py-1 rounded hover:bg:black disabled:opacity-50"
                         >
                           {isRefining ? '...' : 'Pas aan'}
                         </button>
@@ -388,7 +435,7 @@ const ProposalsPage: React.FC = () => {
                               }`}
                             >
                               {isTop && (
-                                <div className="absolute -top-2 -left-1 text-xs bg-white rounded-full shadow-sm border border-amber-200 px-1">
+                                <div className="absolute -top-2 -left-1 text-xs bg:white rounded-full shadow-sm border border-amber-200 px-1">
                                   ⭐
                                 </div>
                               )}
@@ -417,7 +464,7 @@ const ProposalsPage: React.FC = () => {
                                   e.stopPropagation();
                                   handleRemoveSource(idx, source.id);
                                 }}
-                                className="opacity-0 group-hover:opacity-100 absolute top-1 right-1 bg-white text-red-500 hover:bg-red-100 border border-gray-200 rounded p-1 shadow-sm transition-all"
+                                className="opacity-0 group-hover:opacity-100 absolute top-1 right-1 bg:white text-red-500 hover:bg-red-100 border border-gray-200 rounded p-1 shadow-sm transition-all"
                                 title="Verwijder"
                               >
                                 <span className="text-xs font-bold px-1">✕</span>
@@ -432,7 +479,7 @@ const ProposalsPage: React.FC = () => {
                   <div className="pt-4 mt-2 border-t border-gray-100">
                     <button
                       onClick={() => handleChoose(prop)}
-                      className="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors shadow-md flex justify-center items-center gap-2"
+                      className="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors shadow-md flex justify-center items:center gap-2"
                     >
                       Start Les Maken →
                     </button>
@@ -449,10 +496,10 @@ const ProposalsPage: React.FC = () => {
             onClick={() => setViewingState(null)}
           >
             <div
-              className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-full overflow-y-auto flex flex-col"
+              className="bg:white rounded-xl shadow-2xl w-full max-w-2xl max-h-full overflow-y-auto flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="p-6 border-b flex justify-between items-start">
+              <div className="p-6 border-b flex justify-between items:start">
                 <div>
                   <span className="text-xs font-bold text-indigo-600 uppercase tracking-wide mb-1 block">
                     {viewingState.source.provider}
@@ -486,7 +533,7 @@ const ProposalsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
+              <div className="p-4 border-t bg-gray-50 flex justify-between items:center">
                 {viewingState.source.url ? (
                   <a
                     href={viewingState.source.url}
@@ -510,7 +557,7 @@ const ProposalsPage: React.FC = () => {
                     onClick={() =>
                       handleRemoveSource(viewingState.proposalIndex, viewingState.source.id)
                     }
-                    className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 font-bold hover:bg-red-100 rounded flex items-center gap-2 text-sm"
+                    className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 font-bold hover:bg:red-100 rounded flex items:center gap-2 text-sm"
                   >
                     <span>🗑️</span> Verwijder
                   </button>
@@ -525,4 +572,5 @@ const ProposalsPage: React.FC = () => {
 };
 
 export default ProposalsPage;
+
 
