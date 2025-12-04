@@ -65,7 +65,7 @@ type Step2Data = {
     kolommen: InvulKolom[];
     meerkeuzeOpties: InvulOpties[];
   };
-  kwadrantAsLabels: KwadrantLabels;
+  kwadrantAsLabels?: KwadrantLabels;
   reflectieVragen: string[];
 };
 
@@ -122,7 +122,6 @@ const LessonPage: React.FC = () => {
   const [errorStep4, setErrorStep4] = useState<string | null>(null);
 
   if (!concept || sources.length === 0) {
-    // Als iemand direct /lesson bezoekt zonder state → terug naar start.
     return (
       <div style={{ padding: "1.5rem" }}>
         <p>
@@ -194,9 +193,7 @@ const LessonPage: React.FC = () => {
   const handleStep4 = () =>
     callStep<Step4Data>(
       4,
-      {
-        step2Data,
-      },
+      { step2Data },
       setStep4Data,
       setErrorStep4,
       setLoadingStep4
@@ -233,7 +230,7 @@ const LessonPage: React.FC = () => {
       .map((c) => c.trim())
       .filter(Boolean);
 
-    const bodyLines = lines.slice(2); // skip header + separator
+    const bodyLines = lines.slice(2);
 
     return (
       <table
@@ -289,6 +286,258 @@ const LessonPage: React.FC = () => {
     );
   }
 
+  function renderBronVragen() {
+    if (!step2Data) return null;
+    if (!step2Data.bronVragen || step2Data.bronVragen.length === 0) {
+      return (
+        <p style={{ fontSize: "0.9rem" }}>
+          Geen bronvragen ontvangen in de JSON-output.
+        </p>
+      );
+    }
+
+    return (
+      <div style={{ marginTop: "0.5rem" }}>
+        {step2Data.bronVragen.map((bv, idx) => (
+          <div
+            key={`${bv.bronId}-${idx}`}
+            style={{
+              marginBottom: "0.75rem",
+              paddingBottom: "0.5rem",
+              borderBottom: "1px dashed #e5e7eb",
+            }}
+          >
+            <h4
+              style={{
+                margin: 0,
+                marginBottom: "0.25rem",
+                fontSize: "0.9rem",
+                fontWeight: 600,
+              }}
+            >
+              Bron {bv.bronId}
+            </h4>
+            <ol
+              style={{
+                margin: 0,
+                paddingLeft: "1.25rem",
+                fontSize: "0.9rem",
+              }}
+            >
+              {bv.vragen.map((vraag, i) => (
+                <li key={i}>{vraag}</li>
+              ))}
+            </ol>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderInvulTabelStructuur() {
+    if (!step2Data) return null;
+    const kolommen = step2Data.invulTabel?.kolommen || [];
+
+    if (kolommen.length === 0) {
+      return (
+        <p style={{ fontSize: "0.9rem" }}>
+          Geen invultabel-structuur ontvangen in de JSON-output.
+        </p>
+      );
+    }
+
+    // 4 lege rijen voor preview
+    const emptyRows = [1, 2, 3, 4];
+
+    return (
+      <div style={{ marginTop: "0.5rem" }}>
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            fontSize: "0.9rem",
+          }}
+        >
+          <thead>
+            <tr>
+              {kolommen.map((k) => (
+                <th
+                  key={k.id}
+                  style={{
+                    border: "1px solid #e5e7eb",
+                    padding: "0.4rem 0.6rem",
+                    textAlign: "left",
+                    background: "#f9fafb",
+                  }}
+                >
+                  {k.label}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              {kolommen.map((k) => (
+                <td
+                  key={`${k.id}-desc`}
+                  style={{
+                    border: "1px solid #e5e7eb",
+                    padding: "0.35rem 0.6rem",
+                    fontSize: "0.8rem",
+                    color: "#4b5563",
+                  }}
+                >
+                  {k.omschrijving}
+                </td>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {emptyRows.map((row) => (
+              <tr key={row}>
+                {kolommen.map((k) => (
+                  <td
+                    key={`${k.id}-${row}`}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      padding: "0.75rem 0.6rem",
+                      height: "2rem",
+                    }}
+                  >
+                    {/* lege cel voor leerlingeninvulling */}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <p
+          style={{
+            marginTop: "0.5rem",
+            fontSize: "0.8rem",
+            color: "#6b7280",
+          }}
+        >
+          Preview: leerlingen krijgen deze structuur met lege cellen om hun
+          observaties, interpretaties en link met de hoofdvraag in te vullen.
+        </p>
+      </div>
+    );
+  }
+
+  function renderKwadrantStructuur() {
+    if (!step2Data || !step2Data.kwadrantAsLabels) {
+      return (
+        <p style={{ fontSize: "0.9rem" }}>
+          Geen kwadrant-labels ontvangen in de JSON-output.
+        </p>
+      );
+    }
+
+    const labels = step2Data.kwadrantAsLabels;
+
+    return (
+      <div
+        style={{
+          marginTop: "0.5rem",
+          maxWidth: "420px",
+          border: "1px solid #e5e7eb",
+          borderRadius: "0.75rem",
+          overflow: "hidden",
+        }}
+      >
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            tableLayout: "fixed",
+            fontSize: "0.85rem",
+          }}
+        >
+          <tbody>
+            <tr>
+              <td
+                style={{
+                  borderBottom: "1px solid #e5e7eb",
+                  borderRight: "1px solid #e5e7eb",
+                  height: "3rem",
+                }}
+              />
+              <td
+                style={{
+                  borderBottom: "1px solid #e5e7eb",
+                  textAlign: "center",
+                  fontWeight: 600,
+                  padding: "0.3rem",
+                }}
+              >
+                {labels.Y_boven}
+              </td>
+              <td
+                style={{
+                  borderBottom: "1px solid #e5e7eb",
+                  borderLeft: "1px solid #e5e7eb",
+                }}
+              />
+            </tr>
+            <tr>
+              <td
+                style={{
+                  borderRight: "1px solid #e5e7eb",
+                  textAlign: "center",
+                  fontWeight: 600,
+                  padding: "0.3rem",
+                }}
+              >
+                {labels.X_links}
+              </td>
+              <td
+                style={{
+                  borderLeft: "1px solid #e5e7eb",
+                  borderRight: "1px solid #e5e7eb",
+                  height: "3rem",
+                }}
+              />
+              <td
+                style={{
+                  borderLeft: "1px solid #e5e7eb",
+                  textAlign: "center",
+                  fontWeight: 600,
+                  padding: "0.3rem",
+                }}
+              >
+                {labels.X_rechts}
+              </td>
+            </tr>
+            <tr>
+              <td
+                style={{
+                  borderTop: "1px solid #e5e7eb",
+                  borderRight: "1px solid #e5e7eb",
+                }}
+              />
+              <td
+                style={{
+                  borderTop: "1px solid #e5e7eb",
+                  textAlign: "center",
+                  fontWeight: 600,
+                  padding: "0.3rem",
+                }}
+              >
+                {labels.Y_onder}
+              </td>
+              <td
+                style={{
+                  borderTop: "1px solid #e5e7eb",
+                  borderLeft: "1px solid #e5e7eb",
+                }}
+              />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   const allSources = step3Data?.bronnen ?? sources;
 
   return (
@@ -331,10 +580,10 @@ const LessonPage: React.FC = () => {
           }}
         >
           <strong>Hoofdvraag (concept):</strong>{" "}
-          {concept.hoofdvraag || "Hoe keken mensen in die tijd zelf naar dit onderwerp?"}
+          {concept.hoofdvraag ||
+            "Hoe keken mensen in die tijd zelf naar dit onderwerp?"}
         </p>
 
-        {/* Buttons */}
         <div
           style={{
             marginTop: "0.75rem",
@@ -406,7 +655,6 @@ const LessonPage: React.FC = () => {
         </div>
       </header>
 
-      {/* Error-meldingen */}
       {renderError(errorStep1)}
       {renderError(errorStep2)}
       {renderError(errorStep3)}
@@ -445,7 +693,8 @@ const LessonPage: React.FC = () => {
           </h3>
           <p style={{ margin: 0 }}>
             <strong>Hoofdvraag:</strong>{" "}
-            {concept.hoofdvraag || "Hoe keken mensen in die tijd zelf naar dit onderwerp?"}
+            {concept.hoofdvraag ||
+              "Hoe keken mensen in die tijd zelf naar dit onderwerp?"}
           </p>
           {concept.hook && (
             <p style={{ margin: "0.25rem 0 0" }}>
@@ -537,7 +786,7 @@ const LessonPage: React.FC = () => {
                         marginBottom: "0.5rem",
                         borderRadius: "0.5rem",
                         overflow: "hidden",
-                        background: "#111827",
+                        background: "transparent",
                       }}
                     >
                       <img
@@ -548,7 +797,7 @@ const LessonPage: React.FC = () => {
                           width: "100%",
                           height: "auto",
                           maxHeight: "260px",
-                          objectFit: "contain", // VERHOUDINGEN BEHOUDEN
+                          objectFit: "contain",
                         }}
                       />
                     </div>
@@ -649,7 +898,7 @@ const LessonPage: React.FC = () => {
         </section>
       )}
 
-      {/* STEP 2 – leerlingmateriaal (alleen korte weergave, jij exporteert later zelf naar werkblad) */}
+      {/* STEP 2 – leerlingmateriaal */}
       {step2Data && (
         <section
           style={{
@@ -690,19 +939,26 @@ const LessonPage: React.FC = () => {
           </p>
 
           <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
-            Kwadrant-assen
+            Bronvragen (per bron, genummerd)
           </h3>
-          <ul style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.9rem" }}>
-            <li>X-links: {step2Data.kwadrantAsLabels.X_links}</li>
-            <li>X-rechts: {step2Data.kwadrantAsLabels.X_rechts}</li>
-            <li>Y-boven: {step2Data.kwadrantAsLabels.Y_boven}</li>
-            <li>Y-onder: {step2Data.kwadrantAsLabels.Y_onder}</li>
-          </ul>
+          {renderBronVragen()}
+
+          <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
+            Invultabel (structuur – lege cellen)
+          </h3>
+          {renderInvulTabelStructuur()}
+
+          <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
+            Kwadrant (structuur – 4 subdimensies op de assen)
+          </h3>
+          {renderKwadrantStructuur()}
 
           <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
             Reflectievragen (kort overzicht)
           </h3>
-          <ul style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.9rem" }}>
+          <ul
+            style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.9rem" }}
+          >
             {step2Data.reflectieVragen.map((q, i) => (
               <li key={i}>{q}</li>
             ))}
