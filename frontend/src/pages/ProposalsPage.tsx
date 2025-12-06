@@ -1,16 +1,21 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useSelectionStore, Source } from "../state/selection.store";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+} from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useSelectionStore, Source } from '../state/selection.store';
 
-const API_BASE = "http://127.0.0.1:8081/api";
+const API_BASE = 'http://127.0.0.1:8081/api';
 
-type ProposalDeelvraag = {
+type Deelvraag = {
   vraag: string;
-  dimensie: string;
-  subdimensie: string;
+  dimensie?: string;
+  subdimensie?: string;
 };
 
-type ProposalLeeropbrengst = {
+type Leeropbrengst = {
   id?: string;
   beschrijving: string;
   deelvraagIndex: number | null;
@@ -19,48 +24,48 @@ type ProposalLeeropbrengst = {
 type ProposalConcept = {
   id: string;
   title: string;
-  hook: string;
+  hook?: string;
   hoofdvraag: string;
-  deelvragen?: ProposalDeelvraag[];
-  leeropbrengsten?: ProposalLeeropbrengst[];
+  deelvragen?: Deelvraag[];
+  leeropbrengsten?: Leeropbrengst[];
   contextLabel?: string;
   targetAudience?: string;
-  masterSignature?: string;
+  masterSignature: string;
   tv?: string;
   ka?: string;
-  primarySourceIds?: Array<string | number>;
 };
 
-type LessonProposal = {
+type Proposal = {
   id: string;
   concept: ProposalConcept;
   sourceIds: Array<string | number>;
   primarySourceIds?: Array<string | number>;
 };
 
-type ProposalsMeta = {
-  countAll?: number;
-  countProposals?: number;
-  masterSignature?: string;
-  from?: string;
-};
-
 type ProposalsResponse = {
-  allSources?: Source[];
-  proposals?: LessonProposal[];
-  meta?: ProposalsMeta;
+  allSources: Source[];
+  proposals: Proposal[];
+  meta: {
+    countAll: number;
+    countProposals: number;
+    masterSignature: string;
+    from: 'gemini' | 'dummy-fallback';
+    error?: string;
+  };
 };
 
-export const ProposalsPage: React.FC = () => {
+const ProposalsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { sources } = useSelectionStore();
+
+  // Global store – zelfde als in de zoekpagina
+  const { sources: globalSources } = useSelectionStore();
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
 
   const [allSources, setAllSources] = useState<Source[]>([]);
-  const [proposals, setProposals] = useState<LessonProposal[]>([]);
-  const [meta, setMeta] = useState<ProposalsMeta | undefined>(undefined);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [meta, setMeta] = useState<ProposalsResponse['meta'] | null>(null);
 
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(
     null
@@ -69,47 +74,170 @@ export const ProposalsPage: React.FC = () => {
     string | number | null
   >(null);
 
-  // Map van id → bron (zowel uit allSources als uit globale store, fallback)
-  const sourceMap = useMemo(() => {
-    const map = new Map<string, Source>();
-    const add = (s: Source) => {
-      if (!s) return;
-      const key = String(s.id);
-      if (!map.has(key)) {
-        map.set(key, s);
+  // Bronnen die je voor een bepaald voorstel "weggooit"
+  // key = proposalId, value = Set van verborgen bron-ids (als string)
+  const [hiddenByProposal, setHiddenByProposal] = useState<
+    Record<string, Set<string>>
+  >({});
+
+  const proposalsListRef = useRef<HTMLDivElement | null>(null);
+
+  // Proposals ophalen bij eerste mount
+  useEffect(() => {
+    const run = async () => {
+      if (!globalSources || globalSources.length === 0) {
+        setError(
+          'Geen bronnen gevonden om lesvoorstellen mee te maken. Ga eerst terug en doe een zoekopdracht.'
+        );
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const res = await fetch(`${API_BASE}/proposals-v2`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tv: null, // optioneel; kan later nog uit store komen
+            ka: null,
+            conceptHint: '',
+            sources: globalSources,
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Proposals API fout: ${res.status}`);
+        }
+
+        const data: ProposalsResponse = await res.json();
+
+        setAllSources(data.allSources || []);
+        setProposals(data.proposals || []);
+        setMeta(data.meta || null);
+
+        if (data.proposals && data.proposals.length > 0) {
+          setSelectedProposalId(data.proposals[0].id);
+        }
+      } catch (err: any) {
+        console.error('[ProposalsPage] fout bij ophalen proposals', err);
+        setError(
+          'Er ging iets mis bij het maken van lesvoorstellen. Controleer de backend-log voor details.'
+        );
+      } finally {
+        setLoading(false);
       }
     };
 
-    (allSources || []).forEach(add);
-    (sources || []).forEach(add);
+    run();
+  }, [globalSources]);
 
-    return map;
-  }, [allSources, sources]);
+  const handleSelectProposal = (id: string) => {
+    setSelectedProposalId(id);
+    setSelectedSourceId(null);
+    // scroll lijst naar boven zodat geselecteerde voorstel + bronnen goed in beeld komen
+    if (proposalsListRef.current) {
+      proposalsListRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   const selectedProposal = useMemo(
     () => proposals.find((p) => p.id === selectedProposalId) || null,
     [proposals, selectedProposalId]
   );
 
+  // Geselecteerde voorstel altijd bovenaan tonen
+  const orderedProposals: Proposal[] = useMemo(() => {
+    if (!selectedProposalId) return proposals;
+    const selected = proposals.find((p) => p.id === selectedProposalId);
+    if (!selected) return proposals;
+    const rest = proposals.filter((p) => p.id !== selectedProposalId);
+    return [selected, ...rest];
+  }, [proposals, selectedProposalId]);
+
+  // Helpers voor "weggooien" van bronnen
+  const isHiddenForSelectedProposal = (sourceId: string | number): boolean => {
+    if (!selectedProposalId) return false;
+    const set = hiddenByProposal[selectedProposalId];
+    if (!set) return false;
+    return set.has(String(sourceId));
+  };
+
+  const hideSourceForSelectedProposal = (sourceId: string | number) => {
+    if (!selectedProposalId) return;
+    setHiddenByProposal((prev) => {
+      const currentSet = prev[selectedProposalId]
+        ? new Set(prev[selectedProposalId])
+        : new Set<string>();
+      currentSet.add(String(sourceId));
+      return {
+        ...prev,
+        [selectedProposalId]: currentSet,
+      };
+    });
+    // als je een bron weggooit die nu in de detailkolom staat, detail leegmaken
+    if (String(selectedSourceId) === String(sourceId)) {
+      setSelectedSourceId(null);
+    }
+  };
+
+  // Bronnen van de geselecteerde proposal
+  const selectedProposalSources: Source[] = useMemo(() => {
+    if (!selectedProposal) return [];
+
+    const setIds = new Set(
+      (selectedProposal.sourceIds || []).map((id) => String(id))
+    );
+
+    return allSources.filter((s) => setIds.has(String(s.id)));
+  }, [selectedProposal, allSources]);
+
+  // Primary eerst, dan de rest – max 15 tonen – minus weggegooide bronnen
+  const sortedRecommendationSources: Source[] = useMemo(() => {
+    if (!selectedProposal) return [];
+
+    const primaryIds = new Set(
+      (selectedProposal.primarySourceIds || []).map((id) => String(id))
+    );
+
+    const primary: Source[] = [];
+    const rest: Source[] = [];
+
+    for (const src of selectedProposalSources) {
+      if (isHiddenForSelectedProposal(src.id)) continue;
+      if (primaryIds.has(String(src.id))) {
+        primary.push(src);
+      } else {
+        rest.push(src);
+      }
+    }
+
+    const combined = [...primary, ...rest];
+    return combined.slice(0, 15);
+  }, [selectedProposal, selectedProposalSources, hiddenByProposal]);
+
+  // Geselecteerde bron-detail
   const selectedSource: Source | null = useMemo(() => {
     if (!selectedSourceId) return null;
-    const key = String(selectedSourceId);
-    return sourceMap.get(key) || null;
-  }, [selectedSourceId, sourceMap]);
+    return (
+      allSources.find((s) => String(s.id) === String(selectedSourceId)) || null
+    );
+  }, [selectedSourceId, allSources]);
 
-  const getDetailImageUrl = (source: Source | null | undefined) => {
-    if (!source || !source.imageUrl) return undefined;
+  // IMAGE-URL voor kaarten en detail
+  const getImageUrl = (source: Source) => {
+    if (!source.imageUrl) return undefined;
+    if (source.type === 'TEXT') return undefined;
+
     const url = source.imageUrl;
-
-    if (url.includes("profile/picture")) return undefined;
+    if (url.includes('profile/picture')) return undefined;
 
     const isCito =
-      source.provider === "Cito" ||
-      String(source.id).toLowerCase().startsWith("cito");
+      source.provider === 'Cito' || String(source.id).startsWith('cito');
     const isKleio =
-      source.provider === "Kleio" ||
-      url.includes("kleio") ||
-      url.includes("vgn");
+      source.provider === 'Kleio' ||
+      (url && (url.includes('kleio') || url.includes('vgn')));
 
     if (isCito || isKleio) {
       return `${API_BASE}/image-proxy?url=${encodeURIComponent(url)}`;
@@ -118,145 +246,44 @@ export const ProposalsPage: React.FC = () => {
     return url;
   };
 
-  // Proposals ophalen bij eerste load
-  useEffect(() => {
-    const fetchProposals = async () => {
-      if (!sources || sources.length === 0) {
-        setError(
-          "Er zijn geen bronnen uit de zoekpagina meegestuurd. Ga terug naar de zoekpagina en voer eerst een zoekactie uit."
-        );
-        return;
-      }
+  const handleUseProposal = (proposal: Proposal) => {
+    const setIds = new Set(proposal.sourceIds.map((id) => String(id)));
+    const proposalSources = allSources.filter((s) => setIds.has(String(s.id)));
 
-      setLoading(true);
-      setError("");
-      setSelectedProposalId(null);
-      setSelectedSourceId(null);
-
-      try {
-        const res = await fetch(`${API_BASE}/proposals-v2`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            // tv, ka eventueel later toevoegen uit een store
-            sources,
-          }),
-        });
-
-        if (!res.ok) {
-          throw new Error(`proposals-v2 fout: ${res.status}`);
-        }
-
-        const data = (await res.json()) as ProposalsResponse;
-
-        const all = data.allSources || [];
-        let props = data.proposals || [];
-
-        // Beperk aantal bronnen per voorstel tot max. 15 + sync primarySourceIds
-        props = props.map((p, idx) => {
-          const sourceIdsTrimmed = (p.sourceIds || []).slice(0, 15);
-          const sourceIdSet = new Set(sourceIdsTrimmed.map((id) => String(id)));
-          const primaryFiltered = (p.primarySourceIds || []).filter((id) =>
-            sourceIdSet.has(String(id))
-          );
-          return {
-            id: p.id || `p${idx + 1}`,
-            concept: p.concept,
-            sourceIds: sourceIdsTrimmed,
-            primarySourceIds: primaryFiltered,
-          };
-        });
-
-        setAllSources(all);
-        setProposals(props);
-        setMeta(data.meta);
-        if (props.length > 0) {
-          setSelectedProposalId(props[0].id);
-          const firstSourceId = props[0].sourceIds[0];
-          if (firstSourceId != null) {
-            setSelectedSourceId(firstSourceId);
-          }
-        }
-      } catch (err: any) {
-        console.error("[ProposalsPage] fout bij ophalen proposals", err);
-        setError(
-          "Er ging iets mis bij het ophalen van lesvoorstellen. Controleer of de backend draait."
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProposals();
-  }, [sources]);
-
-  const handleRemoveSource = (proposalId: string, sourceId: string | number) => {
-    setProposals((prev) =>
-      prev.map((p) => {
-        if (p.id !== proposalId) return p;
-        const sourceIds = (p.sourceIds || []).filter(
-          (id) => String(id) !== String(sourceId)
-        );
-        const primarySourceIds = (p.primarySourceIds || []).filter(
-          (id) => String(id) !== String(sourceId)
-        );
-        return { ...p, sourceIds, primarySourceIds };
-      })
-    );
-
-    if (String(selectedSourceId) === String(sourceId)) {
-      setSelectedSourceId(null);
-    }
-  };
-
-  const handleSelectSource = (sourceId: string | number) => {
-    setSelectedSourceId(sourceId);
-  };
-
-  const handleUseProposal = (proposal: LessonProposal) => {
-    // Filter globale bronnen op basis van proposal.sourceIds
-    const idSet = new Set((proposal.sourceIds || []).map((id) => String(id)));
-    const filteredSources = (sources || []).filter((s) =>
-      idSet.has(String(s.id))
-    );
-
-    navigate("/lesson", {
+    navigate('/lesson', {
       state: {
         concept: proposal.concept,
-        sources: filteredSources,
+        sources: proposalSources,
+        meta: {
+          from: 'proposals',
+          masterSignature: meta?.masterSignature,
+          chainSignature: meta?.masterSignature,
+        },
       },
     });
   };
 
-  const masterSig = meta?.masterSignature || "–";
-  const sourceCountGemini = meta?.countAll ?? allSources.length;
-  const globalSourceCount = sources.length;
-  const fromLabel = meta?.from || "onbekend";
-
-  // Voor de middenkolom: primary ⭐ eerst, daarna de rest
-  const sortedSourceIdsForSelected = useMemo(() => {
-    if (!selectedProposal) return [];
-    const primarySet = new Set(
-      (selectedProposal.primarySourceIds || []).map((id) => String(id))
+  const renderLeeropbrengsten = (los?: Leeropbrengst[]) => {
+    if (!los || los.length === 0) return null;
+    return (
+      <ul className="mt-2 space-y-1 text-sm list-disc list-inside">
+        {los.map((lo) => (
+          <li key={lo.id || lo.beschrijving.slice(0, 30)}>{lo.beschrijving}</li>
+        ))}
+      </ul>
     );
-    const ids = [...(selectedProposal.sourceIds || [])];
-    ids.sort((a, b) => {
-      const aPrimary = primarySet.has(String(a));
-      const bPrimary = primarySet.has(String(b));
-      if (aPrimary === bPrimary) return 0;
-      return aPrimary ? -1 : 1; // primary bovenaan
-    });
-    return ids;
-  }, [selectedProposal]);
+  };
+
+  const proposalsSourceCount = selectedProposalSources.length;
+  const globalSourceCount = globalSources.length;
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-800 flex flex-col">
-      {/* HEADER */}
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
       <header className="bg-white border-b px-6 py-3 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-2">
           <span className="text-2xl">🦁</span>
           <div>
-            <h1 className="text-lg font-bold tracking-tight">
+            <h1 className="font-bold tracking-tight">
               Lesvoorstellen <span className="text-indigo-600">LesGO v2</span>
             </h1>
             <p className="text-xs text-gray-500">
@@ -267,360 +294,289 @@ export const ProposalsPage: React.FC = () => {
 
         <div className="text-right text-xs text-gray-500">
           <div>
-            keten-signature: <span className="font-mono">{masterSig}</span>{" "}
-            <span className="text-[10px] text-gray-400">
-              (verwacht: v6MP6dec)
+            keten-signature:{' '}
+            <span className="font-mono font-semibold">
+              {meta?.masterSignature || 'n.v.t.'}
             </span>
           </div>
           <div>
-            bron: <span className="font-mono">{fromLabel}</span>
+            bron:{' '}
+            <span className="font-semibold">
+              {meta?.from === 'dummy-fallback' ? 'dummy-fallback' : 'gemini'}
+            </span>
           </div>
-          <div className="mt-1 text-[11px]">
-            debug → sources→Gemini:{" "}
-            <span className="font-mono">{sourceCountGemini}</span> (global
-            store: <span className="font-mono">{globalSourceCount}</span>)
+          <div className="text-[11px] mt-1">
+            debug → sources→Gemini:{' '}
+            <span className="font-mono">{proposalsSourceCount || 0}</span> (global
+            store:{' '}
+            <span className="font-mono">{globalSourceCount}</span>)
           </div>
         </div>
       </header>
 
-      {/* MAIN */}
-      <main className="flex-1 grid grid-cols-12 h-full overflow-hidden">
-        {/* LINKERKANT – proposals-lijst */}
-        <section className="col-span-4 border-r border-gray-200 bg-white overflow-y-auto p-4 space-y-3">
-          <div className="flex justify-between items-center mb-2">
-            <h2 className="font-bold text-gray-700 text-sm uppercase tracking-wide">
+      <main className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
+        {/* Linkerkolom – proposals */}
+        <section className="col-span-4 border-r border-gray-200 bg-white overflow-y-auto p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wide">
               Lesvoorstellen
             </h2>
             <button
               onClick={() => navigate(-1)}
-              className="text-xs font-bold text-indigo-600 hover:underline"
+              className="text-xs text-indigo-600 font-semibold hover:underline"
             >
               ← Terug naar zoeken
             </button>
           </div>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded mb-3">
-              {error}
+          {loading && (
+            <div className="text-sm text-gray-500">
+              Lesvoorstellen worden gemaakt…
             </div>
           )}
 
-          {loading ? (
-            <div className="flex flex-col items-center justify-center h-64 text-gray-400 animate-pulse">
-              <span className="text-4xl mb-2">🧠</span>
-              <p className="text-sm text-center">
-                LesGO is lesvoorstellen aan het bedenken op basis van je
-                bronnen...
-              </p>
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-lg">
+              <strong>Fout:</strong> {error}
             </div>
-          ) : proposals.length === 0 ? (
-            <p className="text-xs text-gray-500">
-              Nog geen lesvoorstellen beschikbaar. Ga terug naar de zoekpagina
-              en voer een zoekactie uit.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {proposals.map((p, index) => {
-                const isActive = p.id === selectedProposalId;
-                const concept = p.concept || ({} as ProposalConcept);
-                const count = p.sourceIds?.length || 0;
-                const primaryCount = p.primarySourceIds?.length || 0;
+          )}
 
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => setSelectedProposalId(p.id)}
-                    className={`w-full text-left rounded-xl border p-3 transition-all ${
-                      isActive
-                        ? "border-indigo-500 bg-indigo-50 shadow-sm"
-                        : "border-gray-200 bg-white hover:border-indigo-200 hover:bg-indigo-50/40"
-                    }`}
-                  >
-                    <div className="flex justify-between items-start gap-2 mb-1">
-                      <h3 className="font-bold text-sm text-gray-900">
-                        {concept.title || `Lesvoorstel ${index + 1}`}
+          {!loading && !error && orderedProposals.length === 0 && (
+            <div className="text-sm text-gray-500">
+              Geen lesvoorstellen ontvangen van de backend.
+            </div>
+          )}
+
+          <div className="space-y-3 mt-2" ref={proposalsListRef}>
+            {orderedProposals.map((p) => {
+              const isSelected = p.id === selectedProposalId;
+              const concept = p.concept;
+              const los = concept.leeropbrengsten || [];
+
+              return (
+                <div
+                  key={p.id}
+                  className={`border rounded-xl p-3 cursor-pointer transition-all ${
+                    isSelected
+                      ? 'border-indigo-500 shadow-md bg-indigo-50/60'
+                      : 'border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm'
+                  }`}
+                  onClick={() => handleSelectProposal(p.id)}
+                >
+                  <div className="flex justify-between items-start gap-2">
+                    <div>
+                      <h3 className="font-bold text-sm">
+                        {concept.title || 'Lesvoorstel'}
                       </h3>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-mono">
-                        {count} bronnen{primaryCount ? ` • ${primaryCount} ⭐` : ""}
-                      </span>
+                      <p className="text-[11px] text-gray-500">
+                        {concept.contextLabel || ''}
+                      </p>
                     </div>
-                    {concept.contextLabel && (
-                      <p className="text-[11px] text-gray-500 mb-1">
-                        {concept.contextLabel}
+                    <div className="text-[11px] text-gray-500 text-right">
+                      <div>
+                        {p.sourceIds.length} bronnen •{' '}
+                        {(p.primarySourceIds || []).length} ⭐
+                      </div>
+                    </div>
+                  </div>
+
+                  {concept.hook && (
+                    <p className="mt-2 text-xs italic text-gray-700">
+                      {concept.hook}
+                    </p>
+                  )}
+
+                  {concept.hoofdvraag && (
+                    <div className="mt-2">
+                      <p className="text-[11px] font-semibold text-gray-600 uppercase">
+                        Hoofdvraag
                       </p>
-                    )}
-                    {concept.hook && (
-                      <p className="text-xs text-gray-700 mb-1 italic">
-                        {concept.hook}
-                      </p>
-                    )}
-                    {concept.hoofdvraag && (
-                      <p className="text-xs text-gray-800">
-                        <span className="font-semibold">Hoofdvraag: </span>
+                      <p className="text-sm text-gray-800">
                         {concept.hoofdvraag}
                       </p>
-                    )}
-                    {concept.leeropbrengsten &&
-                      concept.leeropbrengsten.length > 0 && (
-                        <ul className="mt-2 space-y-1">
-                          {concept.leeropbrengsten.slice(0, 3).map((lo, idx2) => (
-                            <li
-                              key={lo.id || idx2}
-                              className="text-[11px] text-gray-600 flex gap-1"
-                            >
-                              <span className="mt-[2px]">•</span>
-                              <span>{lo.beschrijving}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    <div className="mt-3 flex justify-between items-center">
-                      <span className="text-[10px] text-gray-500">
-                        Doelgroep: {concept.targetAudience || "Havo/Vwo"}
-                      </span>
-                      <span className="text-[11px] font-bold text-indigo-600">
-                        Details & bronnen →
-                      </span>
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                  )}
+
+                  {renderLeeropbrengsten(los)}
+
+                  <div className="mt-3 flex justify-between items-center">
+                    <span className="text-[11px] text-gray-500">
+                      Doelgroep: {concept.targetAudience || 'Havo/Vwo bovenbouw'}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleUseProposal(p);
+                      }}
+                      className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg shadow-sm"
+                    >
+                      Gebruik dit lesvoorstel →
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </section>
 
-        {/* MIDDEN – aanbevolen bronnen per voorstel */}
+        {/* Middenkolom – aanbevolen bronnen */}
         <section className="col-span-4 border-r border-gray-200 bg-gray-50 overflow-y-auto p-4">
-          <h2 className="font-bold text-gray-700 text-sm uppercase tracking-wide mb-2">
+          <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">
             Aanbevolen bronnen bij dit voorstel
           </h2>
 
-          {!selectedProposal ? (
-            <p className="text-xs text-gray-500">
-              Selecteer links een lesvoorstel om de bijbehorende bronnen te
-              bekijken.
+          {selectedProposal && sortedRecommendationSources.length === 0 && (
+            <p className="text-sm text-gray-500">
+              Geen bronnen gevonden voor dit voorstel.
             </p>
-          ) : sortedSourceIdsForSelected.length === 0 ? (
-            <p className="text-xs text-gray-500">
-              Dit voorstel heeft op dit moment geen geselecteerde bronnen meer.
-              Kies een ander voorstel of ga terug naar de zoekpagina.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {sortedSourceIdsForSelected.map((id) => {
-                const src = sourceMap.get(String(id)) || null;
-                const isPrimary = (selectedProposal.primarySourceIds || []).some(
-                  (pid) => String(pid) === String(id)
-                );
+          )}
 
-                const typeLabel = src?.type || "";
-                const isText =
-                  (src?.type || "").toString().toUpperCase() === "TEXT";
-                const thumbUrl = !isText ? getDetailImageUrl(src) : undefined;
+          <div className="space-y-3">
+            {sortedRecommendationSources.map((src) => {
+              const isPrimary = (selectedProposal?.primarySourceIds || []).some(
+                (id) => String(id) === String(src.id)
+              );
+              const imgUrl = getImageUrl(src);
 
-                const title =
-                  src?.title || src?.description || src?.content || `Bron ${id}`;
-                const provider = src?.provider || "Onbekend";
+              return (
+                <div
+                  key={src.id}
+                  className={`border rounded-lg p-2 flex gap-2 items-stretch cursor-pointer transition-all ${
+                    isPrimary
+                      ? 'bg-yellow-50 border-yellow-300'
+                      : 'bg-white border-gray-200 hover:border-indigo-200'
+                  }`}
+                  onClick={() => setSelectedSourceId(src.id)}
+                >
+                  <div className="w-16 h-16 rounded-md overflow-hidden flex items-center justify-center bg-gray-100 border border-gray-200 shrink-0">
+                    {src.type === 'TEXT' || !imgUrl ? (
+                      <span className="text-xl font-bold text-gray-400">T</span>
+                    ) : (
+                      <img
+                        src={imgUrl}
+                        alt={src.title || ''}
+                        className="w-full h-full object-cover"
+                      />
+                    )}
+                  </div>
 
-                const baseCardClasses =
-                  "border rounded-lg p-2 flex items-start gap-2 hover:border-indigo-200";
-                const primaryClasses = isPrimary
-                  ? "bg-yellow-50 border-yellow-300"
-                  : "bg-white border-gray-200";
-
-                return (
-                  <div
-                    key={String(id)}
-                    className={`${baseCardClasses} ${primaryClasses}`}
-                  >
-                    {/* Thumbnail links – beeldbronnen krijgen afbeelding, TEXT bronnen een T-vierkant */}
-                    <div className="w-16 h-16 rounded-md overflow-hidden flex-shrink-0 bg-gray-100 flex items-center justify-center">
-                      {isText ? (
-                        <span className="text-lg font-bold text-gray-500">T</span>
-                      ) : thumbUrl ? (
-                        <img
-                          src={thumbUrl}
-                          alt=""
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = "none";
-                          }}
-                        />
-                      ) : null}
-                    </div>
-
-                    {/* Tekstblok + meta */}
-                    <button
-                      onClick={() => handleSelectSource(id)}
-                      className="flex-1 text-left"
-                    >
-                      <div className="flex items-center gap-1 mb-0.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1 text-[11px] text-gray-500">
                         {isPrimary && (
-                          <span
-                            className="text-[11px]"
-                            title="Kernbron (topbron bij deze hoofdvraag)"
-                          >
+                          <span className="text-yellow-500" title="Kernbron">
                             ⭐
                           </span>
                         )}
-                        <span className="text-[11px] font-mono text-gray-500">
-                          #{String(id)}
+                        <span className="font-mono text-[10px] text-gray-500">
+                          #{src.id}
                         </span>
-                        {typeLabel && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                            {typeLabel}
+                        {src.type && (
+                          <span className="uppercase font-semibold">
+                            {src.type}
                           </span>
                         )}
-                        {provider && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600">
-                            {provider}
+                        {src.provider && (
+                          <span className="text-indigo-600 font-semibold">
+                            {src.provider}
                           </span>
                         )}
                       </div>
-                      <div className="text-xs font-semibold text-gray-900 line-clamp-2">
-                        {title}
-                      </div>
-                      {src?.description && (
-                        <div className="text-[11px] text-gray-600 line-clamp-2 mt-0.5">
-                          {src.description}
-                        </div>
-                      )}
-                    </button>
-
-                    {/* Verwijderknop */}
-                    <button
-                      onClick={() => handleRemoveSource(selectedProposal.id, id)}
-                      className="text-gray-400 hover:text-red-500 text-xs px-1"
-                      title="Verwijder deze bron uit dit voorstel"
-                    >
-                      ✕
-                    </button>
+                      <button
+                        className="text-[11px] text-gray-400 hover:text-red-500"
+                        title="Bron weggooien uit deze selectie"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          hideSourceForSelectedProposal(src.id);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <p className="text-xs font-semibold text-gray-800 truncate">
+                      {src.title || 'Zonder titel'}
+                    </p>
+                    <p className="text-[11px] text-gray-600 line-clamp-2">
+                      {src.snippet ||
+                        src.description ||
+                        src.fullText?.slice(0, 120) ||
+                        'Geen korte beschrijving beschikbaar.'}
+                    </p>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                </div>
+              );
+            })}
+          </div>
         </section>
 
-        {/* RECHTS – detailpreview + knop 'Gebruik dit voorstel' */}
-        <section className="col-span-4 bg-white overflow-y-auto p-6 flex flex-col">
-          {!selectedProposal ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-gray-300">
+        {/* Rechterkolom – bron-detail */}
+        <section className="col-span-4 bg-white overflow-y-auto p-6">
+          {!selectedSource ? (
+            <div className="h-full flex flex-col items-center justify-center text-gray-300">
               <span className="text-6xl mb-3">👈</span>
-              <p className="text-sm text-center max-w-xs">
-                Kies links een lesvoorstel om bronnen te verkennen en er één te
-                gebruiken als basis voor je les.
+              <p className="text-sm font-medium">
+                Klik op een bron in de middelste kolom voor details
               </p>
             </div>
           ) : (
-            <>
-              <div className="mb-4 border-b border-gray-100 pb-3">
-                <h2 className="text-lg font-bold text-gray-900 mb-1">
-                  {selectedProposal.concept.title}
-                </h2>
-                <p className="text-xs text-gray-500 mb-1">
-                  Hoofdvraag:{" "}
-                  <span className="italic">
-                    {selectedProposal.concept.hoofdvraag}
+            <div className="max-w-2xl mx-auto">
+              <div className="mb-4 border-b pb-3">
+                <div className="text-[11px] text-gray-500 flex gap-2 items-center mb-1">
+                  {selectedSource.type && (
+                    <span className="uppercase font-semibold">
+                      {selectedSource.type}
+                    </span>
+                  )}
+                  {selectedSource.provider && (
+                    <span className="text-indigo-600 font-semibold">
+                      {selectedSource.provider}
+                    </span>
+                  )}
+                  <span className="font-mono text-[10px] text-gray-400">
+                    #{selectedSource.id}
                   </span>
-                </p>
-                {selectedProposal.concept.contextLabel && (
-                  <p className="text-[11px] text-gray-500">
-                    Context: {selectedProposal.concept.contextLabel}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex-1 mb-4 overflow-y-auto">
-                {!selectedSource ? (
-                  <div className="h-full flex flex-col items-center justify-center text-gray-300">
-                    <span className="text-5xl mb-2">👆</span>
-                    <p className="text-sm text-center max-w-xs">
-                      Klik in het midden op een bron om een voorbeeld te zien
-                      (afbeelding + tekst).
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div>
-                      <div className="text-[11px] text-indigo-600 font-bold uppercase tracking-wide mb-1">
-                        {selectedSource.type} • {selectedSource.provider}
-                      </div>
-                      <h3 className="text-base font-bold text-gray-900">
-                        {selectedSource.title ||
-                          selectedSource.description ||
-                          "Bron zonder titel"}
-                      </h3>
-                    </div>
-
-                    {(() => {
-                      const isText =
-                        (selectedSource.type || "")
-                          .toString()
-                          .toUpperCase() === "TEXT";
-                      const url = !isText
-                        ? getDetailImageUrl(selectedSource)
-                        : undefined;
-                      if (!url) return null;
-                      return (
-                        <div className="rounded-lg overflow-hidden border border-gray-200 shadow-sm">
-                          <img
-                            src={url}
-                            alt=""
-                            className="w-full max-h-[320px] object-contain bg-gray-100"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display =
-                                "none";
-                            }}
-                          />
-                        </div>
-                      );
-                    })()}
-
-                    <div className="text-sm text-gray-700 whitespace-pre-wrap">
-                      {selectedSource.fullText ||
-                        selectedSource.content ||
-                        selectedSource.description ||
-                        "Geen tekst beschikbaar voor deze bron."}
-                    </div>
-
-                    {selectedSource.url && (
-                      <div className="pt-2 border-t border-gray-100">
-                        <a
-                          href={selectedSource.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:underline"
-                        >
-                          Bekijk originele bron ↗
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="pt-3 border-t border-gray-100 flex justify-between items-center">
-                <div className="text-[11px] text-gray-500">
-                  Dit voorstel gebruikt momenteel{" "}
-                    <span className="font-mono">
-                      {selectedProposal.sourceIds.length}
-                    </span>{" "}
-                  bronnen.
                 </div>
-                <button
-                  onClick={() => handleUseProposal(selectedProposal)}
-                  disabled={selectedProposal.sourceIds.length === 0}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-transform ${
-                    selectedProposal.sourceIds.length === 0
-                      ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                      : "bg-black text-white hover:scale-105"
-                  }`}
-                >
-                  Gebruik dit lesvoorstel →
-                </button>
+                <h2 className="text-xl font-bold text-gray-900">
+                  {selectedSource.title || 'Zonder titel'}
+                </h2>
               </div>
-            </>
+
+              {getImageUrl(selectedSource) && (
+                <div className="mb-4 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
+                  <img
+                    src={getImageUrl(selectedSource)}
+                    alt={selectedSource.title || ''}
+                    className="w-full max-h-[420px] object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
+
+              <div className="prose prose-sm max-w-none text-gray-800">
+                <p>
+                  {selectedSource.fullText ||
+                    selectedSource.content ||
+                    selectedSource.description ||
+                    selectedSource.snippet ||
+                    'Geen toelichting beschikbaar.'}
+                </p>
+              </div>
+
+              {selectedSource.url && (
+                <div className="mt-6 pt-4 border-t">
+                  <a
+                    href={selectedSource.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-indigo-600 font-semibold hover:underline text-sm"
+                  >
+                    Bekijk originele bron ↗
+                  </a>
+                </div>
+              )}
+            </div>
           )}
         </section>
       </main>

@@ -1,15 +1,18 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 type LessonConcept = {
-  hoofdvraag?: string;
+  id?: string;
+  title?: string;
   hook?: string;
-  context?: string;
+  contextLabel?: string;
+  hoofdvraag?: string;
   tv?: string;
   tvLabel?: string;
   ka?: string;
   kaLabel?: string;
-  masterSignature?: string; // 🔹 v6-keten signature uit proposals
+  targetAudience?: string;
+  masterSignature?: string;
 };
 
 type Source = {
@@ -19,543 +22,411 @@ type Source = {
   title?: string;
   description?: string;
   fullText?: string;
-  content?: string;
   url?: string | null;
   imageUrl?: string | null;
+  isStarred?: boolean;
+  score?: number;
 };
 
-type Step1Data = {
-  chainSignature?: string; // 🔹 v6-signature vanuit backend
-  docentenInstructie?: {
-    wat: string;
-    hoe: string;
-    waarom: string;
-  };
-  lesPlanning?: {
-    tabelMarkdown: string;
-  };
+type Step1Response = {
+  step: number;
+  data: any;
 };
 
-type BronVraag = {
-  bronId: string | number;
+type Step2Response = {
+  step: number;
+  data: Step2Data;
+  usedSourceIds?: (string | number)[];
+  error?: string;
+};
+
+type BronVraagItem = {
+  bronId: string;
   vragen: string[];
 };
 
-type InvulKolom = {
-  id: string;
-  label: string;
-  omschrijving: string;
+type Invultabel = {
+  kolommen: string[];
+  rijen: {
+    label: string;
+    uitleg: string;
+    deelvraagIndex?: number;
+  }[];
 };
 
-type InvulOpties = {
-  kolomId: string;
-  opties: string[];
-};
-
-type KwadrantLabels = {
-  X_links: string;
-  X_rechts: string;
-  Y_boven: string;
-  Y_onder: string;
+type Reflectie = {
+  vragen: {
+    vraag: string;
+    aandachtspuntVoorDocent?: string;
+  }[];
 };
 
 type Step2Data = {
-  chainSignature?: string; // 🔹 v6-signature vanuit backend
-  hoofdvraag: string;
-  leerlingInleiding: string;
-  bronVragen: BronVraag[];
-  invulTabel: {
-    kolommen: InvulKolom[];
-    meerkeuzeOpties: InvulOpties[];
-  };
-  kwadrantAsLabels?: KwadrantLabels;
-  reflectieVragen: string[];
+  hoofdvraag?: string;
+  inleiding?: string;
+  bronvragen?: BronVraagItem[];
+  invultabel?: Invultabel;
+  reflectie?: Reflectie;
 };
 
-type Step3Data = {
-  chainSignature?: string; // 🔹 v6-signature vanuit backend
-  inleiding: string;
-  bronnen: Source[];
-  concept: LessonConcept;
+type LocationState = {
+  concept?: LessonConcept;
+  sources?: Source[];
 };
-
-type Step4Data = {
-  chainSignature?: string; // 🔹 v6-signature vanuit backend
-  bronAntwoorden: any[];
-  invulTabelVoorbeeld: any[];
-  kwadrantVoorbeelden: any[];
-  reflectieVoorbeelden: string[];
-};
-
-type LessonState = {
-  concept: LessonConcept;
-  sources: Source[];
-};
-
-type ApiStepResponse<T> = {
-  step: number;
-  data: T;
-};
-
-function getImageProxy(url?: string | null): string | null {
-  if (!url) return null;
-  return `/api/image-proxy?url=${encodeURIComponent(url)}`;
-}
 
 const LessonPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const state = (location.state as LessonState | undefined) || undefined;
+  const state = (location.state || {}) as LocationState;
+  const concept = state.concept || {};
+  const allSources: Source[] = state.sources || [];
 
-  const [concept] = useState<LessonConcept | null>(state?.concept || null);
-  const [sources] = useState<Source[]>(state?.sources || []);
-
-  const [step1Data, setStep1Data] = useState<Step1Data | null>(null);
-  const [step2Data, setStep2Data] = useState<Step2Data | null>(null);
-  const [step3Data, setStep3Data] = useState<Step3Data | null>(null);
-  const [step4Data, setStep4Data] = useState<Step4Data | null>(null);
+  const [activeStep, setActiveStep] = useState<1 | 2>(1);
 
   const [loadingStep1, setLoadingStep1] = useState(false);
-  const [loadingStep2, setLoadingStep2] = useState(false);
-  const [loadingStep3, setLoadingStep3] = useState(false);
-  const [loadingStep4, setLoadingStep4] = useState(false);
-
   const [errorStep1, setErrorStep1] = useState<string | null>(null);
+  const [step1Data, setStep1Data] = useState<any | null>(null);
+
+  const [loadingStep2, setLoadingStep2] = useState(false);
   const [errorStep2, setErrorStep2] = useState<string | null>(null);
-  const [errorStep3, setErrorStep3] = useState<string | null>(null);
-  const [errorStep4, setErrorStep4] = useState<string | null>(null);
+  const [step2Data, setStep2Data] = useState<Step2Data | null>(null);
+  const [usedSourceIds, setUsedSourceIds] = useState<(string | number)[]>([]);
 
-  // 🔹 Huidige v6-signature in deze les-keten (uit concept óf step-data)
-  const [chainSig, setChainSig] = useState<string | null>(
-    concept?.masterSignature || null
-  );
+  // Bronnen die in leerlingmateriaal gebruikt worden (of fallback = alles)
+  const visibleSources = useMemo(() => {
+    if (usedSourceIds && usedSourceIds.length > 0) {
+      const setIds = new Set(usedSourceIds.map((id) => String(id)));
+      return allSources.filter((s) => setIds.has(String(s.id)));
+    }
+    return allSources;
+  }, [allSources, usedSourceIds]);
 
-  if (!concept || sources.length === 0) {
+  // Helper om bij bronId weer de bron + titel te vinden
+  const findSourceById = (bronId: string) =>
+    visibleSources.find((s) => String(s.id) === String(bronId));
+
+  // Als je zonder concept op deze pagina komt: terug naar proposals
+  useEffect(() => {
+    if (!concept || !concept.id) {
+      // Geen concept → terug
+      // (Voorkomt een lege pagina als iemand rechtstreeks navigeert)
+      // Kleine timeout zodat React-router geen warning geeft
+      setTimeout(() => navigate("/proposals"), 0);
+    }
+  }, [concept, navigate]);
+
+  // Step 1 ophalen
+  useEffect(() => {
+    if (!concept || !concept.id) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setLoadingStep1(true);
+      setErrorStep1(null);
+      try {
+        const resp = await fetch("/api/generate-lesson-v2/step1", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            concept,
+            sources: allSources,
+          }),
+        });
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        const json: Step1Response = await resp.json();
+        if (!cancelled) {
+          setStep1Data(json.data || json);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setErrorStep1(err?.message || "Onbekende fout bij step 1");
+        }
+      } finally {
+        if (!cancelled) setLoadingStep1(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [concept, allSources]);
+
+  // Step 2 ophalen
+  useEffect(() => {
+    if (!concept || !concept.id) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setLoadingStep2(true);
+      setErrorStep2(null);
+      try {
+        const resp = await fetch("/api/generate-lesson-v2/step2", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            concept,
+            sources: allSources,
+          }),
+        });
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        const json: Step2Response = await resp.json();
+        if (!cancelled) {
+          setStep2Data(json.data || (json as any));
+          if (Array.isArray(json.usedSourceIds)) {
+            setUsedSourceIds(json.usedSourceIds);
+          }
+          if (json.error) {
+            setErrorStep2(json.error);
+          }
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setErrorStep2(err?.message || "Onbekende fout bij step 2");
+        }
+      } finally {
+        if (!cancelled) setLoadingStep2(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [concept, allSources]);
+
+  const goBack = () => {
+    navigate(-1);
+  };
+
+  const renderDocentStep = () => {
+    if (loadingStep1) {
+      return <p>Lesvoorbereiding (docent) wordt gegenereerd…</p>;
+    }
+    if (errorStep1) {
+      return <p style={{ color: "red" }}>Fout bij step 1: {errorStep1}</p>;
+    }
+    if (!step1Data) {
+      return <p>Nog geen docenteninstructie ontvangen.</p>;
+    }
+
+    const d = step1Data.docent || step1Data;
+
+    const wat = d.wat || "";
+    const hoe = d.hoe || "";
+    const waarom = d.waarom || "";
+    const deelvragen: any[] = d.deelvragen || [];
+    const lesplanning: any[] = d.lesplanning || [];
+
     return (
-      <div style={{ padding: "1.5rem" }}>
-        <p>
-          Geen lesdata gevonden. Keer terug naar de startpagina en kies eerst
-          een lesvoorstel.
-        </p>
-        <button
-          onClick={() => navigate("/")}
-          style={{
-            marginTop: "1rem",
-            padding: "0.5rem 1rem",
-            borderRadius: "999px",
-            border: "none",
-            background: "#2563eb",
-            color: "white",
-            cursor: "pointer",
-          }}
-        >
-          Terug naar start
-        </button>
+      <div className="lesson-step lesson-step-docent" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        <section>
+          <h2>Wat gaan we doen?</h2>
+          <p>{wat}</p>
+        </section>
+        <section>
+          <h2>Hoe werkt de les?</h2>
+          <p>{hoe}</p>
+        </section>
+        <section>
+          <h2>Waarom deze les (historisch redeneren)?</h2>
+          <p>{waarom}</p>
+        </section>
+
+        {deelvragen.length > 0 && (
+          <section>
+            <h2>Deelvragen & dimensies</h2>
+            <ul>
+              {deelvragen.map((dv, idx) => (
+                <li key={idx}>
+                  <strong>Deelvraag {idx + 1}:</strong> {dv.vraag}
+                  {dv.dimensie && (
+                    <>
+                      {" "}
+                      <em>({dv.dimensie}{dv.subdimensie ? ` – ${dv.subdimensie}` : ""})</em>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {lesplanning.length > 0 && (
+          <section>
+            <h2>Lesplanning</h2>
+            <ul>
+              {lesplanning.map((fase: any, idx: number) => (
+                <li key={idx}>
+                  <strong>{fase.fase || `Fase ${idx + 1}`} – {fase.tijd || ""}</strong>
+                  <div>{fase.activiteit}</div>
+                  {fase.product && (
+                    <div>
+                      <em>Product:</em> {fase.product}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     );
-  }
+  };
 
-  async function callStep<T extends { chainSignature?: string }>(
-    step: 1 | 2 | 3 | 4,
-    bodyExtra: any,
-    setData: (d: T) => void,
-    setError: (e: string | null) => void,
-    setLoading: (b: boolean) => void
-  ) {
-    try {
-      setError(null);
-      setLoading(true);
-      const res = await fetch(`/api/generate-lesson-v2/step${step}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          concept,
-          sources,
-          ...bodyExtra,
-        }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`status ${res.status}: ${text}`);
-      }
-
-      const json = (await res.json()) as ApiStepResponse<T>;
-      const data = json.data;
-
-      // 🔹 Bewaar de chainSignature uit de backend (als die er is)
-      if (data && data.chainSignature) {
-        setChainSig(data.chainSignature);
-      }
-
-      setData(data);
-    } catch (err: any) {
-      console.error(`step${step} error`, err);
-      setError(err?.message || "Onbekende fout");
-    } finally {
-      setLoading(false);
+  const renderLeerlingStep = () => {
+    if (loadingStep2) {
+      return <p>Leerlingmateriaal wordt gegenereerd…</p>;
     }
-  }
-
-  const handleStep1 = () =>
-    callStep<Step1Data>(1, {}, setStep1Data, setErrorStep1, setLoadingStep1);
-
-  const handleStep2 = () =>
-    callStep<Step2Data>(2, {}, setStep2Data, setErrorStep2, setLoadingStep2);
-
-  const handleStep3 = () =>
-    callStep<Step3Data>(3, {}, setStep3Data, setErrorStep3, setLoadingStep3);
-
-  const handleStep4 = () =>
-    callStep<Step4Data>(
-      4,
-      { step2Data },
-      setStep4Data,
-      setErrorStep4,
-      setLoadingStep4
-    );
-
-  function renderError(msg: string | null) {
-    if (!msg) return null;
-    return (
-      <div
-        style={{
-          marginTop: "1rem",
-          padding: "0.75rem 1rem",
-          borderRadius: "0.75rem",
-          background: "#fee2e2",
-          color: "#991b1b",
-          fontSize: "0.9rem",
-        }}
-      >
-        {msg}
-      </div>
-    );
-  }
-
-  function renderMarkdownTable(md: string | undefined) {
-    if (!md) return null;
-    const lines = md.trim().split("\n");
-    if (lines.length < 2) {
-      return <pre>{md}</pre>;
+    if (errorStep2) {
+      return <p style={{ color: "red" }}>Fout bij step 2: {errorStep2}</p>;
+    }
+    if (!step2Data) {
+      return <p>Nog geen leerlingmateriaal ontvangen.</p>;
     }
 
-    const headerLine = lines[0];
-    const headerCells = headerLine
-      .split("|")
-      .map((c) => c.trim())
-      .filter(Boolean);
-
-    const bodyLines = lines.slice(2);
+    const hv = step2Data.hoofdvraag || concept.hoofdvraag || "";
+    const inleiding = step2Data.inleiding || "";
+    const bronvragen = step2Data.bronvragen || [];
+    const invultabel = step2Data.invultabel;
+    const reflectie = step2Data.reflectie;
 
     return (
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          marginTop: "0.5rem",
-          fontSize: "0.9rem",
-        }}
-      >
-        <thead>
-          <tr>
-            {headerCells.map((cell, idx) => (
-              <th
-                key={idx}
-                style={{
-                  border: "1px solid #e5e7eb",
-                  padding: "0.25rem 0.5rem",
-                  textAlign: "left",
-                  background: "#f9fafb",
-                }}
-              >
-                {cell}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {bodyLines.map((line, rowIdx) => {
-            const cells = line
-              .split("|")
-              .map((c) => c.trim())
-              .filter(Boolean);
-            if (cells.length === 0) return null;
-            return (
-              <tr key={rowIdx}>
-                {cells.map((cell, cellIdx) => (
-                  <td
-                    key={cellIdx}
+      <div className="lesson-step lesson-step-leerling" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        <section>
+          <h2>Hoofdvraag voor leerlingen</h2>
+          <p>{hv}</p>
+        </section>
+
+        {inleiding && (
+          <section>
+            <h2>Inleiding (context van toen)</h2>
+            <p>{inleiding}</p>
+          </section>
+        )}
+
+        {bronvragen.length > 0 && (
+          <section>
+            <h2>Bronvragen</h2>
+            {bronvragen.map((bq, idx) => {
+              const src = findSourceById(bq.bronId);
+              return (
+                <div key={idx} style={{ marginBottom: "1rem" }}>
+                  <h3>
+                    Bron {idx + 1}
+                    {src && src.title ? ` – ${src.title}` : ""}
+                  </h3>
+                  <ol>
+                    {(bq.vragen || []).map((vraag, i) => (
+                      <li key={i}>{vraag}</li>
+                    ))}
+                  </ol>
+                </div>
+              );
+            })}
+          </section>
+        )}
+
+        {invultabel && (
+          <section>
+            <h2>Invultabel – samenhang tussen bronnen en hoofdvraag</h2>
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  <th
                     style={{
-                      border: "1px solid #e5e7eb",
+                      borderBottom: "1px solid #ccc",
+                      textAlign: "left",
                       padding: "0.25rem 0.5rem",
                     }}
                   >
-                    {cell}
-                  </td>
+                    Groep
+                  </th>
+                  {invultabel.kolommen.map((col, idx) => (
+                    <th
+                      key={idx}
+                      style={{
+                        borderBottom: "1px solid #ccc",
+                        textAlign: "left",
+                        padding: "0.25rem 0.5rem",
+                      }}
+                    >
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {invultabel.rijen.map((rij, idx) => (
+                  <tr key={idx}>
+                    <td
+                      style={{
+                        borderBottom: "1px solid #eee",
+                        padding: "0.25rem 0.5rem",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {rij.label}
+                    </td>
+                    <td
+                      colSpan={invultabel.kolommen.length}
+                      style={{
+                        borderBottom: "1px solid #eee",
+                        padding: "0.25rem 0.5rem",
+                      }}
+                    >
+                      {rij.uitleg}
+                    </td>
+                  </tr>
                 ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    );
-  }
+              </tbody>
+            </table>
+          </section>
+        )}
 
-  function renderBronVragen() {
-    if (!step2Data) return null;
-    if (!step2Data.bronVragen || step2Data.bronVragen.length === 0) {
-      return (
-        <p style={{ fontSize: "0.9rem" }}>
-          Geen bronvragen ontvangen in de JSON-output.
-        </p>
-      );
-    }
-
-    return (
-      <div style={{ marginTop: "0.5rem" }}>
-        {step2Data.bronVragen.map((bv, idx) => (
-          <div
-            key={`${bv.bronId}-${idx}`}
-            style={{
-              marginBottom: "0.75rem",
-              paddingBottom: "0.5rem",
-              borderBottom: "1px dashed #e5e7eb",
-            }}
-          >
-            <h4
-              style={{
-                margin: 0,
-                marginBottom: "0.25rem",
-                fontSize: "0.9rem",
-                fontWeight: 600,
-              }}
-            >
-              Bron {bv.bronId}
-            </h4>
-            <ol
-              style={{
-                margin: 0,
-                paddingLeft: "1.25rem",
-                fontSize: "0.9rem",
-              }}
-            >
-              {bv.vragen.map((vraag, i) => (
-                <li key={i}>{vraag}</li>
+        {reflectie && reflectie.vragen && reflectie.vragen.length > 0 && (
+          <section>
+            <h2>Reflectievragen</h2>
+            <ol>
+              {reflectie.vragen.map((rv, idx) => (
+                <li key={idx} style={{ marginBottom: "0.5rem" }}>
+                  <div>{rv.vraag}</div>
+                  {rv.aandachtspuntVoorDocent && (
+                    <div style={{ fontSize: "0.85rem", color: "#555" }}>
+                      <em>Tip voor docent: {rv.aandachtspuntVoorDocent}</em>
+                    </div>
+                  )}
+                </li>
               ))}
             </ol>
-          </div>
-        ))}
+          </section>
+        )}
       </div>
     );
-  }
+  };
 
-  function renderInvulTabelStructuur() {
-    if (!step2Data) return null;
-    const kolommen = step2Data.invulTabel?.kolommen || [];
-
-    if (kolommen.length === 0) {
-      return (
-        <p style={{ fontSize: "0.9rem" }}>
-          Geen invultabel-structuur ontvangen in de JSON-output.
-        </p>
-      );
-    }
-
-    // 4 lege rijen voor preview
-    const emptyRows = [1, 2, 3, 4];
+  const sourceBadge = (s: Source) => {
+    const provider = (s.provider || "").toLowerCase();
+    const type = (s.type || "").toUpperCase();
+    const isText =
+      type === "TEXT" ||
+      type === "TXT" ||
+      (!s.imageUrl && !type);
 
     return (
-      <div style={{ marginTop: "0.5rem" }}>
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontSize: "0.9rem",
-          }}
-        >
-          <thead>
-            <tr>
-              {kolommen.map((k) => (
-                <th
-                  key={k.id}
-                  style={{
-                    border: "1px solid #e5e7eb",
-                    padding: "0.4rem 0.6rem",
-                    textAlign: "left",
-                    background: "#f9fafb",
-                  }}
-                >
-                  {k.label}
-                </th>
-              ))}
-            </tr>
-            <tr>
-              {kolommen.map((k) => (
-                <td
-                  key={`${k.id}-desc`}
-                  style={{
-                    border: "1px solid #e5e7eb",
-                    padding: "0.35rem 0.6rem",
-                    fontSize: "0.8rem",
-                    color: "#4b5563",
-                  }}
-                >
-                  {k.omschrijving}
-                </td>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {emptyRows.map((row) => (
-              <tr key={row}>
-                {kolommen.map((k) => (
-                  <td
-                    key={`${k.id}-${row}`}
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      padding: "0.75rem 0.6rem",
-                      height: "2rem",
-                    }}
-                  >
-                    {/* lege cel voor leerlingeninvulling */}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <p
-          style={{
-            marginTop: "0.5rem",
-            fontSize: "0.8rem",
-            color: "#6b7280",
-          }}
-        >
-          Preview: leerlingen krijgen deze structuur met lege cellen om hun
-          observaties, interpretaties en link met de hoofdvraag in te vullen.
-        </p>
+      <div style={{ display: "flex", gap: "0.5rem", fontSize: "0.75rem", marginBottom: "0.25rem" }}>
+        <span style={{ padding: "0.1rem 0.4rem", borderRadius: "999px", border: "1px solid #ddd" }}>
+          {provider === "cito" ? "Cito" : provider === "kleio" ? "Kleio" : s.provider || "Bron"}
+        </span>
+        <span style={{ padding: "0.1rem 0.4rem", borderRadius: "999px", border: "1px solid #ddd" }}>
+          {isText ? "TEXT" : "IMAGE"}
+        </span>
       </div>
     );
-  }
-
-  function renderKwadrantStructuur() {
-    if (!step2Data || !step2Data.kwadrantAsLabels) {
-      return (
-        <p style={{ fontSize: "0.9rem" }}>
-          Geen kwadrant-labels ontvangen in de JSON-output.
-        </p>
-      );
-    }
-
-    const labels = step2Data.kwadrantAsLabels;
-
-    return (
-      <div
-        style={{
-          marginTop: "0.5rem",
-          maxWidth: "420px",
-          border: "1px solid #e5e7eb",
-          borderRadius: "0.75rem",
-          overflow: "hidden",
-        }}
-      >
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            tableLayout: "fixed",
-            fontSize: "0.85rem",
-          }}
-        >
-          <tbody>
-            <tr>
-              <td
-                style={{
-                  borderBottom: "1px solid #e5e7eb",
-                  borderRight: "1px solid #e5e7eb",
-                  height: "3rem",
-                }}
-              />
-              <td
-                style={{
-                  borderBottom: "1px solid #e5e7eb",
-                  textAlign: "center",
-                  fontWeight: 600,
-                  padding: "0.3rem",
-                }}
-              >
-                {labels.Y_boven}
-              </td>
-              <td
-                style={{
-                  borderBottom: "1px solid #e5e7eb",
-                  borderLeft: "1px solid #e5e7eb",
-                }}
-              />
-            </tr>
-            <tr>
-              <td
-                style={{
-                  borderRight: "1px solid #e5e7eb",
-                  textAlign: "center",
-                  fontWeight: 600,
-                  padding: "0.3rem",
-                }}
-              >
-                {labels.X_links}
-              </td>
-              <td
-                style={{
-                  borderLeft: "1px solid #e5e7eb",
-                  borderRight: "1px solid #e5e7eb",
-                  height: "3rem",
-                }}
-              />
-              <td
-                style={{
-                  borderLeft: "1px solid #e5e7eb",
-                  textAlign: "center",
-                  fontWeight: 600,
-                  padding: "0.3rem",
-                }}
-              >
-                {labels.X_rechts}
-              </td>
-            </tr>
-            <tr>
-              <td
-                style={{
-                  borderTop: "1px solid #e5e7eb",
-                  borderRight: "1px solid #e5e7eb",
-                }}
-              />
-              <td
-                style={{
-                  borderTop: "1px solid #e5e7eb",
-                  textAlign: "center",
-                  fontWeight: 600,
-                  padding: "0.3rem",
-                }}
-              >
-                {labels.Y_onder}
-              </td>
-              <td
-                style={{
-                  borderTop: "1px solid #e5e7eb",
-                  borderLeft: "1px solid #e5e7eb",
-                }}
-              />
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-
-  const allSources = step3Data?.bronnen ?? sources;
+  };
 
   return (
     <div
@@ -563,546 +434,174 @@ const LessonPage: React.FC = () => {
         padding: "1.5rem",
         maxWidth: "1200px",
         margin: "0 auto",
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
-        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        gap: "1.5rem",
       }}
     >
-      {/* 🔹 Signature-debug rechtsonder */}
-      {chainSig && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "4px",
-            right: "8px",
-            fontSize: "10px",
-            color: "#9ca3af",
-            pointerEvents: "none",
-            zIndex: 9999,
-          }}
-        >
-          sig: {chainSig}
-        </div>
-      )}
-
-      {/* Header */}
-      <header
+      <button
+        onClick={goBack}
         style={{
-          marginBottom: "1.5rem",
-          padding: "1rem 1.25rem",
-          borderRadius: "1rem",
-          background: "#f3f4f6",
+          alignSelf: "flex-start",
+          padding: "0.4rem 0.8rem",
+          borderRadius: "999px",
+          border: "1px solid #ddd",
+          background: "#f5f5f5",
+          cursor: "pointer",
         }}
       >
-        <div
+        ← Terug naar lesvoorstellen
+      </button>
+
+      <header style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+        <div style={{ fontSize: "0.85rem", color: "#555" }}>
+          {concept.tvLabel && (
+            <>
+              <strong>{concept.tvLabel}</strong>
+              {concept.kaLabel ? " · " : ""}
+            </>
+          )}
+          {concept.kaLabel && <span>{concept.kaLabel}</span>}
+        </div>
+        <h1 style={{ margin: 0 }}>{concept.title || "Lesconcept"}</h1>
+        {concept.hook && <p style={{ fontStyle: "italic", marginTop: "0.25rem" }}>{concept.hook}</p>}
+        {concept.hoofdvraag && (
+          <p style={{ marginTop: "0.5rem" }}>
+            <strong>Hoofdvraag (concept):</strong> {concept.hoofdvraag}
+          </p>
+        )}
+      </header>
+
+      {/* Tabs voor docent / leerling */}
+      <div
+        style={{
+          display: "flex",
+          gap: "0.75rem",
+          borderBottom: "1px solid #ddd",
+          paddingBottom: "0.5rem",
+        }}
+      >
+        <button
+          onClick={() => setActiveStep(1)}
           style={{
+            padding: "0.4rem 0.8rem",
+            borderRadius: "999px",
+            border: activeStep === 1 ? "1px solid #000" : "1px solid #ccc",
+            background: activeStep === 1 ? "#000" : "#f5f5f5",
+            color: activeStep === 1 ? "#fff" : "#000",
+            cursor: "pointer",
+          }}
+        >
+          Step 1 – Docentversie
+        </button>
+        <button
+          onClick={() => setActiveStep(2)}
+          style={{
+            padding: "0.4rem 0.8rem",
+            borderRadius: "999px",
+            border: activeStep === 2 ? "1px solid #000" : "1px solid #ccc",
+            background: activeStep === 2 ? "#000" : "#f5f5f5",
+            color: activeStep === 2 ? "#fff" : "#000",
+            cursor: "pointer",
+          }}
+        >
+          Step 2 – Leerlingmateriaal
+        </button>
+      </div>
+
+      {/* Layout: links inhoud, rechts bronnen */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 2.5fr) minmax(0, 1.5fr)",
+          gap: "1.5rem",
+          alignItems: "flex-start",
+        }}
+      >
+        <main>
+          {activeStep === 1 ? renderDocentStep() : renderLeerlingStep()}
+        </main>
+
+        <aside
+          style={{
+            borderLeft: "1px solid #eee",
+            paddingLeft: "1rem",
             display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
+            flexDirection: "column",
             gap: "0.75rem",
           }}
         >
-          <div>
-            <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700 }}>
-              Lesgenerator – Les Go v2
-            </h1>
-            <p
-              style={{
-                marginTop: "0.25rem",
-                fontSize: "0.9rem",
-                color: "#4b5563",
-              }}
-            >
-              Tijdvak {concept.tvLabel || concept.tv || "onbekend"} ·
-              {" "}Kenmerkend aspect {concept.kaLabel || concept.ka || "onbekend"}
-            </p>
-          </div>
-          <div
-            style={{
-              fontSize: "0.7rem",
-              color: "#9ca3af",
-            }}
-          >
-            concept-sig: {concept.masterSignature || "–"}
-          </div>
-        </div>
-
-        <p
-          style={{
-            marginTop: "0.25rem",
-            fontSize: "0.9rem",
-            color: "#111827",
-          }}
-        >
-          <strong>Hoofdvraag (concept):</strong>{" "}
-          {concept.hoofdvraag ||
-            "Hoe keken mensen in die tijd zelf naar dit onderwerp?"}
-        </p>
-
-        <div
-          style={{
-            marginTop: "0.75rem",
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "0.5rem",
-          }}
-        >
-          <button
-            onClick={handleStep1}
-            disabled={loadingStep1}
-            style={{
-              borderRadius: "999px",
-              padding: "0.4rem 0.9rem",
-              border: "none",
-              cursor: "pointer",
-              background: "#4f46e5",
-              color: "white",
-              fontSize: "0.85rem",
-            }}
-          >
-            {loadingStep1 ? "Bezig..." : "Les opnieuw genereren (step 1)"}
-          </button>
-          <button
-            onClick={handleStep2}
-            disabled={loadingStep2}
-            style={{
-              borderRadius: "999px",
-              padding: "0.4rem 0.9rem",
-              border: "none",
-              cursor: "pointer",
-              background: "#eab308",
-              color: "#111827",
-              fontSize: "0.85rem",
-            }}
-          >
-            {loadingStep2 ? "Bezig..." : "Genereer leerlinggedeelte (step 2)"}
-          </button>
-          <button
-            onClick={handleStep3}
-            disabled={loadingStep3}
-            style={{
-              borderRadius: "999px",
-              padding: "0.4rem 0.9rem",
-              border: "none",
-              cursor: "pointer",
-              background: "#0ea5e9",
-              color: "white",
-              fontSize: "0.85rem",
-            }}
-          >
-            {loadingStep3 ? "Bezig..." : "Genereer bronnenblad (step 3)"}
-          </button>
-          <button
-            onClick={handleStep4}
-            disabled={loadingStep4}
-            style={{
-              borderRadius: "999px",
-              padding: "0.4rem 0.9rem",
-              border: "none",
-              cursor: "pointer",
-              background: "#15803d",
-              color: "white",
-              fontSize: "0.85rem",
-            }}
-          >
-            {loadingStep4 ? "Bezig..." : "Genereer antwoordmodel (step 4)"}
-          </button>
-        </div>
-      </header>
-
-      {renderError(errorStep1)}
-      {renderError(errorStep2)}
-      {renderError(errorStep3)}
-      {renderError(errorStep4 && `Fout bij step 4 (antwoordmodel): ${errorStep4}`)}
-
-      {/* Input: concept & bronnen */}
-      <section
-        style={{
-          marginTop: "1rem",
-          padding: "1rem 1.25rem",
-          borderRadius: "1rem",
-          border: "1px solid #e5e7eb",
-          background: "white",
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>
-          Input voor de les (concept & bronnen)
-        </h2>
-
-        <div
-          style={{
-            marginTop: "0.75rem",
-            marginBottom: "1rem",
-            fontSize: "0.9rem",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              marginBottom: "0.25rem",
-              fontSize: "1rem",
-              fontWeight: 600,
-            }}
-          >
-            Lesconcept
-          </h3>
-          <p style={{ margin: 0 }}>
-            <strong>Hoofdvraag:</strong>{" "}
-            {concept.hoofdvraag ||
-              "Hoe keken mensen in die tijd zelf naar dit onderwerp?"}
+          <h2 style={{ marginTop: 0 }}>Bronnen in deze les</h2>
+          <p style={{ fontSize: "0.85rem", color: "#555" }}>
+            Richting Gemini: <strong>{visibleSources.length}</strong> bronnen
+            {allSources.length > visibleSources.length && (
+              <> (van de {allSources.length} gevonden)</>
+            )}
           </p>
-          {concept.hook && (
-            <p style={{ margin: "0.25rem 0 0" }}>
-              <strong>Hook:</strong> {concept.hook}
-            </p>
-          )}
-          {concept.context && (
-            <p style={{ margin: "0.25rem 0 0" }}>
-              <strong>Context:</strong> {concept.context}
-            </p>
-          )}
-        </div>
 
-        <div>
-          <h3
-            style={{
-              margin: 0,
-              marginBottom: "0.5rem",
-              fontSize: "1rem",
-              fontWeight: 600,
-            }}
-          >
-            Bronnen ({allSources.length})
-          </h3>
+          {visibleSources.length === 0 && <p>Geen bronnen beschikbaar.</p>}
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-              gap: "1rem",
-              marginTop: "0.5rem",
-            }}
-          >
-            {allSources.map((source, index) => {
-              const imgUrl = getImageProxy(source.imageUrl || undefined);
-              const fullText =
-                source.fullText || source.content || source.description || "";
-
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            {visibleSources.map((s) => {
+              const isText =
+                (s.type || "").toUpperCase() === "TEXT" ||
+                (s.type || "").toUpperCase() === "TXT" ||
+                (!s.imageUrl && !(s.type || "").toUpperCase());
               return (
-                <article
-                  key={source.id ?? index}
+                <div
+                  key={s.id}
                   style={{
                     borderRadius: "0.75rem",
-                    border: "1px solid #e5e7eb",
-                    padding: "0.75rem",
-                    background: "#f9fafb",
-                    display: "flex",
-                    flexDirection: "column",
-                    height: "100%",
+                    border: "1px solid #eee",
+                    padding: "0.6rem 0.7rem",
+                    background: "#fafafa",
                   }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: "0.5rem",
-                      gap: "0.5rem",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: "0.8rem",
-                        fontWeight: 600,
-                        color: "#374151",
-                      }}
-                    >
-                      Bron {index + 1}
-                    </div>
-                    <div
-                      style={{
-                        padding: "0.1rem 0.5rem",
-                        borderRadius: "999px",
-                        fontSize: "0.75rem",
-                        background:
-                          source.provider === "Kleio" ? "#dbf4ff" : "#e5e7eb",
-                        color:
-                          source.provider === "Kleio" ? "#0369a1" : "#374151",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {source.provider || "Onbekend"}
-                    </div>
+                  {sourceBadge(s)}
+                  <div style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.25rem" }}>
+                    {s.title || "(geen titel)"}
                   </div>
-
-                  {imgUrl && (
+                  {s.description && (
+                    <div style={{ fontSize: "0.8rem", color: "#555", marginBottom: "0.25rem" }}>
+                      {s.description.length > 160
+                        ? s.description.slice(0, 160) + "…"
+                        : s.description}
+                    </div>
+                  )}
+                  {!isText && s.imageUrl && (
                     <div
                       style={{
-                        marginBottom: "0.5rem",
+                        marginTop: "0.25rem",
                         borderRadius: "0.5rem",
                         overflow: "hidden",
-                        background: "transparent",
+                        maxHeight: "140px",
                       }}
                     >
                       <img
-                        src={imgUrl}
-                        alt={source.title || source.description || ""}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          height: "auto",
-                          maxHeight: "260px",
-                          objectFit: "contain",
-                        }}
+                        src={s.imageUrl}
+                        alt={s.title || "Bronafbeelding"}
+                        style={{ width: "100%", objectFit: "cover" }}
                       />
                     </div>
                   )}
-
-                  {source.title && (
-                    <h4
-                      style={{
-                        margin: 0,
-                        marginBottom: "0.25rem",
-                        fontSize: "0.95rem",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {source.title}
-                    </h4>
+                  {s.url && (
+                    <div style={{ marginTop: "0.25rem" }}>
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ fontSize: "0.8rem" }}
+                      >
+                        Open originele bron →
+                      </a>
+                    </div>
                   )}
-
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: "0.85rem",
-                      color: "#4b5563",
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    {fullText}
-                  </p>
-
-                  {source.url && (
-                    <a
-                      href={source.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        marginTop: "0.5rem",
-                        fontSize: "0.8rem",
-                        color: "#2563eb",
-                      }}
-                    >
-                      Bekijk origineel ↗
-                    </a>
-                  )}
-                </article>
+                </div>
               );
             })}
           </div>
-        </div>
-      </section>
-
-      {/* STEP 1 – docent */}
-      {step1Data && (
-        <section
-          style={{
-            marginTop: "1.25rem",
-            padding: "1rem 1.25rem",
-            borderRadius: "1rem",
-            border: "1px solid #e5e7eb",
-            background: "white",
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              marginBottom: "0.5rem",
-              fontSize: "1.1rem",
-              fontWeight: 700,
-            }}
-          >
-            Docenteninstructie (step 1)
-          </h2>
-
-          <h3 style={{ margin: "0.5rem 0 0.25rem", fontSize: "0.95rem" }}>
-            Wat
-          </h3>
-          <p style={{ margin: 0, fontSize: "0.9rem", whiteSpace: "pre-wrap" }}>
-            {step1Data.docentenInstructie?.wat}
-          </p>
-
-          <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
-            Hoe
-          </h3>
-          <p style={{ margin: 0, fontSize: "0.9rem", whiteSpace: "pre-wrap" }}>
-            {step1Data.docentenInstructie?.hoe}
-          </p>
-
-          <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
-            Waarom
-          </h3>
-          <p style={{ margin: 0, fontSize: "0.9rem", whiteSpace: "pre-wrap" }}>
-            {step1Data.docentenInstructie?.waarom}
-          </p>
-
-          <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
-            Lesplanning
-          </h3>
-          {renderMarkdownTable(step1Data.lesPlanning?.tabelMarkdown)}
-        </section>
-      )}
-
-      {/* STEP 2 – leerlingmateriaal */}
-      {step2Data && (
-        <section
-          style={{
-            marginTop: "1.25rem",
-            padding: "1rem 1.25rem",
-            borderRadius: "1rem",
-            border: "1px solid #e5e7eb",
-            background: "white",
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              marginBottom: "0.5rem",
-              fontSize: "1.1rem",
-              fontWeight: 700,
-            }}
-          >
-            Leerlinggedeelte (step 2 – preview)
-          </h2>
-
-          <h3 style={{ margin: "0.25rem 0", fontSize: "0.95rem" }}>
-            Hoofdvraag (leerling)
-          </h3>
-          <p style={{ margin: 0, fontSize: "0.9rem" }}>{step2Data.hoofdvraag}</p>
-
-          <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
-            Inleiding
-          </h3>
-          <p
-            style={{
-              margin: 0,
-              fontSize: "0.9rem",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {step2Data.leerlingInleiding}
-          </p>
-
-          <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
-            Bronvragen (per bron, genummerd)
-          </h3>
-          {renderBronVragen()}
-
-          <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
-            Invultabel (structuur – lege cellen)
-          </h3>
-          {renderInvulTabelStructuur()}
-
-          <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
-            Kwadrant (structuur – 4 subdimensies op de assen)
-          </h3>
-          {renderKwadrantStructuur()}
-
-          <h3 style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.95rem" }}>
-            Reflectievragen (kort overzicht)
-          </h3>
-          <ul
-            style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.9rem" }}
-          >
-            {step2Data.reflectieVragen.map((q, i) => (
-              <li key={i}>{q}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* STEP 3 – bronnenblad preview */}
-      {step3Data && (
-        <section
-          style={{
-            marginTop: "1.25rem",
-            padding: "1rem 1.25rem",
-            borderRadius: "1rem",
-            border: "1px solid #e5e7eb",
-            background: "white",
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              marginBottom: "0.5rem",
-              fontSize: "1.1rem",
-              fontWeight: 700,
-            }}
-          >
-            Bronnenblad (step 3 – preview)
-          </h2>
-          <p style={{ fontSize: "0.9rem", whiteSpace: "pre-wrap" }}>
-            {step3Data.inleiding}
-          </p>
-          <p
-            style={{
-              marginTop: "0.5rem",
-              fontSize: "0.8rem",
-              color: "#6b7280",
-            }}
-          >
-            Dit is in feite hetzelfde bronnenoverzicht als boven, maar dan in
-            de structuur van het bronnenblad voor export.
-          </p>
-        </section>
-      )}
-
-      {/* STEP 4 – antwoordmodel preview */}
-      {step4Data && (
-        <section
-          style={{
-            marginTop: "1.25rem",
-            marginBottom: "2rem",
-            padding: "1rem 1.25rem",
-            borderRadius: "1rem",
-            border: "1px solid #e5e7eb",
-            background: "white",
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              marginBottom: "0.5rem",
-              fontSize: "1.1rem",
-              fontWeight: 700,
-            }}
-          >
-            Antwoordmodel (step 4 – preview)
-          </h2>
-          <p
-            style={{
-              fontSize: "0.9rem",
-              marginBottom: "0.5rem",
-            }}
-          >
-            Dit is een verkorte preview van het antwoordmodel. Voor gebruik in
-            de les exporteer je dit later als los docentbestand.
-          </p>
-          <pre
-            style={{
-              margin: 0,
-              padding: "0.75rem",
-              borderRadius: "0.75rem",
-              background: "#f3f4f6",
-              fontSize: "0.8rem",
-              overflowX: "auto",
-            }}
-          >
-            {JSON.stringify(step4Data, null, 2)}
-          </pre>
-        </section>
-      )}
+        </aside>
+      </div>
     </div>
   );
 };
