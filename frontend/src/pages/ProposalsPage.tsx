@@ -17,6 +17,8 @@ type ProposalConcept = {
   ka: number | null;
   contextLabel: string;
   targetAudience: string;
+  learningOutcome?: string;
+  masterSignature?: string;
 };
 
 type LessonProposal = {
@@ -32,6 +34,7 @@ type ProposalsResponse = {
     countAll?: number;
     countProposals?: number;
     inputShape?: any;
+    masterSignature?: string;
   };
 };
 
@@ -65,6 +68,9 @@ const ProposalsPage: React.FC = () => {
   const [refiningStates, setRefiningStates] = useState<{ [key: number]: boolean }>({});
   const [viewingState, setViewingState] = useState<ViewingState | null>(null);
   const [error, setError] = useState('');
+
+  // globale signature uit meta → snelle check dat v6-keten actief is
+  const [globalSignature, setGlobalSignature] = useState<string | null>(null);
 
   const getProxiedImageUrl = (source: Source) => {
     if (!source || !source.imageUrl) return undefined;
@@ -119,6 +125,9 @@ const ProposalsPage: React.FC = () => {
           throw new Error('Onverwachte response-structuur van het voorstel-endpoint.');
         }
 
+        // globale v6 signature bewaren
+        setGlobalSignature(data.meta?.masterSignature || null);
+
         // Bewaar de "master set" bronnen uit de backend (max 40 in A35)
         setAllSources(Array.isArray(data.allSources) ? data.allSources : []);
 
@@ -140,6 +149,12 @@ const ProposalsPage: React.FC = () => {
             ka: (c.ka as number | null) ?? null,
             contextLabel: String(c.contextLabel ?? 'Geen specifieke TV/KA'),
             targetAudience: String(c.targetAudience ?? 'Havo/Vwo Bovenbouw'),
+            learningOutcome: c.learningOutcome
+              ? String(c.learningOutcome)
+              : undefined,
+            masterSignature: c.masterSignature
+              ? String(c.masterSignature)
+              : data.meta?.masterSignature || undefined,
           };
 
           const rationaleLines: string[] = [];
@@ -243,6 +258,12 @@ const ProposalsPage: React.FC = () => {
           targetAudience: String(
             c.targetAudience ?? proposals[idx].concept.targetAudience ?? 'Havo/Vwo Bovenbouw'
           ),
+          learningOutcome: c.learningOutcome
+            ? String(c.learningOutcome)
+            : proposals[idx].concept.learningOutcome,
+          masterSignature: c.masterSignature
+            ? String(c.masterSignature)
+            : proposals[idx].concept.masterSignature,
         };
 
         const rationaleLines: string[] = [];
@@ -335,8 +356,13 @@ const ProposalsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-100 p-8 font-sans">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
+        <div className="mb-8 flex justify-between items-center">
           <h1 className="text-3xl font-bold text-gray-900">Kies &amp; Cureer (V2)</h1>
+          {globalSignature && (
+            <div className="text-[10px] text-gray-400">
+              sig: {globalSignature}
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -347,7 +373,7 @@ const ProposalsPage: React.FC = () => {
             return (
               <div
                 key={prop.id || idx}
-                className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden hover:shadow-xl transition-all h-[800px]"
+                className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden hover:shadow-xl transition-all h:[800px]"
               >
                 <div className="bg-indigo-50 p-5 border-b border-indigo-100 shrink-0">
                   <div className="flex justify-between mb-2">
@@ -361,6 +387,11 @@ const ProposalsPage: React.FC = () => {
                   <h3 className="text-lg font-bold text-indigo-900 leading-tight line-clamp-2">
                     {prop.title}
                   </h3>
+                  {prop.concept.masterSignature && (
+                    <div className="text-[9px] text-gray-400 mt-1">
+                      sig: {prop.concept.masterSignature}
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-5 flex-1 flex flex-col min-h-0">
@@ -375,6 +406,11 @@ const ProposalsPage: React.FC = () => {
                       <p className="text-gray-600 text-sm leading-relaxed">
                         {prop.rationale}
                       </p>
+                      {prop.concept.learningOutcome && (
+                        <p className="mt-2 text-xs text-gray-500">
+                          Leeropbrengst: {prop.concept.learningOutcome}
+                        </p>
+                      )}
                     </div>
 
                     <div className="bg-gray-50 p-3 rounded border border-gray-200">
@@ -572,5 +608,4 @@ const ProposalsPage: React.FC = () => {
 };
 
 export default ProposalsPage;
-
 

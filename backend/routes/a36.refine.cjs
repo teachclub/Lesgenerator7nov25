@@ -1,78 +1,145 @@
-const express = require('express');
-const router = express.Router();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+// backend/routes/a36.refine.cjs
+// AI-gedreven refine-endpoint voor een les-concept.
+//
+// POST /api/refine-concept
+//
+// Doet een lichte herschrijving van title/hook/hoofdvraag via Gemini,
+// met behoud van masterSignature en chainSignature.
 
-function cleanJson(text) {
-  let clean = text.replace(/```json/gi, '').replace(/```/g, '');
-  const firstBracket = clean.indexOf('{');
-  const lastBracket = clean.lastIndexOf('}');
-  if (firstBracket !== -1 && lastBracket !== -1) {
-    clean = clean.substring(firstBracket, lastBracket + 1);
+const express = require("express");
+const router = express.Router();
+
+const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
+const { runGeminiAndParse } = require("../services/gemini.cjs");
+const {
+  buildRefineConceptPrompt,
+  validateRefineResponse,
+} = require("../prompts/lessonV2.refineConcept.cjs");
+
+/**
+ * Haal het concept uit de body op de manier waarop de frontend het stuurt.
+ *
+ * Huidige payload (voorbeeld):
+ * {
+ *   currentProposal: { id: "p1", title: "...", hook: "...", hoofdvraag: "...", ... },
+ *   feedback: "meer leerlingentaal en presentisme oordeel",
+ *   sources: [...]
+ * }
+ */
+function extractConcept(body) {
+  if (!body || typeof body !== "object") return {};
+
+  // 1) Huidige V2-shape: currentProposal = het voorstel op de kaart
+  if (body.currentProposal && typeof body.currentProposal === "object") {
+    return body.currentProposal;
   }
-  return clean.trim();
+
+  // 2) Alternatief: expliciet concept
+  if (body.concept && typeof body.concept === "object") {
+    return body.concept;
+  }
+
+  // 3) Oudere variant
+  if (body.refinedConcept && typeof body.refinedConcept === "object") {
+    return body.refinedConcept;
+  }
+
+  // 4) Laatste redmiddel
+  return body;
 }
 
-router.post('/refine-concept', async (req, res) => {
+router.post("/refine-concept", async (req, res) => {
+  const body = req.body || {};
+  const concept = extractConcept(body);
+
+  // Mode: kan later subtieler, voor nu:
+  // - “iets meer oordeel erin” → more_judgement (via frontend)
+  const mode = body.mode || body.variant || "default";
+
+  // UserHint: neem ook 'feedback' mee (die stond in je payload)
+  const userHint =
+    body.userHint ||
+    body.comment ||
+    body.feedback || // belangrijkste nieuwe bron
+    "";
+
+  console.log("[A36/DEBUG] refine-concept – start", {
+    mode,
+    hasFeedback: !!body.feedback,
+    conceptTitle: concept && concept.title,
+    conceptKeys: Object.keys(concept || {}),
+  });
+
   try {
-    const { currentProposal, feedback, sources } = req.body;
+    const prompt = buildRefineConceptPrompt({
+      concept,
+      mode,
+      userHint,
+    });
 
-    if (!currentProposal || !feedback || !sources) {
-      return res.status(400).json({ error: "Ontbrekende data voor aanpassing." });
-    }
+    const json = await runGeminiAndParse({
+      prompt,
+      label: "lessonV2_refineConcept",
+      meta: {
+        mode,
+        hasUserHint: !!userHint,
+      },
+    });
 
-    // We sturen alleen de bronnen mee die bij DIT concept horen (om tokens te sparen)
-    const relevantSources = sources.filter(s => currentProposal.selectedSourceIds.includes(s.id));
-    
-    // Fallback: als er geen ID's matchen (zeldzaam), stuur alles mee (max 15)
-    const sourcesToUse = relevantSources.length > 0 ? relevantSources : sources.slice(0, 15);
+    const validated = validateRefineResponse(json, MASTER_SIGNATURE);
+    const aiConcept = validated.concept || {};
 
-    const sourcesText = sourcesToUse.map(s => `[${s.id}] ${s.title}: ${(s.content || "").substring(0, 300)}...`).join('\n');
+    // Merge: AI mag velden overschrijven, MAAR
+    // - als AI lege strings teruggeeft, houden we de oude waarden aan.
+    const refinedConcept = {
+      ...concept,
+      ...aiConcept,
+      id: aiConcept.id || concept.id || null,
+      title: aiConcept.title || concept.title || "",
+      hook: aiConcept.hook || concept.hook || "",
+      hoofdvraag:
+        aiConcept.hoofdvraag ||
+        concept.hoofdvraag ||
+        concept.hoofdvraagText ||
+        "",
+      masterSignature:
+        aiConcept.masterSignature ||
+        concept.masterSignature ||
+        MASTER_SIGNATURE,
+      tv: aiConcept.tv || concept.tv || "",
+      ka: aiConcept.ka || concept.ka || "",
+    };
 
-    const prompt = `
-      ROL: Expert geschiedenisdidactiek.
-      DOEL: Pas een bestaand lesconcept aan op basis van feedback van de docent.
-      
-      HUIDIG CONCEPT:
-      Titel: "${currentProposal.title}"
-      Hook: "${currentProposal.hook}"
-      Rationale: "${currentProposal.rationale}"
-      
-      FEEDBACK DOCENT:
-      "${feedback}"
+    console.log("[A36/DEBUG] refine-concept – success", {
+      mode: validated.mode || mode,
+      titleBefore: concept.title,
+      titleAfter: refinedConcept.title,
+    });
 
-      BRONNEN SET (Let op: je moet met deze bronnen werken):
-      ${sourcesText}
+    return res.json({
+      concept: refinedConcept,
+      meta: {
+        from: "gemini-refine",
+        mode: validated.mode || mode,
+        chainSignature: validated.chainSignature,
+      },
+    });
+  } catch (err) {
+    console.error(
+      "[A36/ERROR] refine-concept – fallback naar ongewijzigd concept:",
+      err && err.message ? err.message : err
+    );
 
-      OPDRACHT:
-      Herschrijf de Titel, Hook en Rationale zodat ze voldoen aan de feedback.
-      Behoud de JSON structuur. 
-      Zorg dat de nieuwe hook nog steeds past bij de "Hindsight Bias" / Verwondering stijl, tenzij de feedback anders zegt.
-
-      OUTPUT (JSON):
-      {
-        "title": "Nieuwe Titel",
-        "targetAudience": "${currentProposal.targetAudience}",
-        "hook": "Nieuwe Hook...",
-        "rationale": "Nieuwe Rationale...",
-        "selectedSourceIds": ${JSON.stringify(currentProposal.selectedSourceIds)} 
-      }
-      
-      Antwoord ALLEEN met JSON.
-    `;
-
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL_CHIPS || 'gemini-1.5-flash' });
-
-    console.log(`[A36] 🛠️ Concept aanpassen: "${feedback}"`);
-    const result = await model.generateContent(prompt);
-    const updatedProposal = JSON.parse(cleanJson(result.response.text()));
-
-    res.json(updatedProposal);
-
-  } catch (error) {
-    console.error('[A36] ❌ Fout bij aanpassen:', error);
-    res.status(500).json({ error: 'Kon concept niet aanpassen.' });
+    return res.json({
+      concept,
+      meta: {
+        from: "refine-fallback",
+        error: err && err.message ? err.message : String(err),
+        chainSignature: concept.masterSignature || MASTER_SIGNATURE,
+      },
+    });
   }
 });
 
 module.exports = router;
+

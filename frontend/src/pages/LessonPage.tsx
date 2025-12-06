@@ -9,6 +9,7 @@ type LessonConcept = {
   tvLabel?: string;
   ka?: string;
   kaLabel?: string;
+  masterSignature?: string; // 🔹 v6-keten signature uit proposals
 };
 
 type Source = {
@@ -24,6 +25,7 @@ type Source = {
 };
 
 type Step1Data = {
+  chainSignature?: string; // 🔹 v6-signature vanuit backend
   docentenInstructie?: {
     wat: string;
     hoe: string;
@@ -58,6 +60,7 @@ type KwadrantLabels = {
 };
 
 type Step2Data = {
+  chainSignature?: string; // 🔹 v6-signature vanuit backend
   hoofdvraag: string;
   leerlingInleiding: string;
   bronVragen: BronVraag[];
@@ -70,12 +73,14 @@ type Step2Data = {
 };
 
 type Step3Data = {
+  chainSignature?: string; // 🔹 v6-signature vanuit backend
   inleiding: string;
   bronnen: Source[];
   concept: LessonConcept;
 };
 
 type Step4Data = {
+  chainSignature?: string; // 🔹 v6-signature vanuit backend
   bronAntwoorden: any[];
   invulTabelVoorbeeld: any[];
   kwadrantVoorbeelden: any[];
@@ -121,6 +126,11 @@ const LessonPage: React.FC = () => {
   const [errorStep3, setErrorStep3] = useState<string | null>(null);
   const [errorStep4, setErrorStep4] = useState<string | null>(null);
 
+  // 🔹 Huidige v6-signature in deze les-keten (uit concept óf step-data)
+  const [chainSig, setChainSig] = useState<string | null>(
+    concept?.masterSignature || null
+  );
+
   if (!concept || sources.length === 0) {
     return (
       <div style={{ padding: "1.5rem" }}>
@@ -146,7 +156,7 @@ const LessonPage: React.FC = () => {
     );
   }
 
-  async function callStep<T>(
+  async function callStep<T extends { chainSignature?: string }>(
     step: 1 | 2 | 3 | 4,
     bodyExtra: any,
     setData: (d: T) => void,
@@ -172,7 +182,14 @@ const LessonPage: React.FC = () => {
       }
 
       const json = (await res.json()) as ApiStepResponse<T>;
-      setData(json.data);
+      const data = json.data;
+
+      // 🔹 Bewaar de chainSignature uit de backend (als die er is)
+      if (data && data.chainSignature) {
+        setChainSig(data.chainSignature);
+      }
+
+      setData(data);
     } catch (err: any) {
       console.error(`step${step} error`, err);
       setError(err?.message || "Onbekende fout");
@@ -548,8 +565,26 @@ const LessonPage: React.FC = () => {
         margin: "0 auto",
         fontFamily:
           '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+        position: "relative",
       }}
     >
+      {/* 🔹 Signature-debug rechtsonder */}
+      {chainSig && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "4px",
+            right: "8px",
+            fontSize: "10px",
+            color: "#9ca3af",
+            pointerEvents: "none",
+            zIndex: 9999,
+          }}
+        >
+          sig: {chainSig}
+        </div>
+      )}
+
       {/* Header */}
       <header
         style={{
@@ -559,19 +594,39 @@ const LessonPage: React.FC = () => {
           background: "#f3f4f6",
         }}
       >
-        <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700 }}>
-          Lesgenerator – Les Go v2
-        </h1>
-        <p
+        <div
           style={{
-            marginTop: "0.25rem",
-            fontSize: "0.9rem",
-            color: "#4b5563",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: "0.75rem",
           }}
         >
-          Tijdvak {concept.tvLabel || concept.tv || "onbekend"} · Kenmerkend
-          aspect {concept.kaLabel || concept.ka || "onbekend"}
-        </p>
+          <div>
+            <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700 }}>
+              Lesgenerator – Les Go v2
+            </h1>
+            <p
+              style={{
+                marginTop: "0.25rem",
+                fontSize: "0.9rem",
+                color: "#4b5563",
+              }}
+            >
+              Tijdvak {concept.tvLabel || concept.tv || "onbekend"} ·
+              {" "}Kenmerkend aspect {concept.kaLabel || concept.ka || "onbekend"}
+            </p>
+          </div>
+          <div
+            style={{
+              fontSize: "0.7rem",
+              color: "#9ca3af",
+            }}
+          >
+            concept-sig: {concept.masterSignature || "–"}
+          </div>
+        </div>
+
         <p
           style={{
             marginTop: "0.25rem",

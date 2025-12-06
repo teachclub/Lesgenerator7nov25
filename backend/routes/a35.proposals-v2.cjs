@@ -1,221 +1,166 @@
-// routes/a35.proposals-v2.cjs
-// -------------------------------------------
-// LESVOORSTELLEN V2 (DUMMY-IMPLEMENTATIE)
-// - Doel: stabiele, voorspelbare shape voor de frontend
-// - Werkt met max 40 bronnen als context (allSources)
-// - Per voorstel max 15 weloverwogen bronnen (subset via sourceIds)
-// - LET OP: dit is nog geen echte Gemini-selectie, maar een
-//   deterministische dummy op basis van meegegeven bronnen.
+// backend/routes/a35.proposals-v2.cjs
+// LesGO v2 – proposals-laag (AI-gedreven)
 //
-// Verwachte request-body (flexibel, geen harde verplichting):
-// {
-//   tv?: string | number,
-//   ka?: string | number,
-//   conceptHint?: string,
-//   sources?: Source[]   // optioneel; als niet aanwezig, krijg je lege voorstellen
-// }
+// - Krijgt max. 40 bronnen + tv/ka
+// - Bouwt een proposals-prompt (lessonV2.proposals)
+// - Roept Gemini aan via runGeminiAndParse (zelfde service als step1–4)
+// - Valideert chainSignature + concept.masterSignature
+// - Stuurt proposals terug naar de frontend
 //
-// Response-shape:
-//
-// {
-//   allSources: Source[];        // max 40
-//   proposals: [
-//     {
-//       id: string;
-//       concept: {
-//         id: string;
-//         title: string;
-//         hook: string;
-//         hoofdvraag: string;
-//         tv?: string | number;
-//         ka?: string | number;
-//       };
-//       sourceIds: string[];     // max 15, verwijzen naar allSources[*].id
-//     },
-//     ...
-//   ],
-//   meta: {
-//     countAll: number;
-//     countProposals: number;
-//   }
-// }
-//
-// Deze shape is bedoeld als stabiele basis. Later kan A35 intern
-// Gemini aanroepen, maar de structuur naar de frontend blijft gelijk.
+// Routes (via server.cjs → app.use("/api", ...)):
+//   POST /api/proposals-v2
+//   POST /api/propose-lessons-v2   (alias)
 
-const express = require('express');
-
+const express = require("express");
 const router = express.Router();
 
-/**
- * Helper: maak een nette string voor tijdvak/KA context.
- */
-function buildContextLabel(tv, ka) {
-  const tvPart = tv ? `Tijdvak ${tv}` : null;
-  const kaPart = ka ? `KA${ka}` : null;
+const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
+const {
+  buildProposalsPrompt,
+  validateProposalsResponse,
+} = require("../prompts/lessonV2.proposals.cjs");
 
-  if (tvPart && kaPart) return `${tvPart} – ${kaPart}`;
-  if (tvPart) return tvPart;
-  if (kaPart) return kaPart;
-  return 'Geen specifieke TV/KA';
+// Zelfde Gemini-service als in routes/lessonV2.step1.cjs
+const { runGeminiAndParse } = require("../services/gemini.cjs");
+
+/**
+ * Dummy fallback – lijkt op je oude dummy, maar mét masterSignature.
+ */
+function buildDummyProposals(allSources) {
+  const ids = (allSources || []).map((s, idx) => s.id ?? idx + 1);
+  const pick = (count) =>
+    ids.slice(0, Math.max(0, Math.min(count, ids.length || 0)));
+
+  return {
+    chainSignature: MASTER_SIGNATURE,
+    proposals: [
+      {
+        id: "p1",
+        concept: {
+          id: "p1",
+          title: "Macht, belangen en spanningen",
+          hook: "Leerlingen onderzoeken hoe spanningen tussen grootmachten konden aanvoelen als 'normaal' in hun eigen tijd.",
+          hoofdvraag:
+            "Hoe konden tijdgenoten de toenemende spanningen en machtsblokken accepteren als onderdeel van de 'normale' internationale politiek?",
+          masterSignature: MASTER_SIGNATURE,
+        },
+        sourceIds: pick(8),
+      },
+      {
+        id: "p2",
+        concept: {
+          id: "p2",
+          title: "Gewone mensen in ongewone tijden",
+          hook: "Leerlingen kijken vanuit het perspectief van gewone burgers die moesten leven met grote politieke en sociale veranderingen.",
+          hoofdvraag:
+            "Hoe konden gewone mensen hun dagelijkse leven blijven leiden terwijl de wereld om hen heen snel veranderde?",
+          masterSignature: MASTER_SIGNATURE,
+        },
+        sourceIds: pick(8),
+      },
+      {
+        id: "p3",
+        concept: {
+          id: "p3",
+          title: "Idealen, propaganda en overtuiging",
+          hook: "Leerlingen onderzoeken hoe idealen en propaganda konden maken dat mensen overtuigingen normaal en vanzelfsprekend vonden.",
+          hoofdvraag:
+            "Hoe konden mensen hun eigen overtuigingen als vanzelfsprekend ervaren, zelfs als wij die nu heel anders beoordelen?",
+          masterSignature: MASTER_SIGNATURE,
+        },
+        sourceIds: pick(8),
+      },
+    ],
+  };
 }
 
 /**
- * Helper: bepaal een stabiel "id" voor een bron.
- * - Eerst source.id
- * - Anders source._id
- * - Anders index
+ * Normaliseer bronnen zodat we altijd een id hebben.
  */
-function ensureSourceIds(allSources) {
-  return allSources.map((src, index) => {
-    if (!src) return src;
-    if (!src.id && !src._id) {
-      return { ...src, id: String(index) };
-    }
-    // Zorg dat id altijd een string is
-    const id = String(src.id || src._id);
-    if (src.id !== id) {
-      return { ...src, id };
-    }
-    return src;
+function normalizeSources(sources = []) {
+  return sources.map((src, index) => {
+    return {
+      ...src,
+      id: src.id ?? index + 1,
+    };
   });
 }
 
 /**
- * Helper: kies unieke indices (maxCount) uit [0..length-1]
- * via een simpele Fisher–Yates shuffle.
+ * Gedeelde handler voor beide endpoints.
  */
-function pickUniqueIndices(maxCount, length) {
-  if (!length || length <= 0) return [];
-  const indices = Array.from({ length }, (_, i) => i);
-  for (let i = indices.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = indices[i];
-    indices[i] = indices[j];
-    indices[j] = tmp;
-  }
-  const limit = Math.min(maxCount, length);
-  return indices.slice(0, limit);
-}
+async function handleProposalsRequest(req, res) {
+  const { tv, ka, conceptHint = "", sources = [] } = req.body || {};
+  const allSources = normalizeSources(sources);
 
-/**
- * Bouw 3 dummy-lesvoorstellen op basis van allSources.
- * Dit is puur backend-logica; later kan Gemini hier "onder" gehangen worden.
- */
-function buildDummyProposals(allSources, tv, ka, conceptHint) {
-  const contextLabel = buildContextLabel(tv, ka);
+  console.log("[A35/DEBUG v2] proposals – start");
+  console.log("  tv:", tv);
+  console.log("  ka:", ka);
+  console.log("  #sources:", allSources.length);
 
-  const baseTitles = [
-    'Onderwerp – Concept 1',
-    'Onderwerp – Concept 2',
-    'Onderwerp – Concept 3',
-  ];
-
-  const baseHooks = [
-    'Waarom vonden tijdgenoten dit zo vanzelfsprekend – en wij helemaal niet meer?',
-    'Hoe kan het dat mensen dit toen normaal vonden?',
-    'Wat zegt dit onderwerp over de angsten en hoop van mensen in die tijd?',
-  ];
-
-  const baseHoofdvraag = [
-    'Hoe keken mensen in die tijd zelf naar dit onderwerp?',
-    'Hoe kon dit onderwerp zo’n grote rol spelen in de geschiedenis?',
-    'Wat leert dit onderwerp ons over macht, angst en verandering?',
-  ];
-
-  const proposals = [];
-
-  for (let i = 0; i < 3; i++) {
-    const proposalId = `p${i + 1}`;
-
-    const title =
-      conceptHint && typeof conceptHint === 'string' && conceptHint.trim().length > 0
-        ? `${conceptHint} – voorstel ${i + 1}`
-        : baseTitles[i];
-
-    const hook = baseHooks[i];
-    const hoofdvraag = baseHoofdvraag[i];
-
-    // Kies per voorstel max 15 bronnen uit allSources
-    const indices = pickUniqueIndices(15, allSources.length);
-    const sourceIds = indices.map((idx) => {
-      const src = allSources[idx];
-      if (!src) return null;
-      return String(src.id || src._id || idx);
-    }).filter(Boolean);
-
-    proposals.push({
-      id: proposalId,
-      concept: {
-        id: proposalId,
-        title,
-        hook,
-        hoofdvraag,
-        tv: tv ?? null,
-        ka: ka ?? null,
-        contextLabel,
-      },
-      sourceIds,
-    });
-  }
-
-  return proposals;
-}
-
-/**
- * Hoofdhandler voor lesvoorstellen (V2).
- * Probeert zo defensief mogelijk te zijn: geen harde aannames over de body.
- */
-function handleProposals(req, res) {
   try {
-    const body = req.body || {};
-    const tv = body.tv ?? body.tijdvak ?? null;
-    const ka = body.ka ?? body.kenmerkendAspect ?? null;
-    const conceptHint = body.conceptHint || (body.concept && body.concept.title) || '';
+    // 1. Prompt bouwen
+    const prompt = buildProposalsPrompt({
+      tv,
+      ka,
+      conceptHint,
+      allSources,
+    });
 
-    // Bronnen uit de request-body (optioneel).
-    // Idee: de frontend kan hier de 40 contextbronnen instoppen.
-    let incomingSources = Array.isArray(body.sources) ? body.sources : [];
-    // Max 40 contextbronnen
-    let allSources = incomingSources.slice(0, 40);
-    allSources = ensureSourceIds(allSources);
+    // 2. Gemini aanroepen via dezelfde service als step1–4
+    const json = await runGeminiAndParse({
+      prompt,
+      label: "lessonV2_proposals",
+      meta: {
+        tv,
+        ka,
+        sourceCount: allSources.length,
+      },
+    });
 
-    if (!allSources.length) {
-      console.warn('[A35] ⚠️ Geen bronnen meegegeven in request-body voor proposals-v2.');
-    }
+    // 3. Structuur + signature valideren
+    const validated = validateProposalsResponse(json, MASTER_SIGNATURE);
 
-    const proposals = buildDummyProposals(allSources, tv, ka, conceptHint);
-
-    console.log(
-      `[A35/DEBUG v2] propose-lessons-v2: tv=${tv ?? 'null'} ka=${ka ?? 'null'} #all=${allSources.length} #proposals=${proposals.length}`
-    );
-
+    // 4. Resultaat teruggeven aan frontend
     return res.json({
       allSources,
-      proposals,
+      proposals: validated.proposals,
       meta: {
         countAll: allSources.length,
-        countProposals: proposals.length,
+        countProposals: validated.proposals.length,
+        masterSignature: MASTER_SIGNATURE,
+        from: "gemini",
       },
     });
   } catch (err) {
-    console.error('[A35] Fout in proposals-v2 handler:', err);
-    return res.status(500).json({
-      error: 'Er ging iets mis bij het genereren van lesvoorstellen (v2).',
+    console.error(
+      "[A35] Gemini proposals failed, using dummy fallback:",
+      err && err.message ? err.message : err
+    );
+
+    const dummy = buildDummyProposals(allSources);
+
+    return res.json({
+      allSources,
+      proposals: dummy.proposals,
+      meta: {
+        countAll: allSources.length,
+        countProposals: dummy.proposals.length,
+        masterSignature: MASTER_SIGNATURE,
+        from: "dummy-fallback",
+        error: err && err.message ? err.message : String(err),
+      },
     });
   }
 }
 
-// We weten niet exact welk pad de frontend nu gebruikt,
-// dus we ondersteunen meerdere varianten om backwards compatible te zijn.
-router.post('/generate-lesson-v2/proposals', handleProposals);
-router.post('/propose-lessons-v2', handleProposals);
-router.post('/proposals-v2', handleProposals);
-
-// Voor debug / snelle tests ook een GET varianten (zonder body).
-router.get('/generate-lesson-v2/proposals', handleProposals);
-router.get('/propose-lessons-v2', handleProposals);
-router.get('/proposals-v2', handleProposals);
+/**
+ * Routes:
+ *  - /api/proposals-v2
+ *  - /api/propose-lessons-v2  (alias)
+ */
+router.post("/proposals-v2", handleProposalsRequest);
+router.post("/propose-lessons-v2", handleProposalsRequest);
 
 module.exports = router;
 

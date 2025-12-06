@@ -27,7 +27,7 @@ const proposalRoutesV2 = require('./routes/a35.proposals-v2.cjs');
 
 const refineRoutes     = require('./routes/a36.refine.cjs');
 const lessonRoutesV2   = require('./routes/a40.lesson-v2.cjs');
-const lessonFullRoutes = require('./routes/a40.lesson-full.cjs');
+// ⛔ let op: GEEN lessonFullRoutes meer – oude full-lesgenerator is afgekoppeld.
 
 // --- ROUTES KOPPELEN OP /api ---
 app.use('/api', searchRoutes);
@@ -41,9 +41,6 @@ app.use('/api', refineRoutes);
 
 // 🔹 V2-lesgenerator: alles onder /api/generate-lesson-v2/...
 app.use('/api/generate-lesson-v2', lessonRoutesV2);
-
-// Oude full-lesson route (mag later eventueel naar legacy verplaatst worden)
-app.use('/api', lessonFullRoutes);
 
 // --- TIJDVAKKEN & KA ---
 app.get('/api/tijdvakken', (req, res) => {
