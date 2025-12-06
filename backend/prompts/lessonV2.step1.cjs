@@ -1,80 +1,110 @@
-// prompts/lessonV2.step1.cjs
-const { baseDidacticPreamble, sourcesToPromptSnippet } = require("./lessonV2.base.cjs");
+// backend/prompts/lessonV2.step1.cjs
+// Step 1 – Docenteninstructie + lesplanning
+// Output = JSON met chainSignature + docentensectie + lesplanning
+// Gebaseerd op MASTER_SIGNATURE v6MP6dec + Huijgen-dimensies
 
-function buildStep1Prompt(body) {
-  const { concept = {}, sources = [] } = body;
+const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
 
-  return `
-${baseDidacticPreamble()}
+function buildStep1Prompt({ concept, sources }) {
+  const c = concept || {};
+  const s = sources || [];
 
-CONTEXT: STEP 1 – DOCENT (EÉN LESUUR)
+  const systemText = `
+Je bent een expert in geschiedenisdidactiek, contextualiseren (Tim Huijgen),
+en het schrijven van heldere docentmaterialen voor bovenbouwleerlingen.
 
-DOEL VAN DEZE STAP
-Je schrijft een korte, praktische docenteninstructie voor ÉÉN lesuur van ongeveer 50 minuten.
-De docent moet in één oogopslag zien:
-- wat het doel van de les is,
-- hoe de les globaal verloopt,
-- waarom deze aanpak didactisch zinvol is,
-- hoe de tijd over de onderdelen verdeeld wordt.
+Je maakt STEP 1: DOCENTENINSTRUCTIE.
 
-BELANGRIJKE RANDVOORWAARDEN VOOR TIJD
-- Je gaat uit van één lesuur van 50 minuten.
-- De totale som van alle fasen in de planning ligt TUSSEN 45 EN 55 MINUTEN.
-- Je controleert zelf bij het schrijven of de som binnen deze bandbreedte ligt.
-- Gebruik liever 3–5 fasen dan 10 kleine stukjes.
-- Ga NIET boven de 60 minuten uitkomen, tenzij in de input expliciet staat dat het om een blok van twee lesuren gaat (dat is hier NIET het geval).
+STRUCTUUR VAN WAT JE MOET MAKEN:
 
-WAT JE GENEREERT
+1. "wat – hoe – waarom"
+   - WAT: korte uitleg van de inhoud en de focus van de les.
+   - HOE: uitleg van de opbouw, werkvormen en wat leerlingen concreet doen.
+   - WAAROM: vakdidactische onderbouwing: hoe de les leerlingen helpt
+     historisch te redeneren, contextualiseren en de hoofdvraag te beantwoorden.
 
-1. DOCENTENINSTRUCTIE
-- "wat": 3–4 zinnen
-  - Beschrijf kort wat de kern van de les is: onderwerp, hoofdvraag, kernactiviteit.
-- "hoe": 4–6 zinnen
-  - Beschrijf de opbouw van de les (start, kern, afsluiting) in docententaal.
-  - Verwijs naar het werken met bronnen, subdimensies en eventuele klassikale bespreking.
-- "waarom": 2–4 zinnen
-  - Leg uit waarom deze werkwijze goed helpt om presentisme te vermijden en context op te bouwen.
+2. DEELVRAGEN & SUBDIMENSIES
+   Je maakt 4 deelvragen, gebaseerd op:
+   - de gekozen hoofdvraag,
+   - de Huijgen-dimensies:
+       * Tijd & Tijdgeest
+       * Sociale verhoudingen & groepsculturen
+       * Politiek & macht
+       * Waarden & normen / morele logica van tijdgenoten
+   Elke deelvraag koppelt aan 1 aantrekkende dimensie, en vormt
+   een analytische opstap naar de hoofdvraag.
 
-2. LESPLANNING (TABELLEN-OUTPUT)
-- Je maakt een planning voor ÉÉN lesuur.
-- Gebruik een tabel met minimaal deze kolommen:
-  - Fase
-  - Activiteit
-  - Duur (minuten)
-- Zorg dat de individuele duurwaarden reëel zijn (bijv. 5, 10, 15, 20 minuten).
-- De som van alle duurwaarden ligt tussen 45 en 55 minuten.
-- Benoem bij elke fase in 1 korte zin wat er gebeurt.
+3. BRONKOPPELING — HOUVAST VOOR DOCENT
+   Je groepeert ALLE GEKOZEN bronnen per deelvraag:
+   - Per deelvraag:
+       * "Deze bronnen horen hierbij omdat..."
+       * Lijst met bron-ID’s + 1 zin waarom deze bron relevant is.
+   - Je maakt deze sectie SUPER overzichtelijk.
+   - Als een bron meerdere deelvragen raakt, mag dat, maar kies één hoofdplek.
 
-Invoer concept:
-${JSON.stringify(concept, null, 2)}
+4. LESPLANNING (TABEL)
+   Tabel met:
+   - Fase
+   - Activiteit
+   - Tijd
+   - Doel / welke deelvraag centraal staat
+   - Product / output van leerlingen
 
-Invoer bronnenkort:
-${sourcesToPromptSnippet(sources)}
+5. OUTPUT
+   Je geeft ALLEEN JSON terug:
+   {
+     "step": 1,
+     "data": {
+       "chainSignature": "v6MP6dec",
+       "docent": {
+         "wat": "...",
+         "hoe": "...",
+         "waarom": "...",
+         "deelvragen": [...],
+         "bronkoppeling": { ... },
+         "lesplanning": [...]
+       }
+     }
+   }
 
-OUTPUT:
-Je geeft ALLEEN onderstaand JSON-object (geen uitleg erbuiten):
+REGELS:
+- Gebruik NOOIT het woord “tegenwoordig”, “achteraf”, “met de kennis van nu”.
+- Hoofdvraag blijft zoals aangeleverd.
+- Leerlingentaal = helder, niet te academisch, geen bijzinnen-machine.
+- ABSOLUUT geen markdown.
+`;
 
-{
-  "step": 1,
-  "data": {
-    "docentenInstructie": {
-      "wat": "…",
-      "hoe": "…",
-      "waarom": "…"
+  const inputJson = JSON.stringify(
+    {
+      chainSignature: MASTER_SIGNATURE,
+      concept: c,
+      sources: s,
     },
-    "lesPlanning": {
-      "tabelMarkdown": "| Fase | Activiteit | Duur (minuten) |\\n| ... | ... | ... |"
-    }
-  }
+    null,
+    2
+  );
+
+  return `${systemText}
+
+INVOER:
+${inputJson}
+
+CHAIN_SIGNATURE: ${MASTER_SIGNATURE}`;
 }
 
-- "tabelMarkdown" bevat één complete Markdown-tabel met de kolommen Fase, Activiteit en Duur (minuten).
-- De waarden in de kolom "Duur (minuten)" tellen op tot tussen 45 en 55.
-- GEEN extra tekst buiten dit JSON-object.
-`;
+function validateStep1Response(json) {
+  if (!json || typeof json !== "object")
+    throw new Error("Step1: geen JSON");
+  if (json.step !== 1)
+    throw new Error("Step1: verkeerde step-index");
+  if (!json.data || json.data.chainSignature !== MASTER_SIGNATURE)
+    throw new Error("Step1: chainSignature mismatch");
+  return json;
 }
 
 module.exports = {
+  MASTER_SIGNATURE,
   buildStep1Prompt,
+  validateStep1Response,
 };
 

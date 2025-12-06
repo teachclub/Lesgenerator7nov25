@@ -1,107 +1,63 @@
-// prompts/lessonV2.step2.cjs
-// Orchestrator voor STEP 2 – roept 6 losse prompt-secties aan
+// backend/prompts/lessonV2.step2.cjs
+// Combineert hoofdvraag, inleiding, bronvragen, invultabel, reflectie
 
-const { baseDidacticPreamble, sourcesToPromptSnippet } = require("./lessonV2.base.cjs");
+const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
+const { buildHoofdvraagSection } = require("./lessonV2.step2.hoofdvraag.cjs");
+const { buildInleidingSection } = require("./lessonV2.step2.inleiding.cjs");
+const { buildBronvragenSection } = require("./lessonV2.step2.bronvragen.cjs");
+const { buildInvultabelSection } = require("./lessonV2.step2.invultabel.cjs");
+const { buildReflectieSection } = require("./lessonV2.step2.reflectie.cjs");
 
-const buildHoofdvraagSection = require("./lessonV2.step2.hoofdvraag.cjs");
-const buildInleidingSection = require("./lessonV2.step2.inleiding.cjs");
-const buildKwadrantSection = require("./lessonV2.step2.kwadrant.cjs");
-const buildBronvragenSection = require("./lessonV2.step2.bronvragen.cjs");
-const buildInvultabelSection = require("./lessonV2.step2.invultabel.cjs");
-const buildReflectieSection = require("./lessonV2.step2.reflectie.cjs");
+function buildStep2Prompt({ concept, sources }) {
+  const c = concept || {};
+  const s = sources || [];
 
-function buildStep2Prompt(body) {
-  const { concept = {}, sources = [] } = body;
+  const systemText = `
+Je maakt STEP 2: LEERLINGMATERIAAL.
+Alles moet direct bruikbaar zijn voor HAVO/VWO-leerlingen.
 
-  return `
-${baseDidacticPreamble()}
+STRUCTUUR:
+- hoofdvraag (exact overnemen, leerlingentaal, maximaal 1 zin)
+- inleiding (kort, activerend, 2–3 zinnen)
+- bronvragen per bron (3 vragen per bron, gericht op deelvragen + subdimensies)
+- invultabel (observatie – interpretatie – link met deelvraag & hoofdvraag)
+- reflectie: welke deelvraag weegt het zwaarst?
 
-${buildHoofdvraagSection(concept)}
-${buildInleidingSection()}
-${buildKwadrantSection()}
-${buildBronvragenSection()}
-${buildInvultabelSection()}
-${buildReflectieSection()}
+GEEN markdown, geen lijstjes met '-', alleen platte tekst of JSON-structuren.
+`;
 
-==================================================
-INVOER
-==================================================
+  const jsonInput = JSON.stringify(
+    { chainSignature: MASTER_SIGNATURE, concept: c, sources: s },
+    null,
+    2
+  );
 
-Invoer concept:
-${JSON.stringify(concept, null, 2)}
+  return `${systemText}
 
-Invoer bronnenkort:
-${sourcesToPromptSnippet(sources)}
+INVOER:
+${jsonInput}
 
-==================================================
-OUTPUT (ENKEL DIT JSON-OBJECT)
-==================================================
-
-Je geeft ALLEEN onderstaand JSON-object (geen uitleg erbuiten):
-
-{
-  "step": 2,
-  "data": {
-    "hoofdvraag": "",
-    "leerlingInleiding": "",
-    "subdimensies": [],
-    "kwadrantAsLabels": {
-      "X_links": "",
-      "X_rechts": "",
-      "Y_boven": "",
-      "Y_onder": ""
-    },
-    "bronVragen": [
-      {
-        "bronId": 0,
-        "vragen": [
-          "1. ...",
-          "2. ...",
-          "3. ...",
-          "4. ..."
-        ]
-      }
-    ],
-    "invulTabel": {
-      "kolommen": [
-        {
-          "id": "observaties",
-          "label": "Belangrijkste observaties",
-          "omschrijving": ""
-        },
-        {
-          "id": "interpretatie",
-          "label": "Interpretatie",
-          "omschrijving": ""
-        },
-        {
-          "id": "linkMetHoofdvraag",
-          "label": "Link met hoofdvraag",
-          "omschrijving": ""
-        }
-      ],
-      "meerkeuzeOpties": []
-    },
-    "reflectieVragen": []
-  }
+CHAIN_SIGNATURE: ${MASTER_SIGNATURE}`;
 }
 
-- "hoofdvraag": 1 zin:
-  - als het concept al een "hoofdvraag" heeft: neem die EXACT over, in het Nederlands;
-  - alleen als het concept GEEN hoofdvraag heeft, formuleer je zelf een nieuwe volgens de instructies.
-- "leerlingInleiding": 2–4 alinea’s, derde persoon, geen directe aanspreekvorm.
-- "kwadrantAsLabels": ALTIJD gevuld met 4 zinvolle labels.
-- "bronVragen": voor elke bron één object:
-  - "bronId": id uit "sources";
-  - "vragen": array met PRECIES 4 vragen, genummerd "1. ...", ..., "4. ...".
-- "invulTabel": korte, duidelijke omschrijvingen voor de drie kolommen.
-- "reflectieVragen": 3–6 vragen in leerlingtaal.
-
-GEEN extra tekst buiten dit JSON-object.
-`;
+function validateStep2Response(json) {
+  if (!json || typeof json !== "object")
+    throw new Error("Step2: geen JSON");
+  if (json.step !== 2)
+    throw new Error("Step2: verkeerde step-index");
+  if (!json.data || json.data.chainSignature !== MASTER_SIGNATURE)
+    throw new Error("Step2: chainSignature mismatch");
+  return json;
 }
 
 module.exports = {
+  MASTER_SIGNATURE,
   buildStep2Prompt,
+  validateStep2Response,
+  buildHoofdvraagSection,
+  buildInleidingSection,
+  buildBronvragenSection,
+  buildInvultabelSection,
+  buildReflectieSection,
 };
 

@@ -1,5 +1,5 @@
-// backend/prompts/lessonV2.proposals.cjs
-// LESSON V2 – PROPOSALS (v6, met leeropbrengsten)
+// backend/prompts/lessonV2.proposals.cjs  
+// LESSON V2 – PROPOSALS (v6, met leeropbrengsten + toon-categorieën)
 //
 // Doel:
 // - Uit max. ~40 bronnen drie lesvoorstellen genereren.
@@ -89,6 +89,39 @@ function buildProposalsPrompt({ tv, ka, conceptHint, allSources }) {
   lines.push("Voor ELK lesvoorstel kies je EXACT 4 subdimensies die cruciaal zijn.");
   lines.push("Die vier worden uitgewerkt als 4 deelvragen.");
   lines.push("");
+
+  // 🔥 Toon-categorieën voor hoofdvragen
+  lines.push("VOORBEELDEN VAN DRIE TONEN VOOR DE HOOFDVRAAG (KIES PER PROPOSAL ÉÉN TON)");
+  lines.push("");
+  lines.push("Je schrijft voor ELK van de drie lesvoorstellen een hoofdvraag in leerlingentaal,");
+  lines.push("met duidelijke verwondering en oordeel, ZONDER hindsight-taal.");
+  lines.push("Gebruik GEEN woorden als: \"tegenwoordig\", \"nu\", \"achteraf\", \"met de kennis van nu\".");
+  lines.push("De hoofdvraag is ALTIJD één zin, zonder ingewikkelde bijzinnen (vermijd vooral \"terwijl\").");
+  lines.push("");
+  lines.push("Gebruik één van de volgende drie toon-categorieën per voorstel:");
+  lines.push("");
+  lines.push("Categorie 1 – Mild / ‘sophisticated’ leerlingentaal (nuancering)");
+  lines.push("- Hoe konden mensen zo zeker zijn van hun eigen gelijk dat ze bijna geen ruimte meer zagen voor een andere waarheid?");
+  lines.push("- Hoe kon een samenleving zo afhankelijk worden van macht en technologie dat bijna niemand zich nog afvroeg wie er echt controle had?");
+  lines.push("- Hoe konden landen zo overtuigd raken van hun rol in de wereld dat ze nauwelijks zagen wat dat voor anderen betekende?");
+  lines.push("");
+  lines.push("Categorie 2 – Harder, eenvoudiger, direct");
+  lines.push("- Hoe konden miljoenen mensen blind meegaan in een systeem dat ze zelf niet goed begrepen?");
+  lines.push("- Hoe konden regeringen elkaar zo hard wantrouwen dat oorlog bijna normaal voelde?");
+  lines.push("- Hoe konden burgers zo goedgelovig zijn dat propaganda sterker woog dan gezond verstand?");
+  lines.push("");
+  lines.push("Categorie 3 – Rauw, fel, expliciet oordeel (naïef, slecht, klakkeloos)");
+  lines.push("- Hoe konden machthebbers zo kil zijn dat ze over oorlog en levens besloten alsof mensen cijfers waren?");
+  lines.push("- Hoe konden samenlevingen zo klakkeloos alles slikken wat hun leiders zeiden zonder iets te checken?");
+  lines.push("- Hoe konden zoveel mensen zo naïef blijven geloven dat hun eigen kant goed was en de rest slecht?");
+  lines.push("");
+  lines.push("INSTRUCTIE VOOR DE DRIE LESVOORSTELLEN:");
+  lines.push("- Lesvoorstel 1 gebruikt een toon uit Categorie 1 (mild/sophisticated).");
+  lines.push("- Lesvoorstel 2 gebruikt een toon uit Categorie 2 (harder, eenvoudiger).");
+  lines.push("- Lesvoorstel 3 gebruikt een toon uit Categorie 3 (rauw, fel, expliciet oordeel).");
+  lines.push("- Pas de voorbeelden aan op het concrete onderwerp van de bronnen, maar behoud de scherpe leerlingverwondering.");
+  lines.push("");
+
   lines.push(`Tijdvak (ruw): ${tvLabel}`);
   lines.push(`Kenmerkend aspect (ruw): ${kaLabel}`);
   lines.push("");
@@ -118,6 +151,7 @@ function buildProposalsPrompt({ tv, ka, conceptHint, allSources }) {
   lines.push("- De hoofdvraag moet breed zijn:");
   lines.push("  * er moeten MINSTENS 10 passende bronnen zijn;");
   lines.push("  * de vraag moet vanuit meerdere dimensies te benaderen zijn.");
+  lines.push("- Pas de toonkeuze (Categorie 1, 2 of 3) consequent toe zoals hierboven uitgelegd.");
   lines.push("");
   lines.push("4. Deelvragen (4 stuks per voorstel)");
   lines.push("- Kies EXACT 4 deelvragen die samen de hoofdvraag dekken.");
@@ -134,9 +168,9 @@ function buildProposalsPrompt({ tv, ka, conceptHint, allSources }) {
   lines.push("- Bij voorkeur koppel je elke leeropbrengst aan een deelvraagIndex (0–3),");
   lines.push("  zodat duidelijk is welke deelvraag vooral wordt geraakt.");
   lines.push("- Voorbeelden:");
-  lines.push('  * "Leerlingen kunnen uitleggen waarom gewone burgers zo bang waren voor'); 
+  lines.push('  * "Leerlingen kunnen uitleggen waarom gewone burgers zo bang waren voor');
   lines.push('     een kernoorlog, en welke rol propaganda daarbij speelde (tijdgeest + macht)."');
-  lines.push('  * "Leerlingen kunnen verschillende beelden van \'de vijand\' uit Oost en West'); 
+  lines.push('  * "Leerlingen kunnen verschillende beelden van \'de vijand\' uit Oost en West');
   lines.push('     vergelijken en benoemen waar die beelden vandaan kwamen."');
   lines.push("");
   lines.push("In JSON ziet dit er bijvoorbeeld zo uit:");
@@ -277,8 +311,7 @@ function validateProposalsResponse(json, expectedSignature) {
           : [],
         leeropbrengsten,
         contextLabel: concept.contextLabel || "Geen specifieke TV/KA",
-        targetAudience:
-          concept.targetAudience || "Havo/Vwo Bovenbouw",
+        targetAudience: concept.targetAudience || "Havo/Vwo Bovenbouw",
         masterSignature: concept.masterSignature || expectedSignature,
         tv: concept.tv || "",
         ka: concept.ka || "",
