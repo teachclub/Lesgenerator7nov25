@@ -21,7 +21,7 @@ export const PresetZoekerPage: React.FC = () => {
   const navigate = useNavigate();
   const { searchQuery, setSearchQuery } = useQueryStore();
   const { sources, setSources, clearSelection } = useSelectionStore();
-  
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedDetailSource, setSelectedDetailSource] = useState<Source | null>(null);
@@ -81,6 +81,7 @@ export const PresetZoekerPage: React.FC = () => {
       }
 
       const searchData = await searchRes.json();
+      // searchData.sources bevat hier al Kleio + Cito (afhankelijk van filters)
       setSources(searchData.sources || []);
     } catch (err: any) {
       console.error('[PresetZoeker] fout bij zoeken', err);
@@ -96,7 +97,7 @@ export const PresetZoekerPage: React.FC = () => {
 
     if (url.includes('profile/picture')) return undefined;
 
-    const isCito = source.provider === 'Cito' || source.id.startsWith('cito');
+    const isCito = source.provider === 'Cito' || (typeof source.id === 'string' && source.id.startsWith('cito'));
     const isKleio = source.provider === 'Kleio' || url.includes('kleio') || url.includes('vgn');
 
     if (isCito || isKleio) {
@@ -104,6 +105,22 @@ export const PresetZoekerPage: React.FC = () => {
     }
 
     return url;
+  };
+
+  const handleGoToProposals = () => {
+    // Combineer alle huidige bronnen (Kleio + Cito) en beperk tot max. 40
+    const limitedSources = (sources || []).slice(0, 40);
+
+    navigate('/proposals', {
+      state: {
+        tv: filters.tv || null,
+        ka: filters.ka || null,
+        // Gebruik de huidige zoekopdracht als didactische hint
+        conceptHint: searchQuery || '',
+        // Deze array wordt in ProposalsPage doorgestuurd naar /api/proposals-v2
+        sources: limitedSources
+      }
+    });
   };
 
   return (
@@ -117,7 +134,7 @@ export const PresetZoekerPage: React.FC = () => {
         </div>
         {sources.length > 0 && (
           <button
-            onClick={() => navigate('/proposals')}
+            onClick={handleGoToProposals}
             className="bg-black text-white text-sm font-bold px-4 py-2 rounded-lg shadow hover:scale-105 transition-transform"
           >
             Maak Lesvoorstellen ({sources.length}) →

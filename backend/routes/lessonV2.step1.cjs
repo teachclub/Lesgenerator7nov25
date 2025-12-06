@@ -1,6 +1,9 @@
 // routes/lessonV2.step1.cjs
+// LesGO v2 – Step1 (docenteninstructie / controle) met v6MP6dec-chainSignature-check
+
 const { runGeminiAndParse } = require("../services/gemini.cjs");
 const { buildStep1Prompt } = require("../prompts/lessonV2.step1.cjs");
+const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
 
 function registerLessonV2Step1Routes(router) {
   router.post("/step1", async (req, res) => {
@@ -22,13 +25,28 @@ function registerLessonV2Step1Routes(router) {
         label: "step1",
         meta: { conceptKeys: Object.keys(concept) },
       });
-      res.json(json);
+
+      const expected = concept.masterSignature || MASTER_SIGNATURE;
+      const data = json && json.data ? json.data : null;
+      const got = data && data.chainSignature ? data.chainSignature : null;
+
+      if (got && expected && got !== expected) {
+        throw new Error(
+          `STEP1_SIGNATURE_MISMATCH: expected "${expected}", got "${got}"`
+        );
+      }
+
+      if (data && !data.chainSignature) {
+        data.chainSignature = expected;
+      }
+
+      return res.json(json);
     } catch (err) {
-      console.error("[LesGo][step1] ERROR", err.message);
-      res.status(500).json({
+      console.error("[LesGo][step1] ERROR", err && err.message ? err.message : err);
+      return res.status(500).json({
         error: "STEP1_FAILED",
         step: "step1",
-        message: err.message,
+        message: err && err.message ? err.message : String(err),
       });
     }
   });

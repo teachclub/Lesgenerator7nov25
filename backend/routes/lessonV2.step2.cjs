@@ -1,6 +1,9 @@
 // routes/lessonV2.step2.cjs
+// LesGO v2 – Step2 (docent + leerlingmateriaal) met v6MP6dec-chainSignature-check
+
 const { runGeminiAndParse } = require("../services/gemini.cjs");
 const { buildStep2Prompt } = require("../prompts/lessonV2.step2.cjs");
+const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
 
 function registerLessonV2Step2Routes(router) {
   router.post("/step2", async (req, res) => {
@@ -20,8 +23,7 @@ function registerLessonV2Step2Routes(router) {
       return res.status(400).json({
         error: "MISSING_SOURCES",
         step: "step2",
-        message:
-          "Step2 verwacht een niet-lege array 'sources' in de body.",
+        message: "Step2 verwacht een niet-lege array 'sources' in de body.",
       });
     }
 
@@ -35,13 +37,28 @@ function registerLessonV2Step2Routes(router) {
           sourceCount: sources.length,
         },
       });
-      res.json(json);
+
+      const expected = concept.masterSignature || MASTER_SIGNATURE;
+      const data = json && json.data ? json.data : null;
+      const got = data && data.chainSignature ? data.chainSignature : null;
+
+      if (got && expected && got !== expected) {
+        throw new Error(
+          `STEP2_SIGNATURE_MISMATCH: expected "${expected}", got "${got}"`
+        );
+      }
+
+      if (data && !data.chainSignature) {
+        data.chainSignature = expected;
+      }
+
+      return res.json(json);
     } catch (err) {
-      console.error("[LesGo][step2] ERROR", err.message);
-      res.status(500).json({
+      console.error("[LesGo][step2] ERROR", err && err.message ? err.message : err);
+      return res.status(500).json({
         error: "STEP2_FAILED",
         step: "step2",
-        message: err.message,
+        message: err && err.message ? err.message : String(err),
       });
     }
   });
@@ -50,5 +67,4 @@ function registerLessonV2Step2Routes(router) {
 module.exports = {
   registerLessonV2Step2Routes,
 };
-
 
