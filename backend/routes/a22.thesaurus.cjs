@@ -2,7 +2,7 @@ const { Router } = require("express");
 const { expandTerm, chipsFor } = require("../services/a22.thesaurus.cjs");
 
 const router = Router();
-router.post("/api/thesaurus", async (req, res) => {
+router.post("/thesaurus", async (req, res) => {
   try {
     const { term="" } = req.body || {};
     const expanded = expandTerm(term);

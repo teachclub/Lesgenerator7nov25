@@ -6,11 +6,27 @@
 
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const API_KEY = process.env.GOOGLE_API_KEY;
-const MODEL_NAME = process.env.GEMINI_MODEL_CHIPS || "gemini-2.5-flash-lite";
+// Gebruik primair GEMINI_API_KEY (de key die je met curl getest hebt)
+// Val desnoods terug op GOOGLE_API_KEY, maar die hoort eigenlijk hetzelfde te zijn.
+const API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+
+// Modelnaam: eerst lesgenerator-model, dan eventueel chips, dan default.
+const MODEL_NAME =
+  process.env.GEMINI_MODEL_LESSON_V2 ||
+  process.env.GEMINI_MODEL_CHIPS ||
+  "gemini-2.5-flash-lite";
 
 if (!API_KEY) {
-  console.warn("[Gemini] GOOGLE_API_KEY ontbreekt – Gemini werkt niet.");
+  console.warn(
+    "[Gemini] GEMINI_API_KEY / GOOGLE_API_KEY ontbreekt – Gemini werkt niet."
+  );
+} else {
+  console.log(
+    "[Gemini] API-key prefix:",
+    API_KEY.slice(0, 8) + "...",
+    "model:",
+    MODEL_NAME
+  );
 }
 
 let genAI = null;
@@ -90,7 +106,10 @@ async function runGeminiAndParse({ prompt, label, meta = {} }) {
     });
 
     const text = result?.response?.text();
-    console.log(`[Gemini][${label}] Raw response length`, text ? text.length : 0);
+    console.log(
+      `[Gemini][${label}] Raw response length`,
+      text ? text.length : 0
+    );
 
     const json = extractJson(text, label);
 

@@ -1,26 +1,74 @@
 // backend/routes/lessonV2.step2.cjs
-// Eenvoudige step2-route zonder Gemini, zodat de frontend geen 404 meer krijgt.
+// STEP 2 – LEERLINGMATERIAAL (stub zonder Gemini, maar wél v6-structuur)
+// Route: POST /api/generate-lesson-v2/step2
+
+const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
+
+/**
+ * Verwacht body:
+ * {
+ *   concept: {
+ *     hoofdvraag: string,
+ *     deelvragen: [
+ *       { vraag, dimensie, subdimensie }
+ *     ]
+ *   },
+ *   sources: [ { id, title, ... } ]
+ * }
+ *
+ * Geeft terug (stub, maar in v6-structuur):
+ * {
+ *   "step": "step2",
+ *   "data": {
+ *     "chainSignature": "<MASTER_SIGNATURE>",
+ *     "hoofdvraag": "...",
+ *     "inleiding": "...",
+ *     "bronvragen": [ { sourceId, vraag, deelvraagIndex, dimensie, subdimensie } ],
+ *     "invultabel": { kolommen: [...], rijen: [...] },
+ *     "reflectie": { vragen: [ { vraag, aandachtspuntVoorDocent } ] }
+ *   }
+ * }
+ */
 
 function registerLessonV2Step2Routes(router) {
-  router.post("/step2", async (req, res) => {
+  router.post("/generate-lesson-v2/step2", async (req, res) => {
     try {
       const body = req.body || {};
       const concept = body.concept || {};
       const sources = Array.isArray(body.sources) ? body.sources : [];
 
+      const hoofdvraagRaw =
+        typeof concept.hoofdvraag === "string" ? concept.hoofdvraag.trim() : "";
+
       const hoofdvraag =
-        typeof concept.hoofdvraag === "string" && concept.hoofdvraag.trim().length > 0
-          ? concept.hoofdvraag.trim()
+        hoofdvraagRaw.length > 0
+          ? hoofdvraagRaw
           : "Hoe dachten en handelden mensen in deze tijd volgens de bronnen?";
 
-      // Heel basic bronvragen: één vraag per bron
+      const deelvragen = Array.isArray(concept.deelvragen)
+        ? concept.deelvragen
+        : [];
+
+      // Gebruik de eerste deelvraag als default voor dimensie/subdimensie,
+      // zodat de structuur klopt.
+      const defaultDV = deelvragen[0] || {
+        vraag: "",
+        dimensie: "",
+        subdimensie: "",
+      };
+
+      // Eenvoudige bronvragen: één vraag per bron, gekoppeld aan deelvraagIndex 0
       const bronvragen = sources.map((src, index) => ({
-        bronId: src.id ?? index + 1,
-        vraag: "Wat laat deze bron zien over hoe mensen toen dachten of handelden?",
-        dimensieHint: null,
+        sourceId: src.id ?? index + 1,
+        vraag:
+          "Wat laat deze bron zien over hoe mensen toen dachten of handelden?",
+        deelvraagIndex: 0,
+        dimensie: defaultDV.dimensie || "",
+        subdimensie: defaultDV.subdimensie || "",
       }));
 
       const data = {
+        chainSignature: MASTER_SIGNATURE,
         hoofdvraag,
         inleiding:
           "In deze les ga je met bronnen onderzoeken hoe mensen dachten en handelden in de tijd van deze gebeurtenis. Gebruik de bronnen om samen een antwoord te vinden op de hoofdvraag. Let goed op wat de bron vertelt over de tijd en de mensen van toen.",
@@ -76,10 +124,10 @@ function registerLessonV2Step2Routes(router) {
         },
       };
 
-      res.json({ step: "step2", data });
+      return res.json({ step: "step2", data });
     } catch (err) {
       console.error("[lessonV2][step2] ERROR", err);
-      res.status(500).json({
+      return res.status(500).json({
         step: "step2",
         error: "Interne fout in step2 route",
       });

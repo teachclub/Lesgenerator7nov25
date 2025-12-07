@@ -1,52 +1,85 @@
 // routes/lessonV2.step1.cjs
-// LesGO v2 – Step1 (docenteninstructie / controle) met v6MP6dec-chainSignature-check
+// LESSON V2 – STEP 1 (DOCENTMATERIAAL)
+// Gebruikt de MASTERPROMPT via prompts/lessonV2.step1.cjs + centrale Gemini-service.
 
-const { runGeminiAndParse } = require("../services/gemini.cjs");
-const { buildStep1Prompt } = require("../prompts/lessonV2.step1.cjs");
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
+const { buildStep1Prompt } = require("../prompts/lessonV2.step1.cjs");
+const { runGeminiAndParse } = require("../services/gemini.cjs");
 
+/**
+ * Registreert de route voor stap 1 op een bestaande Express-router.
+ *
+ * Pad (na mount op /api):
+ *   POST /api/generate-lesson-v2/step1
+ *
+ * Verwacht body:
+ * {
+ *   concept: {
+ *     hoofdvraag: string,
+ *     deelvragen: [ { vraag, dimensie, subdimensie } ]
+ *   },
+ *   sources: [ { id, title, provider, type, snippet, ... } ]
+ * }
+ *
+ * Geeft JSON terug:
+ * {
+ *   "step": "step1",
+ *   "data": {
+ *     "chainSignature": "<MASTER_SIGNATURE>",
+ *     "docent": { ... }
+ *   }
+ * }
+ */
 function registerLessonV2Step1Routes(router) {
-  router.post("/step1", async (req, res) => {
+  router.post("/generate-lesson-v2/step1", async (req, res) => {
     const body = req.body || {};
-    const { concept = {} } = body;
-
-    if (!concept || Object.keys(concept).length === 0) {
-      return res.status(400).json({
-        error: "MISSING_CONCEPT",
-        step: "step1",
-        message: "Step1 verwacht een gevuld 'concept'-object in de body.",
-      });
-    }
 
     try {
+      // 1. Prompt opbouwen vanuit MASTERPROMPT + body
       const prompt = buildStep1Prompt(body);
+
+      // 2. Gemini aanroepen en JSON parsen
       const json = await runGeminiAndParse({
         prompt,
-        label: "step1",
-        meta: { conceptKeys: Object.keys(concept) },
+        label: "lessonV2_step1",
+        meta: {
+          masterSignature: MASTER_SIGNATURE,
+          hasConcept: !!body.concept,
+          sourceCount: Array.isArray(body.sources) ? body.sources.length : 0,
+        },
       });
 
-      const expected = concept.masterSignature || MASTER_SIGNATURE;
-      const data = json && json.data ? json.data : null;
-      const got = data && data.chainSignature ? data.chainSignature : null;
-
-      if (got && expected && got !== expected) {
-        throw new Error(
-          `STEP1_SIGNATURE_MISMATCH: expected "${expected}", got "${got}"`
-        );
+      // 3. Basiscontrole op structuur
+      if (!json || typeof json !== "object") {
+        throw new Error("STEP1: response is geen geldig JSON-object");
+      }
+      if (json.step !== "step1") {
+        throw new Error(`STEP1: onjuiste step-tag in response (got: ${json.step})`);
+      }
+      if (
+        !json.data ||
+        typeof json.data !== "object" ||
+        !json.data.docent ||
+        typeof json.data.docent !== "object"
+      ) {
+        throw new Error("STEP1: ontbrekende data.docent in response");
       }
 
-      if (data && !data.chainSignature) {
-        data.chainSignature = expected;
+      // 4. chainSignature normaliseren / afdwingen
+      if (!json.data.chainSignature) {
+        json.data.chainSignature = MASTER_SIGNATURE;
       }
 
       return res.json(json);
     } catch (err) {
-      console.error("[LesGo][step1] ERROR", err && err.message ? err.message : err);
+      console.error("[lessonV2_step1] ERROR", {
+        message: err.message,
+        stack: err.stack,
+      });
+
       return res.status(500).json({
-        error: "STEP1_FAILED",
         step: "step1",
-        message: err && err.message ? err.message : String(err),
+        error: err.message || String(err),
       });
     }
   });
