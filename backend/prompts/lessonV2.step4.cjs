@@ -1,10 +1,13 @@
 // *****************************************
 // lessonV2.step4.cjs
 // STEP 4 – DEFINITIEVE LES (DOCENT + LEERLING)
-// v6MP6dec – combineert concept + step1 + step2 + bronnen
+// v7 – combineert concept + step1 + step2 + bronnen
 // *****************************************
 
+"use strict";
+
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
+const { buildBasePreamble } = require("./lessonV2.base.cjs");
 
 /**
  * Verwacht body met ongeveer:
@@ -32,7 +35,7 @@ const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
  * {
  *   "step": "step4",
  *   "data": {
- *     "chainSignature": "...",
+ *     "chainSignature": "<MASTER_SIGNATURE>",
  *     "markdown": "..."
  *   }
  * }
@@ -51,9 +54,9 @@ function buildStep4Prompt(body) {
 
   const deelvragen = Array.isArray(concept.deelvragen)
     ? concept.deelvragen
-    : (step1.docent && Array.isArray(step1.docent.deelvragen)
-       ? step1.docent.deelvragen
-       : []);
+    : step1.docent && Array.isArray(step1.docent.deelvragen)
+    ? step1.docent.deelvragen
+    : [];
 
   const docentDeel = step1.docent || {};
   const leerlingInleiding = step2.inleiding || "";
@@ -78,16 +81,21 @@ function buildStep4Prompt(body) {
   const invultabelJson = JSON.stringify(invultabel, null, 2);
   const reflectieJson = JSON.stringify(reflectie, null, 2);
 
+  const preamble = buildBasePreamble(MASTER_SIGNATURE);
+
   return `
-CHAIN_SIGNATURE: ${MASTER_SIGNATURE}
+${preamble}
 
-Je bent een ervaren geschiedenisdidacticus.
-Je maakt NU de DEFINITIEVE LES-UITWERKING in MARKDOWN, voor docent en leerling.
+==== CONTEXT – STEP4 (DEFINITIEVE LES) ====
 
-Alle inhoud is al voorbereid in eerdere stappen. Jij:
-- herschikt,
-- verduidelijkt,
-- maakt het didactisch strak.
+Je werkt nu in STAP 4 van de keten.
+Je maakt de DEFINITIEVE LES-UITWERKING in MARKDOWN, voor docent en leerling.
+
+Alle algemene didactische regels over:
+- hoofdvraag (verwondering, anti-presentisme),
+- 4 deelvragen + dimensies + subdimensies,
+- bronvragen, invultabel, reflectie en antwoordlogica,
+komen UITSLUITEND uit de MASTERPROMPT hierboven. Pas die regels hier strikt toe.
 
 Je verandert NIET de kern van de hoofdvraag en deelvragen, hooguit cosmetisch als dat de leerling helpt.
 Hoofdvraag blijft fel/leerlingachtig als dat zo is, maar jij houdt de uitleg in de docenttekst volwassen en analytisch.
@@ -125,8 +133,8 @@ ${bronnenJson}
 // 1. H1 – Titel van de les
 // 2. Blok "Kerninformatie" (tijdvak, KA, hoofdvraag)
 // 3. H2 – Docentversie
-//    - WAT / HOE / WAAROM
-//    - tv/ka toelichting (kort)
+//    - WAT / HOE / WAAROM (gebruik step1.docent)
+//    - tv/ka toelichting (kort, 2–4 zinnen, vanuit de basisregels)
 //    - Deelvragen-overzicht met dimensies/subdimensies
 //    - Korte uitleg bronkoppeling (welke bronnen bij welke deelvraag)
 //    - Lesplanning (genummerde fases, tijden, doelen, product)
@@ -135,10 +143,11 @@ ${bronnenJson}
 //    - Korte introductie-tekst (gebruik step2.inleiding, helder en leerlingtaal)
 //    - Subkop "Bronopdrachten" met lijst bronvragen, gegroepeerd per deelvraag
 //    - Subkop "Invultabel samenwerking" – beschrijf kort hoe leerlingen die invullen
+//      in lijn met de v7-invultabel (wie spreekt, subdimensie, observatie, argument)
 //    - Subkop "Reflectie" – opsomming van reflectievragen in leerlingtaal
 //
 // GEEN kwadrant meer noemen.
-// GEEN expliciete dimensionalijst voor leerlingen (niet: "dimensie X").
+// GEEN expliciete dimensionalijst voor leerlingen (dus niet “dimensie X”).
 // Wel mag je die dimensietaal in de docentsectie gebruiken.
 
 /////////////////////////////
@@ -151,8 +160,7 @@ ${bronnenJson}
 // - Schrijf in het Nederlands.
 // - Gebruik normale Markdown (##, ###, lijstjes).
 // - GEEN codefences (\`\`\`).
-// - Geen losse JSON meer. Alleen de uiteindelijke markdown-string.
-//   (JSON maken doen wij; jij levert alleen de markdown-waarde.)
+// - Geen losse JSON meer in de markdown. Alleen didactische tekst en kopjes.
 
 /////////////////////////////
 // JSON-OUTPUT (STRIKT)

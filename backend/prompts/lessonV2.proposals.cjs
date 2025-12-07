@@ -1,5 +1,5 @@
 // backend/prompts/lessonV2.proposals.cjs  
-// LESSON V2 – PROPOSALS (v6, met leeropbrengsten + toon-categorieën)
+// LESSON V2 – PROPOSALS (v7, onder MASTERPROMPT base)
 //
 // Doel:
 // - Uit max. ~40 bronnen drie lesvoorstellen genereren.
@@ -12,6 +12,14 @@
 //   * min. 10 en max. 15 passende bronnen (sourceIds)
 //   * primarySourceIds (kernbronnen) voor ⭐
 //   * masterSignature + chainSignature
+//
+// Belangrijk v7:
+// - Alle didactische spelregels over hoofdvragen, deelvragen, dimensies,
+//   subdimensies, brongebruik, anti-presentisme, enz. komen UITSLUITEND
+//   uit lessonV2.base.cjs (buildBasePreamble).
+// - Deze file voegt alleen de A35-specifieke taak + JSON-schema toe.
+
+"use strict";
 
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
 const { buildBasePreamble } = require("./lessonV2.base.cjs");
@@ -30,6 +38,7 @@ function buildProposalsPrompt({ tv, ka, conceptHint, allSources }) {
   const tvLabel = tv != null ? String(tv) : "geen specifiek tijdvak";
   const kaLabel = ka != null ? String(ka) : "geen specifiek kenmerkend aspect";
 
+  // ⬇️ MASTERPROMPT v7 – alle didactische regels komen hieruit
   const preamble = buildBasePreamble(MASTER_SIGNATURE);
 
   const sourcesJson = JSON.stringify(
@@ -55,42 +64,32 @@ function buildProposalsPrompt({ tv, ka, conceptHint, allSources }) {
 
   lines.push(preamble);
   lines.push("");
-  lines.push("==== CONTEXT – PROPOSALS (A35, v6) ====");
+  lines.push("==== CONTEXT – PROPOSALS (A35, v7) ====");
   lines.push("");
   lines.push("Je staat aan het begin van de lesgenerator.");
   lines.push("Je krijgt maximaal 40 bronnen en maakt op basis daarvan 3 lesvoorstellen.");
   lines.push("");
-  lines.push("Regels voor de HOOFDVRAAG (leerlingentaal):");
-  lines.push('- Formuleer expliciete verwondering, bijvoorbeeld:');
-  lines.push('  * "Hoe konden mensen destijds ... ?"');
-  lines.push('  * "Hoe kon het dat mensen toen ... normaal vonden?"');
-  lines.push('  * "Waarom zagen mensen in die tijd ... op die manier?"');
-  lines.push("- De hoofdvraag is in begrijpelijke taal (niveau 3 havo / 3 vwo / 4 havo).");
-  lines.push("- Gebruik GEEN hindsight-woorden zoals:");
-  lines.push('  "tegenwoordig", "nu", "nu weten we", "met de kennis van nu",');
-  lines.push('  "achteraf gezien", "in onze tijd", "wij weten nu dat".');
-  lines.push("- De verwondering mag een impliciet oordeel bevatten (leerlingen voelen");
-  lines.push("  dat het vreemd is), maar je noemt tijdgenoten nooit dom of achterlijk.");
+  lines.push(
+    "Alle algemene regels over HOOFDVRAAG, DEELVRAGEN, DIMENSIES, SUBDIMENSIES,"
+  );
+  lines.push(
+    "ANTI-PRESENTISME, LEESNIVEAU en BRONSELECTIE komen UITSLUITEND uit de"
+  );
+  lines.push(
+    "MASTERPROMPT hierboven (buildBasePreamble). Pas die regels hier strikt toe."
+  );
   lines.push("");
-  lines.push("De hoofdvraag moet breed genoeg zijn om:");
-  lines.push("- vanuit meerdere Huijgen-dimensies benaderd te worden (minstens 4 subdimensies);");
-  lines.push("- door minstens 10 bronnen serieus beantwoord te kunnen worden;");
-  lines.push("- verschillende perspectieven (bijv. machthebbers vs. gewone mensen) toe te laten.");
-  lines.push("");
-  lines.push("Huijgen-dimensies (denkkader):");
-  lines.push("1. Tijd & Tijdgeest");
-  lines.push("2. Sociale verhoudingen & Groepsculturen");
-  lines.push("3. Politiek & Macht");
-  lines.push("4. Economie & Middelen");
-  lines.push("5. Ruimte, Geografie & Leefomgeving");
-  lines.push("6. Kennis, Wetenschap & Technologie");
-  lines.push("7. Waarden, Normen & Morele Kaders");
-  lines.push("");
-  lines.push("Voor ELK lesvoorstel kies je EXACT 4 subdimensies die cruciaal zijn.");
-  lines.push("Die vier worden uitgewerkt als 4 deelvragen.");
+  lines.push(
+    "- Formuleer dus per voorstel één verwonderende hoofdvraag in leerlingentaal,"
+  );
+  lines.push(
+    "  volgens de basisregels (geen hindsight, geen 'nu', altijd vanuit de wereld van toen)."
+  );
+  lines.push("- Gebruik precies 4 deelvragen, elk met één duidelijke subdimensie.");
+  lines.push("- Verdeel bronnen logisch over de deelvragen, zoals in de base is beschreven.");
   lines.push("");
 
-  // 🔥 Toon-categorieën voor hoofdvragen
+  // 🔥 Toon-categorieën voor hoofdvragen (unieke v7-spec voor proposals)
   lines.push("VOORBEELDEN VAN DRIE TONEN VOOR DE HOOFDVRAAG (KIES PER PROPOSAL ÉÉN TON)");
   lines.push("");
   lines.push("Je schrijft voor ELK van de drie lesvoorstellen een hoofdvraag in leerlingentaal,");
@@ -133,7 +132,7 @@ function buildProposalsPrompt({ tv, ka, conceptHint, allSources }) {
   lines.push("==== OPDRACHT – MAAK 3 LESVOORSTELLEN ====");
   lines.push("");
   lines.push("Je maakt PRECIES 3 lesvoorstellen.");
-  lines.push("Per lesvoorstel doe je het volgende:");
+  lines.push("Per lesvoorstel doe je het volgende (volgens de basisregels uit de MASTERPROMPT):");
   lines.push("");
   lines.push("1. Titel");
   lines.push("- Korte, inhoudelijke titel, géén vraag.");
@@ -143,35 +142,24 @@ function buildProposalsPrompt({ tv, ka, conceptHint, allSources }) {
   lines.push('- GEEN vraag, maar bijvoorbeeld: "In deze periode dachten mensen dat..."');
   lines.push("");
   lines.push("3. Hoofdvraag (leerlingentaal)");
-  lines.push("- Formuleer één hoofdvraag die:");
-  lines.push('  * start met iets als "Hoe konden mensen destijds...",');
-  lines.push('    of "Hoe kon het dat mensen toen ... normaal vonden?",');
-  lines.push('    of "Waarom zagen mensen in die tijd ... op die manier?".');
-  lines.push("- GEEN hindsight-woorden gebruiken.");
-  lines.push("- De hoofdvraag moet breed zijn:");
-  lines.push("  * er moeten MINSTENS 10 passende bronnen zijn;");
-  lines.push("  * de vraag moet vanuit meerdere dimensies te benaderen zijn.");
-  lines.push("- Pas de toonkeuze (Categorie 1, 2 of 3) consequent toe zoals hierboven uitgelegd.");
+  lines.push("- Formuleer één hoofdvraag die voldoet aan de basisregels uit de MASTERPROMPT:");
+  lines.push('  * verwondering over het verleden vanuit de tijd zelf;');
+  lines.push('  * géén hindsight- of nu-taal;');
+  lines.push('  * geschikt voor meerdere dimensies en minstens 10 bronnen.');
+  lines.push("- Pas de gekozen toon-categorie (1, 2 of 3) consequent toe.");
   lines.push("");
   lines.push("4. Deelvragen (4 stuks per voorstel)");
-  lines.push("- Kies EXACT 4 deelvragen die samen de hoofdvraag dekken.");
+  lines.push("- Kies EXACT 4 deelvragen die samen de hoofdvraag dekken (zie MASTERPROMPT).");
   lines.push("- Voor elke deelvraag geef je in de JSON:");
   lines.push('  * "vraag": de deelvraag in leerlingentaal,');
-  lines.push('  * "dimensie": de gekozen Huijgen-dimensie,');
+  lines.push('  * "dimensie": de gekozen dimensie (zoals in de base-prompt),');
   lines.push('  * "subdimensie": een kort label voor de concrete uitwerking.');
-  lines.push("- De 4 deelvragen moeten duidelijk verschillende invalshoeken hebben.");
   lines.push("");
   lines.push("5. Leeropbrengsten (vooruitblik voor de docent)");
   lines.push("- Formuleer per lesvoorstel MINIMAAL 3 en MAXIMAAL 6 leeropbrengsten.");
   lines.push("- Een leeropbrengst is een korte zin over wat leerlingen aan het eind van de les");
   lines.push("  kunnen uitleggen of beargumenteren.");
-  lines.push("- Bij voorkeur koppel je elke leeropbrengst aan een deelvraagIndex (0–3),");
-  lines.push("  zodat duidelijk is welke deelvraag vooral wordt geraakt.");
-  lines.push("- Voorbeelden:");
-  lines.push('  * "Leerlingen kunnen uitleggen waarom gewone burgers zo bang waren voor');
-  lines.push('     een kernoorlog, en welke rol propaganda daarbij speelde (tijdgeest + macht)."');
-  lines.push('  * "Leerlingen kunnen verschillende beelden van \'de vijand\' uit Oost en West');
-  lines.push('     vergelijken en benoemen waar die beelden vandaan kwamen."');
+  lines.push("- Bij voorkeur koppel je elke leeropbrengst aan een deelvraagIndex (0–3).");
   lines.push("");
   lines.push("In JSON ziet dit er bijvoorbeeld zo uit:");
   lines.push('"leeropbrengsten": [');
@@ -183,7 +171,7 @@ function buildProposalsPrompt({ tv, ka, conceptHint, allSources }) {
   lines.push('- Kies per voorstel "sourceIds": MINSTENS 10 en MAXIMAAL 15 ids uit ALL_SOURCES.');
   lines.push("Deze bronnen moeten samen:");
   lines.push("- meerdere perspectieven laten zien (bijvoorbeeld leiders én gewone mensen);");
-  lines.push("- meerdere dimensies dekken (tijdgeest, macht, economie, moraal, kennis...).");
+  lines.push("- meerdere dimensies dekken, zoals in de base-prompt beschreven.");
   lines.push("");
   lines.push('- Kies daarnaast "primarySourceIds": 5–10 kernbronnen uit deze sourceIds.');
   lines.push("- Dit zijn de bronnen die in een les het meest centraal zouden staan (⭐).");

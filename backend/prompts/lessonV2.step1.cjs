@@ -1,10 +1,13 @@
+"use strict";
+
 // *****************************************
 // lessonV2.step1.cjs
 // STEP 1 – DOCENTMATERIAAL
-// v6MP6dec – WAT / HOE / WAAROM + BRONKOPPELING + LESPLANNING
+// v7 – WAT / HOE / WAAROM + BRONKOPPELING + LESPLANNING
 // *****************************************
 
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
+const { buildBasePreamble } = require("./lessonV2.base.cjs");
 
 /**
  * STEP1 = docentmateriaal:
@@ -15,7 +18,7 @@ const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
  * - bronkoppeling: per deelvraag een set bronnen + korte relevantie
  * - lesplanning: fases met tijd, doel, activiteit, product
  *
- * OUTPUT-FORMAAT (STRIKT):
+ * OUTPUT-FORMAAT (STRIKT – CONTRACT BLIJFT GELIJK):
  * {
  *   "step": "step1",
  *   "data": {
@@ -75,18 +78,30 @@ function buildStep1Prompt(body) {
 
   const deelvragenJson = JSON.stringify(deelvragen, null, 2);
 
+  const preamble = buildBasePreamble(MASTER_SIGNATURE);
+
   return `
-CHAIN_SIGNATURE: ${MASTER_SIGNATURE}
+${preamble}
 
-Je bent een expert in geschiedenisdidactiek (LesGO v6).
-Je genereert ALLEEN docentmateriaal voor stap 1.
+==== CONTEXT – STEP1 (DOCENTMATERIAAL) ====
 
-CONCEPT (NIET herschrijven, alleen gebruiken als basis):
+Je werkt nu in STAP 1 van de keten.
+Je genereert ALLEEN docentmateriaal (WAT / HOE / WAAROM + bronkoppeling + lesplanning)
+voor de les die in de vorige stap als concept is bedacht.
+
+Alle algemene didactische regels over:
+- hoofdvraag (verwondering, anti-presentisme),
+- 4 deelvragen + dimensies + subdimensies,
+- bronselectie en historisch redeneren,
+komen UITSLUITEND uit de MASTERPROMPT hierboven. Pas die regels hier strikt toe.
+Je verandert de hoofdvraag en de deelvragen inhoudelijk NIET.
+
+CONCEPT (niet herschrijven, alleen gebruiken als basis):
 
 HOOFDVRAAG:
 "${hoofdvraag}"
 
-DEELVRAGEN (ruw uit het concept):
+DEELVRAGEN (ruw uit het concept – elk met vraag/dimensie/subdimensie):
 ${deelvragenJson}
 
 BRONNEN (uit Kleio/Cito – maximaal ${sources.length} stuks):
@@ -99,10 +114,11 @@ ${sourcesJson}
 1. WAT (docententaal, kort maar stevig)
 - Beschrijf in 1 alinea waar de les over gaat.
 - Benoem expliciet:
-  * de hoofdvraag (in woorden, NIET exact citeren nodig),
+  * de hoofdvraag (in woorden, je mag licht parafraseren),
   * de rol van de 4 deelvragen,
   * het soort bronnen (cartoons, teksten, foto's, etc.),
   * het kernconflict of de kernverwondering.
+- Schrijf voor een geschiedenisdocent die de klas kent, niet voor leerlingen.
 
 2. HOE (praktische lesopbouw)
 - Beschrijf in 1–2 alinea's HOE de les kan verlopen.
@@ -117,22 +133,24 @@ ${sourcesJson}
 3. WAAROM (didactische verantwoording)
 - Beschrijf in 1–2 alinea's waarom deze les didactisch sterk is.
 - Verbind met:
-  * historisch redeneren,
-  * verwondering / presentistische hoofdvraag,
-  * dimensies zoals tijdgeest, macht, sociale verhoudingen, moraal.
-- GEEN vakjargon als het niet nodig is; schrijf voor een ervaren docent.
+  * historisch redeneren zoals in de MASTERPROMPT beschreven,
+  * verwondering / anti-presentisme rond de hoofdvraag,
+  * relevante dimensies en subdimensies (bijv. macht, tijdgeest, sociale verhoudingen).
+- Gebruik docententaal, maar vermijd onnodig jargon.
 
 4. DEELVRAGEN (voor docent)
-- Neem de 4 deelvragen over.
+- Neem de 4 deelvragen uit het concept over.
+- Verander de kern van de vragen NIET; kleine stilistische verbeteringen mogen.
 - Per deelvraag:
   * herhaal de vraag,
   * neem "dimensie" en "subdimensie" uit het concept over,
   * voeg een korte "toelichtingVoorDocent" toe:
-    - 1–2 zinnen over wat je bij deze deelvraag vooral wilt dat leerlingen ontdekken.
+    - 1–2 zinnen over wat je bij deze deelvraag vooral wilt dat leerlingen ontdekken,
+      in lijn met de subdimensie en de basisregels uit de MASTERPROMPT.
 
 5. BRONKOPPELING
 - Verdeel de bronnen over de 4 deelvragen.
-- Per deelvraag-index ("0", "1", "2", "3") maak je een array met max. 8 bronnen.
+- Per deelvraag-index ("0", "1", "2", "3") maak je een array met bij voorkeur 3–8 bronnen.
 - Kies alleen bronnen die echt iets toevoegen aan die deelvraag.
 - Per bron:
   * "id": exact de id uit de bronlijst,
@@ -148,13 +166,13 @@ ${sourcesJson}
   * "tijd": grove indicatie zoals "10 min", "20 min",
   * "doel": wat leerlingen hier moeten bereiken (voor de docent),
   * "product": zichtbaar resultaat (bijv. ingevulde werkbladen, klassengesprek, samenvatting).
-- Denk in een lesduur van ongeveer 70 minuten; precieze optelsom is NIET nodig.
+- Denk in een lesduur van ongeveer 60–70 minuten; precieze optelsom is NIET nodig.
 
 //////////////////////////////////////////////////////////
 // UITGANGSPUNTEN
 //////////////////////////////////////////////////////////
 
-- Verander de hoofdvraag NIET.
+- Verander de hoofdvraag NIET inhoudelijk.
 - Verander de tekst van de deelvragen NIET ingrijpend; kleine stilistische verbeteringen mogen, maar de inhoud blijft gelijk.
 - Gebruik de bronnen alleen als kapstok: je hoeft ze niet samen te vatten; focus op hun functie.
 - Schrijf in begrijpelijke docententaal (Havo/Vwo).
