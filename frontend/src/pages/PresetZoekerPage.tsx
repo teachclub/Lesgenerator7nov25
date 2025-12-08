@@ -15,6 +15,19 @@ interface SearchFilters {
   ka?: string;
 }
 
+interface SearchPresetResponse {
+  ok?: boolean;
+  error?: string;
+  // Nieuw formaat: lijst met presets
+  presets?: {
+    id: string;
+    label: string;
+    terms?: string[];
+  }[];
+  // Backwards compat, voor het geval oud formaat nog ergens opduikt
+  terms?: string[];
+}
+
 // Gebruik de Vite-proxy i.p.v. hard-coded host
 const API_BASE = "/api";
 
@@ -34,6 +47,9 @@ export const PresetZoekerPage: React.FC = () => {
     cito: true,
   });
 
+  // Debug: welke termen zijn uiteindelijk gebruikt richting /api/search?
+  const [lastUsedTerms, setLastUsedTerms] = useState<string[]>([]);
+
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const handleTvKaSelect = (selection: {
@@ -42,6 +58,7 @@ export const PresetZoekerPage: React.FC = () => {
     kaTitel?: string;
   }) => {
     setFilters((prev) => ({ ...prev, tv: selection.tv, ka: selection.ka }));
+    // Laat de KA ook terugkomen in de query (handig als hint)
     if (selection.ka) setSearchQuery(`KA${selection.ka}`);
   };
 
@@ -52,7 +69,15 @@ export const PresetZoekerPage: React.FC = () => {
   };
 
   const handleSearch = async () => {
-    if (!searchQuery) return;
+    const hasUserQuery =
+      typeof searchQuery === "string" && searchQuery.trim().length > 0;
+    const hasTvOrKa = !!(filters.tv || filters.ka);
+
+    // Nieuw: toestaan dat je óók alleen op TV/KA zoekt
+    if (!hasUserQuery && !hasTvOrKa) {
+      setError("Vul een zoekwoord in of kies een tijdvak/KA.");
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -61,24 +86,38 @@ export const PresetZoekerPage: React.FC = () => {
 
     try {
       // 1) Probeer optioneel de preset-service
-      let terms: string[] = [searchQuery];
+      let terms: string[] = [];
+
+      const presetBody: any = {};
+      if (hasUserQuery) presetBody.query = searchQuery!.trim();
+      if (filters.tv) presetBody.tv = filters.tv;
+      if (filters.ka) presetBody.ka = filters.ka;
 
       try {
         const presetRes = await fetch(`${API_BASE}/search-preset`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: searchQuery }),
+          body: JSON.stringify(presetBody),
         });
 
         if (presetRes.ok) {
-          const presetData = await presetRes.json();
-          const candidate = presetData.terms;
+          const presetData: SearchPresetResponse = await presetRes.json();
 
-          if (Array.isArray(candidate) && candidate.length > 0) {
-            terms = candidate.map((t) => String(t));
+          // Nieuw formaat: { ok, presets: [{ terms: [...] }, ...] }
+          if (presetData.ok && Array.isArray(presetData.presets)) {
+            terms = presetData.presets
+              .flatMap((p) => p.terms || [])
+              .map((t) => String(t).trim())
+              .filter((t) => t.length > 0);
+          }
+          // Backwards compat: { terms: [...] }
+          if (terms.length === 0 && Array.isArray(presetData.terms)) {
+            terms = presetData.terms
+              .map((t) => String(t).trim())
+              .filter((t) => t.length > 0);
           }
         } else {
-          // 404 / 500 etc.: gewoon loggen en doorgaan met originele query
+          // 404 / 500 etc.: gewoon loggen en doorgaan met fallback
           console.warn(
             "[PresetZoeker] search-preset niet bruikbaar:",
             presetRes.status
@@ -91,7 +130,29 @@ export const PresetZoekerPage: React.FC = () => {
         );
       }
 
-      // 2) Altijd zoeken via /api/search, met of zonder presets
+      // 2) Fallback als de preset-service geen termen oplevert
+      if (terms.length === 0) {
+        if (hasUserQuery) {
+          terms = [searchQuery!.trim()];
+        } else if (filters.ka) {
+          // Als er wél een KA is, kun je in uiterste nood nog terugvallen op 'KA45'
+          terms = [`KA${filters.ka}`];
+        }
+      }
+
+      if (terms.length === 0) {
+        setError(
+          "Geen geldige zoektermen gevonden. Pas je zoekopdracht of KA/tijdvak aan."
+        );
+        setLastUsedTerms([]);
+        setLoading(false);
+        return;
+      }
+
+      // Debug-state updaten vóór de echte search-call
+      setLastUsedTerms(terms);
+
+      // 3) Altijd zoeken via /api/search, met of zonder presets
       const searchRes = await fetch(`${API_BASE}/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -113,6 +174,7 @@ export const PresetZoekerPage: React.FC = () => {
       setError(
         "Er ging iets mis bij het zoeken. Controleer of de backend draait en of /api/search beschikbaar is."
       );
+      setLastUsedTerms([]);
     } finally {
       setLoading(false);
     }
@@ -202,7 +264,7 @@ export const PresetZoekerPage: React.FC = () => {
             </div>
             <button
               onClick={handleSearch}
-              disabled={loading || !searchQuery}
+              disabled={loading}
               className={`w-full font-bold py-3 rounded text-sm transition-all flex items-center justify-center gap-2 ${
                 loading
                   ? "bg-gray-100 text-gray-500 cursor-wait"
@@ -217,6 +279,35 @@ export const PresetZoekerPage: React.FC = () => {
                 "🚀 Start Zoeken"
               )}
             </button>
+          </div>
+
+          {/* Debug-paneel: laat zien wat er naar /api/search gaat */}
+          <div className="bg-white p-3 rounded-lg border border-dashed border-gray-300 text-xs text-gray-600 space-y-1">
+            <div className="font-bold mb-1">Debug zoektermen</div>
+            <div>
+              <span className="font-semibold">TV:</span>{" "}
+              {filters.tv ?? <span className="text-gray-400">–</span>}
+            </div>
+            <div>
+              <span className="font-semibold">KA:</span>{" "}
+              {filters.ka ?? <span className="text-gray-400">–</span>}
+            </div>
+            <div>
+              <span className="font-semibold">Query:</span>{" "}
+              {searchQuery ? searchQuery : <span className="text-gray-400">–</span>}
+            </div>
+            <div className="mt-1">
+              <span className="font-semibold">Terms → /api/search:</span>
+              {lastUsedTerms.length === 0 ? (
+                <span className="text-gray-400"> nog niets uitgevoerd</span>
+              ) : (
+                <ul className="list-disc list-inside">
+                  {lastUsedTerms.map((t, i) => (
+                    <li key={i}>{t}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
 
           <A21TvKaSelect onSelect={handleTvKaSelect} />
@@ -287,11 +378,7 @@ export const PresetZoekerPage: React.FC = () => {
               {sources.length}
             </span>
           </div>
-          {error && (
-            <div className="text-red-500 text-sm mb-4">
-              {error}
-            </div>
-          )}
+          {error && <div className="text-red-500 text-sm mb-4">{error}</div>}
           {loading ? (
             <div className="flex flex-col items-center justify-center h-64 text-gray-400 animate-pulse">
               <span className="text-4xl mb-2">📡</span>
