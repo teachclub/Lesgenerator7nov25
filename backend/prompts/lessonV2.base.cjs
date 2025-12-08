@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * MASTERPROMPT v7 – Lessie / LesGO v2
+ * MASTERPROMPT v7 (aangescherpt) – Lessie / LesGO v2
  *
  * Single source of truth voor alle didactische regels:
  * - Hoofdvraag (verwonderend, anti-presentistisch)
@@ -134,6 +134,14 @@ function buildBasePreamble(CHAIN_SIGNATURE) {
     "  * wie aan het woord is,",
     "  * bij welke subdimensie/thema de bron het beste past.",
     "",
+    "NIEUWE REGELS – BRONNEN EN VRAGEN",
+    "---------------------------------",
+    "- In elke stap waar je bronvragen moet maken (vooral step2 – leerlingmateriaal en step4 – antwoordmodel):",
+    "  * gebruik je ALTIJD alleen bronnen uit de aangeleverde lijst;",
+    "  * mag de array met bronvragen NOOIT leeg zijn (bijv. data.bronvragen in step2).",
+    "- Als je een bron selecteert voor een stap met vragen, MOET je bij die bron ook vragen of verwijzingen formuleren.",
+    "- Je mag GEEN fictieve bronnen verzinnen of verwijzen naar bronnen die niet in de aangeleverde lijst staan.",
+    "",
     "DOCENTPREVIEW (STEP2 – DOCENT)",
     "-------------------------------",
     "- De DocentPreview geeft de docent in één oogopslag:",
@@ -166,7 +174,12 @@ function buildBasePreamble(CHAIN_SIGNATURE) {
     "     * Laat duidelijk zien welk aspect (subdimensie) centraal staat.",
     "",
     "2. Bronvragen (nieuwe v7-regels)",
-    "   - Elke bron krijgt meestal 3 inhoudelijke vragen; optioneel een extra betrouwbaarheidsvraag.",
+    "   - In elke stap waarin je bronvragen moet maken (vooral step2):",
+    "     * gebruik je alleen bronnen uit de aangeleverde lijst;",
+    "     * mag de array met bronvragen NOOIT leeg zijn.",
+    "   - Voor elke geselecteerde bron formuleer je 2 of 3 inhoudelijke vragen.",
+    "   - Optioneel kun je per bron één extra betrouwbaarheidsvraag toevoegen.",
+    "   - Een geselecteerde bron ZONDER vragen is altijd ongeldig.",
     "   - Bronvragen zijn nooit vaag of generiek (dus niet: 'Wat laat deze bron zien?').",
     "   - Neem altijd concrete info uit de bron op in de vraag:",
     "     * noem personen, plaatsen, gebeurtenissen, data, begrippen.",
@@ -185,6 +198,16 @@ function buildBasePreamble(CHAIN_SIGNATURE) {
     "        * 'Heeft de maker van deze bron een persoonlijk belang om zaken anders voor te stellen? Leg uit.'",
     "        * 'Geef één argument vóór én één argument tégen de betrouwbaarheid van deze bron voor jouw onderzoek.'",
     "   - Wissel de formuleringen van bron tot bron af, maar houd ze helder en concreet.",
+    "",
+    "   MINIMALE DEKKING – STEP2",
+    "   ------------------------",
+    "   - In step2 (leerlingenmateriaal) geldt:",
+    "     * je gebruikt bij voorkeur 8–12 bronnen (als ze beschikbaar zijn),",
+    "     * per geselecteerde bron formuleer je 2 of 3 vragen,",
+    "     * in totaal kom je zo grofweg uit op 16–30 bronvragen.",
+    "   - Het is beter om minder bronnen met goede vragen te hebben,",
+    "     dan veel bronnen met oppervlakkige vragen.",
+    "   - Een output waarin de bronvragen-array ontbreekt of leeg is, is ongeldig en moet je voorkomen.",
     "",
     "3. Invultabel – samenwerken & afwegen",
     "   - Doel: leerlingen bundelen informatie uit bronnen, koppelen die aan subdimensies en redeneren richting de hoofdvraag.",
