@@ -7,52 +7,11 @@
 // v7-fix:
 // - Alleen LIGHT sources (id, title, type, provider) richting de prompt.
 // - Geen snippets/description/content naar Gemini.
-// - Basisvalidatie van concept/tvKa/bronvragen.
+// - Verwacht nu data.leerling-structuur i.p.v. losse velden.
 
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
 const { buildStep2Prompt } = require("../prompts/lessonV2.step2.cjs");
 const { runGeminiAndParse } = require("../services/gemini.cjs");
-
-/**
- * Verwacht body:
- * {
- *   concept: {
- *     hoofdvraag: string,
- *     deelvragen: [
- *       { vraag, dimensie, subdimensie }
- *     ]
- *   },
- *   sources: [
- *     {
- *       id,
- *       title?,
- *       provider?,
- *       type?,
- *       // snippet/description/fullText/content mogen in de body zitten,
- *       // maar worden NIET doorgestuurd naar de prompt.
- *     }
- *   ],
- *   tvKa: {
- *     tv,
- *     tvLabel,
- *     ka,
- *     kaLabel
- *   }
- * }
- *
- * Geeft (als alles goed gaat) direct de Gemini-output terug:
- * {
- *   "step": "step2",
- *   "data": {
- *     "chainSignature": "<MASTER_SIGNATURE>",
- *     "hoofdvraag": "...",
- *     "inleiding": "...",
- *     "bronvragen": [ ... ],
- *     "invultabel": { ... },
- *     "reflectie": { ... }
- *   }
- * }
- */
 
 function registerLessonV2Step2Routes(router) {
   router.post("/generate-lesson-v2/step2", async (req, res) => {
@@ -64,7 +23,10 @@ function registerLessonV2Step2Routes(router) {
       if (!concept || typeof concept !== "object") {
         throw new Error("STEP2: ontbrekend of ongeldig 'concept' in body");
       }
-      if (typeof concept.hoofdvraag !== "string" || !concept.hoofdvraag.trim()) {
+      if (
+        typeof concept.hoofdvraag !== "string" ||
+        !concept.hoofdvraag.trim()
+      ) {
         throw new Error("STEP2: 'concept.hoofdvraag' ontbreekt of is leeg");
       }
       if (
@@ -74,7 +36,12 @@ function registerLessonV2Step2Routes(router) {
         throw new Error("STEP2: 'concept.deelvragen' ontbreekt of is leeg");
       }
 
-      const tvKa = body.tvKa || {};
+      const tvKa = body.tvKa || {
+        tv: concept.tv,
+        tvLabel: concept.tvLabel,
+        ka: concept.ka,
+        kaLabel: concept.kaLabel,
+      };
       if (!tvKa || typeof tvKa !== "object") {
         throw new Error("STEP2: ontbrekend of ongeldig 'tvKa' in body");
       }
@@ -86,8 +53,7 @@ function registerLessonV2Step2Routes(router) {
         title: s.title || "",
         provider: s.provider || "",
         type: s.type || "",
-        // Alle inhoudsvelden laten we hier bewust liggen (niet in prompt):
-        // snippet, description, fullText, content, periodHint, meta, ...
+        // inhoudsvelden bewust niet meesturen
       }));
 
       // 2) Safe body opbouwen voor de prompt-builder
@@ -99,7 +65,10 @@ function registerLessonV2Step2Routes(router) {
       };
 
       // 3) Prompt bouwen op basis van masterprompt + v7-regels
-      const prompt = buildStep2Prompt(safeBody);
+      const prompt = buildStep2Prompt({
+        ...safeBody,
+        masterSignature: MASTER_SIGNATURE,
+      });
 
       if (typeof prompt !== "string" || !prompt.trim()) {
         console.error(
@@ -124,8 +93,7 @@ function registerLessonV2Step2Routes(router) {
         },
       });
 
-      const parsed =
-        json && typeof json === "object" ? json : null;
+      const parsed = json && typeof json === "object" ? json : null;
 
       if (!parsed) {
         console.error(
@@ -157,17 +125,16 @@ function registerLessonV2Step2Routes(router) {
         parsed.data.chainSignature = MASTER_SIGNATURE;
       }
 
-      // 6) Basischek op bronvragen – mag niet leeg zijn
-      if (
-        !Array.isArray(parsed.data.bronvragen) ||
-        parsed.data.bronvragen.length === 0
-      ) {
-        console.error("[lessonV2_step2] data.bronvragen ontbreekt of is leeg");
+      // 6) Basischek op leerling-structuur
+      if (!parsed.data.leerling || typeof parsed.data.leerling !== "object") {
+        console.error("[lessonV2_step2] data.leerling ontbreekt of is ongeldig");
         return res.status(502).json({
           step: "step2",
-          error: "Ongeldige output van Gemini: 'bronvragen' mag niet leeg zijn",
+          error: "Ongeldige output van Gemini: 'leerling' ontbreekt",
         });
       }
+
+      // Eventuele extra defensieve opschoning is later mogelijk (zoals in step1).
 
       // 7) JSON direct doorgeven
       return res.json(parsed);
