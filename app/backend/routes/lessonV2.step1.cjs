@@ -14,34 +14,6 @@ const { runGeminiAndParse } = require("../services/gemini.cjs");
  *
  * Pad (na mount op /api):
  *   POST /api/generate-lesson-v2/step1
- *
- * Verwacht body:
- * {
- *   concept: {
- *     hoofdvraag: string,
- *     deelvragen: [ { vraag, dimensie, subdimensie } ]
- *   },
- *   sources: [
- *     {
- *       id,
- *       title?,
- *       provider?,
- *       type?,
- *       // LET OP:
- *       //  - snippet/description/fullText/content worden HIER genegeerd
- *       //  - we sturen alleen LIGHT sources door naar de prompt
- *     }
- *   ]
- * }
- *
- * Geeft JSON terug:
- * {
- *   "step": "step1",
- *   "data": {
- *     "chainSignature": "<MASTER_SIGNATURE>",
- *     "docent": { ... }
- *   }
- * }
  */
 
 function registerLessonV2Step1Routes(router) {
@@ -57,10 +29,7 @@ function registerLessonV2Step1Routes(router) {
       if (typeof concept.hoofdvraag !== "string" || !concept.hoofdvraag.trim()) {
         throw new Error("STEP1: 'concept.hoofdvraag' ontbreekt of is leeg");
       }
-      if (
-        !Array.isArray(concept.deelvragen) ||
-        concept.deelvragen.length === 0
-      ) {
+      if (!Array.isArray(concept.deelvragen) || concept.deelvragen.length === 0) {
         throw new Error("STEP1: 'concept.deelvragen' ontbreekt of is leeg");
       }
 
@@ -72,8 +41,6 @@ function registerLessonV2Step1Routes(router) {
         title: s.title || "",
         provider: s.provider || "",
         type: s.type || "",
-        // alles wat op inhoud lijkt (snippet, description, fullText, content, etc.)
-        // gaat NIET mee de prompt in; dat is ketenregel v7.
       }));
 
       // 2. Safe body opbouwen die naar de prompt-builder gaat
@@ -104,12 +71,10 @@ function registerLessonV2Step1Routes(router) {
       if (json.step !== "step1") {
         throw new Error(`STEP1: onjuiste step-tag in response (got: ${json.step})`);
       }
-      if (
-        !json.data ||
-        typeof json.data !== "object" ||
-        !json.data.docent ||
-        typeof json.data.docent !== "object"
-      ) {
+      if (!json.data || typeof json.data !== "object") {
+        throw new Error("STEP1: ontbrekende data in response");
+      }
+      if (!json.data.docent || typeof json.data.docent !== "object") {
         throw new Error("STEP1: ontbrekende data.docent in response");
       }
 
@@ -118,11 +83,74 @@ function registerLessonV2Step1Routes(router) {
         json.data.chainSignature = MASTER_SIGNATURE;
       }
 
-      // 7. Extra defensieve check:
-      //    docentobject mag geen 'bronnen', 'snippets' of vergelijkbare velden bevatten.
+      // 7. Docent-object normaliseren zodat de frontend veilig kan .map()-pen
       const docent = json.data.docent;
-      const forbiddenKeys = ["bronnen", "sources", "snippets", "bronTekst", "sourceText"];
 
+      // 7a. deelvragen -> altijd array van strings
+      if (Array.isArray(docent.deelvragen)) {
+        docent.deelvragen = docent.deelvragen
+          .filter((v) => typeof v === "string" && v.trim().length > 0)
+          .map((v) => v.trim());
+      } else if (typeof docent.deelvragen === "string" && docent.deelvragen.trim()) {
+        docent.deelvragen = [docent.deelvragen.trim()];
+      } else {
+        docent.deelvragen = [];
+      }
+
+      // 7b. bronverwijzingenPerDeelvraag -> altijd array van { deelvraag, bronnen[] }
+      if (!Array.isArray(docent.bronverwijzingenPerDeelvraag)) {
+        docent.bronverwijzingenPerDeelvraag = [];
+      } else {
+        docent.bronverwijzingenPerDeelvraag =
+          docent.bronverwijzingenPerDeelvraag
+            .filter((entry) => entry && typeof entry === "object")
+            .map((entry) => {
+              const deelvraag =
+                typeof entry.deelvraag === "string" ? entry.deelvraag.trim() : "";
+              let bronnen = [];
+
+              if (Array.isArray(entry.bronnen)) {
+                bronnen = entry.bronnen
+                  .map((n) => parseInt(n, 10))
+                  .filter((n) => Number.isInteger(n) && n > 0);
+              }
+
+              return { deelvraag, bronnen };
+            });
+      }
+
+      // 7c. lesfasen -> altijd array van nette fase-objecten
+      if (!Array.isArray(docent.lesfasen)) {
+        docent.lesfasen = [];
+      } else {
+        docent.lesfasen = docent.lesfasen
+          .filter((fase) => fase && typeof fase === "object")
+          .map((fase) => ({
+            fase:
+              typeof fase.fase === "string" && fase.fase.trim()
+                ? fase.fase.trim()
+                : "",
+            tijd:
+              typeof fase.tijd === "string" && fase.tijd.trim()
+                ? fase.tijd.trim()
+                : "",
+            doel:
+              typeof fase.doel === "string" && fase.doel.trim()
+                ? fase.doel.trim()
+                : "",
+            activiteit:
+              typeof fase.activiteit === "string" && fase.activiteit.trim()
+                ? fase.activiteit.trim()
+                : "",
+            werkvorm:
+              typeof fase.werkvorm === "string" && fase.werkvorm.trim()
+                ? fase.werkvorm.trim()
+                : "",
+          }));
+      }
+
+      // 8. Extra defensieve check: docentobject mag geen inhoud-velden bevatten
+      const forbiddenKeys = ["bronnen", "sources", "snippets", "bronTekst", "sourceText"];
       for (const key of forbiddenKeys) {
         if (Object.prototype.hasOwnProperty.call(docent, key)) {
           console.warn("[lessonV2_step1] WARNING: docent-object bevat verboden veld:", key);

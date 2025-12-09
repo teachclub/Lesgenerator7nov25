@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+
+// ===== Types =====
 
 type LessonConcept = {
   hoofdvraag?: string;
@@ -9,6 +11,7 @@ type LessonConcept = {
   tvLabel?: string;
   ka?: string;
   kaLabel?: string;
+  [key: string]: any;
 };
 
 type Source = {
@@ -21,36 +24,29 @@ type Source = {
   content?: string;
   url?: string | null;
   imageUrl?: string | null;
+  [key: string]: any;
 };
 
-type Step1DocentDeelvraag = {
-  vraag: string;
-  dimenisie?: string; // typo-veilig
-  dimensie?: string;
-  subdimensie?: string;
-  toelichtingVoorDocent: string;
-};
-
-type Step1DocentBronRef = {
-  id: string | number;
-  relevatie: string;
+type Step1DocentBronLink = {
+  deelvraag: string;
+  bronnen: number[];
 };
 
 type Step1DocentLesfase = {
   fase: string;
-  activiteit: string;
-  tijd: string;
-  doel: string;
-  product: string;
+  tijd?: string;
+  doel?: string;
+  activiteit?: string;
+  werkvorm?: string;
 };
 
 type Step1Docent = {
   wat: string;
   hoe: string;
   waarom: string;
-  deelvragen: Step1DocentDeelvraag[];
-  bronkoppeling: Record<string, Step1DocentBronRef[]>;
-  lesplanning: Step1DocentLesfase[];
+  deelvragen: string[];
+  bronverwijzingenPerDeelvraag: Step1DocentBronLink[];
+  lesfasen?: Step1DocentLesfase[];
 };
 
 type Step1Response = {
@@ -63,414 +59,481 @@ type Step1Response = {
 
 type Step2Response = {
   step: "step2";
-  data: any; // v7-leerlingcontract kun je later strakker typen
+  [key: string]: any;
 };
 
-type LocationState = {
+// ===== Helper om state uit de router te halen =====
+
+type LocationStateLoose = {
   concept?: LessonConcept;
   lessonConcept?: LessonConcept;
   sources?: Source[];
   selectedSources?: Source[];
+  [key: string]: any;
 };
 
-type ActiveTab = "docent" | "leerling";
+// ===== Component =====
 
 const LessonPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const state = (location.state || {}) as LocationState;
+  const state = (location.state || {}) as LocationStateLoose;
 
-  const concept: LessonConcept | undefined =
-    state.concept || state.lessonConcept;
-  const sources: Source[] = state.sources || state.selectedSources || [];
+  const concept: LessonConcept =
+    state.concept || state.lessonConcept || ({} as LessonConcept);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>("docent");
+  const sources: Source[] =
+    state.sources || state.selectedSources || ([] as Source[]);
 
-  const [step1, setStep1] = useState<Step1Response | null>(null);
-  const [step2, setStep2] = useState<Step2Response | null>(null);
-  const [loadingStep1, setLoadingStep1] = useState(false);
-  const [loadingStep2, setLoadingStep2] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"docent" | "leerling">("docent");
 
-  // Als er geen concept is (directe URL), terug naar lesvoorstellen
-  useEffect(() => {
-    if (!concept) {
-      navigate("/proposals");
+  const [step1Loading, setStep1Loading] = useState(false);
+  const [step2Loading, setStep2Loading] = useState(false);
+
+  const [step1Error, setStep1Error] = useState<string | null>(null);
+  const [step2Error, setStep2Error] = useState<string | null>(null);
+
+  const [step1Docent, setStep1Docent] = useState<Step1Docent | null>(null);
+  const [step2Data, setStep2Data] = useState<Step2Response | null>(null);
+
+  const apiBase = "/api";
+
+  const handleBackToProposals = () => {
+    navigate("/proposals");
+  };
+
+  // ===== API helpers =====
+
+  const generateStep1 = async () => {
+    if (!concept || !concept.hoofdvraag) {
+      setStep1Error("Geen geldig lesconcept beschikbaar.");
+      return;
     }
-  }, [concept, navigate]);
 
-  useEffect(() => {
-    if (!concept || sources.length === 0) return;
+    setStep1Loading(true);
+    setStep1Error(null);
 
-    const lightSources = sources.map((s) => ({
-      id: s.id,
-      title: s.title || "",
-      provider: s.provider || "",
-      type: s.type || "",
-    }));
+    try {
+      const res = await fetch(`${apiBase}/generate-lesson-v2/step1`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          concept,
+          sources: sources.map((s) => ({
+            id: s.id,
+            title: s.title,
+            provider: s.provider,
+            type: s.type,
+          })),
+        }),
+      });
 
-    const body = JSON.stringify({
-      concept,
-      sources: lightSources,
-    });
-
-    // STEP 1 – DOCENT
-    setLoadingStep1(true);
-    setError(null);
-    fetch("/api/generate-lesson-v2/step1", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`Step1 HTTP ${res.status}: ${text}`);
-        }
-        return res.json();
-      })
-      .then((json: Step1Response) => {
-        setStep1(json);
-      })
-      .catch((e) => {
-        console.error("[LessonPage] Fout bij step1:", e);
-        setError("Fout bij genereren van het docentmateriaal (stap 1).");
-      })
-      .finally(() => setLoadingStep1(false));
-
-    // STEP 2 – LEERLING
-    setLoadingStep2(true);
-    fetch("/api/generate-lesson-v2/step2", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`Step2 HTTP ${res.status}: ${text}`);
-        }
-        return res.json();
-      })
-      .then((json: Step2Response) => {
-        setStep2(json);
-      })
-      .catch((e) => {
-        console.error("[LessonPage] Fout bij step2:", e);
-        setError((prev) =>
-          prev
-            ? prev + " Ook fout bij het leerlingmateriaal (stap 2)."
-            : "Fout bij genereren van het leerlingmateriaal (stap 2)."
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(
+          errJson && errJson.error
+            ? `Step1 HTTP ${res.status}: ${errJson.error}`
+            : `Step1 HTTP ${res.status}`
         );
-      })
-      .finally(() => setLoadingStep2(false));
-  }, [concept, sources]);
+      }
 
-  const docent = step1?.data?.docent;
+      const json = (await res.json()) as Step1Response;
 
-  const renderLesconcept = () => {
-    if (!concept) return null;
-    return (
-      <section className="lesson-concept">
-        <p
-          style={{ cursor: "pointer", color: "#666", marginBottom: "0.5rem" }}
-          onClick={() => navigate("/proposals")}
-        >
-          ← Terug naar lesvoorstellen
-        </p>
-        <h1>Lesconcept</h1>
-        {concept.hook && (
-          <p style={{ fontStyle: "italic", marginBottom: "0.75rem" }}>
-            {concept.hook}
-          </p>
-        )}
-        <p style={{ fontSize: "0.9rem", color: "#666" }}>
-          {concept.tv && concept.ka
-            ? `${concept.tv} • ${concept.ka}`
-            : concept.tv || concept.ka}
-        </p>
-        <p style={{ fontSize: "0.9rem", color: "#666" }}>
-          {concept.tvLabel} {concept.tvLabel && concept.kaLabel && "—"}{" "}
-          {concept.kaLabel}
-        </p>
+      if (!json.data || !json.data.docent) {
+        throw new Error("STEP1: geen docent-data in response.");
+      }
 
-        {concept.hoofdvraag && (
-          <p style={{ marginTop: "1rem" }}>
-            <strong>Hoofdvraag (concept):</strong> {concept.hoofdvraag}
-          </p>
-        )}
-      </section>
-    );
+      const d = json.data.docent as any;
+      const normalized: Step1Docent = {
+        wat: typeof d.wat === "string" ? d.wat : "",
+        hoe: typeof d.hoe === "string" ? d.hoe : "",
+        waarom: typeof d.waarom === "string" ? d.waarom : "",
+        deelvragen: Array.isArray(d.deelvragen)
+          ? d.deelvragen.filter((v: any) => typeof v === "string")
+          : [],
+        bronverwijzingenPerDeelvraag: Array.isArray(
+          d.bronverwijzingenPerDeelvraag
+        )
+          ? d.bronverwijzingenPerDeelvraag
+              .filter((e: any) => e && typeof e === "object")
+              .map((e: any) => ({
+                deelvraag:
+                  typeof e.deelvraag === "string" ? e.deelvraag : "",
+                bronnen: Array.isArray(e.bronnen)
+                  ? e.bronnen
+                      .map((n: any) => parseInt(n, 10))
+                      .filter((n: number) => Number.isInteger(n) && n > 0)
+                  : [],
+              }))
+          : [],
+        lesfasen: Array.isArray(d.lesfasen)
+          ? d.lesfasen
+              .filter((f: any) => f && typeof f === "object")
+              .map((f: any) => ({
+                fase: typeof f.fase === "string" ? f.fase : "",
+                tijd: typeof f.tijd === "string" ? f.tijd : "",
+                doel: typeof f.doel === "string" ? f.doel : "",
+                activiteit:
+                  typeof f.activiteit === "string" ? f.activiteit : "",
+                werkvorm:
+                  typeof f.werkvorm === "string" ? f.werkvorm : "",
+              }))
+          : [],
+      };
+
+      setStep1Docent(normalized);
+    } catch (err: any) {
+      console.error("[LessonPage] Fout bij step1:", err);
+      setStep1Error(err.message || String(err));
+      setStep1Docent(null);
+    } finally {
+      setStep1Loading(false);
+    }
   };
 
-  const renderBronnen = () => {
-    if (!sources.length) return null;
-    return (
-      <section style={{ marginTop: "2rem" }}>
-        <h2>Bronnen in deze les</h2>
-        <p style={{ fontSize: "0.9rem", color: "#666" }}>
-          {sources.length} bronnen geselecteerd uit Cito/Kleio.
-        </p>
-        <div style={{ marginTop: "1rem", display: "grid", gap: "0.5rem" }}>
-          {sources.map((s) => (
-            <article
-              key={s.id}
-              style={{
-                border: "1px solid #eee",
-                borderRadius: "0.75rem",
-                padding: "0.75rem 1rem",
-                background: "#fafafa",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "0.7rem",
-                  textTransform: "uppercase",
-                  color: "#999",
-                  marginBottom: "0.25rem",
-                }}
-              >
-                {s.provider || "Bron"} · {s.type || "TEXT"}
-              </div>
-              <div style={{ fontWeight: 600 }}>{s.title || `Bron ${s.id}`}</div>
-            </article>
-          ))}
-        </div>
-      </section>
-    );
+  const generateStep2 = async () => {
+    if (!concept || !concept.hoofdvraag) {
+      setStep2Error("Geen geldig lesconcept beschikbaar.");
+      return;
+    }
+
+    setStep2Loading(true);
+    setStep2Error(null);
+
+    try {
+      const res = await fetch(`${apiBase}/generate-lesson-v2/step2`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          concept,
+          sources,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(
+          errJson && errJson.error
+            ? `Step2 HTTP ${res.status}: ${errJson.error}`
+            : `Step2 HTTP ${res.status}`
+        );
+      }
+
+      const json = (await res.json()) as Step2Response;
+      setStep2Data(json);
+    } catch (err: any) {
+      console.error("[LessonPage] Fout bij step2:", err);
+      setStep2Error(err.message || String(err));
+      setStep2Data(null);
+    } finally {
+      setStep2Loading(false);
+    }
   };
+
+  // ===== Render helpers =====
+
+  const renderConcept = () => (
+    <div className="p-4 border-b border-gray-200">
+      <button
+        className="mb-4 text-sm text-blue-600 hover:underline"
+        onClick={handleBackToProposals}
+      >
+        ← Terug naar lesvoorstellen
+      </button>
+
+      <h2 className="text-lg font-semibold mb-2">Lesconcept</h2>
+      {concept.hook && (
+        <p className="italic text-gray-700 mb-2">{concept.hook}</p>
+      )}
+
+      <div className="text-sm text-gray-600 mb-1">
+        {concept.tvLabel || (concept.tv && `Tijdvak ${concept.tv}`)}{" "}
+        {concept.kaLabel && <>· {concept.kaLabel}</>}
+      </div>
+
+      <div className="mt-4">
+        <h3 className="font-semibold mb-1">Hoofdvraag (concept):</h3>
+        <p className="text-gray-800">{concept.hoofdvraag}</p>
+      </div>
+    </div>
+  );
 
   const renderDocentTab = () => {
-    if (loadingStep1 && !docent) {
-      return <p>Docentmateriaal wordt gegenereerd…</p>;
+    if (step1Loading) {
+      return <p className="p-4 text-sm text-gray-600">Step 1 laden…</p>;
     }
-    if (!docent) {
+
+    if (step1Error) {
       return (
-        <p>
-          Geen docentmateriaal beschikbaar. Probeer de pagina te verversen of
-          ga terug naar de lesvoorstellen.
-        </p>
+        <div className="p-4 text-sm text-red-600">
+          <p className="font-semibold mb-1">
+            Fout bij genereren van het docentmateriaal (stap 1).
+          </p>
+          <p>{step1Error}</p>
+        </div>
       );
     }
 
+    if (!step1Docent) {
+      return (
+        <div className="p-4 text-sm text-gray-700">
+          <p className="mb-2">
+            Er is nog geen docentmateriaal gegenereerd voor deze les.
+          </p>
+          <p className="mb-2">
+            Klik op{" "}
+            <button
+              className="inline-flex items-center px-3 py-1 rounded-full border border-gray-300 text-xs"
+              onClick={generateStep1}
+            >
+              Step 1 – genereer docentmateriaal
+            </button>{" "}
+            om STEP 1 te starten.
+          </p>
+        </div>
+      );
+    }
+
+    const deelvragen = step1Docent.deelvragen ?? [];
+    const koppelingen = step1Docent.bronverwijzingenPerDeelvraag ?? [];
+    const lesfasen = step1Docent.lesfasen ?? [];
+
     return (
-      <div>
-        <h2>Stap 1 – Docentmateriaal</h2>
-
-        <section style={{ marginTop: "1rem" }}>
-          <h3>WAT – Waar gaat deze les over?</h3>
-          <p>{docent.wat}</p>
+      <div className="p-4 space-y-4">
+        <section>
+          <h3 className="font-semibold mb-1">WAT?</h3>
+          <p className="text-sm text-gray-800 whitespace-pre-line">
+            {step1Docent.wat}
+          </p>
         </section>
 
-        <section style={{ marginTop: "1rem" }}>
-          <h3>HOE – Opbouw en aanpak</h3>
-          <p>{docent.hoe}</p>
+        <section>
+          <h3 className="font-semibold mb-1">HOE?</h3>
+          <p className="text-sm text-gray-800 whitespace-pre-line">
+            {step1Docent.hoe}
+          </p>
         </section>
 
-        <section style={{ marginTop: "1rem" }}>
-          <h3>WAAROM – Didactische onderbouwing</h3>
-          <p>{docent.waarom}</p>
+        <section>
+          <h3 className="font-semibold mb-1">WAAROM?</h3>
+          <p className="text-sm text-gray-800 whitespace-pre-line">
+            {step1Docent.waarom}
+          </p>
         </section>
 
-        <section style={{ marginTop: "1.5rem" }}>
-          <h3>Deelvragen voor de docent</h3>
-          <ul style={{ paddingLeft: "1.2rem" }}>
-            {docent.deelvragen.map((dv, idx) => (
-              <li key={idx} style={{ marginBottom: "0.5rem" }}>
-                <strong>Deelvraag {idx + 1}:</strong> {dv.vraag}
-                <br />
-                <span style={{ fontSize: "0.85rem", color: "#555" }}>
-                  Dimensie:{" "}
-                  {dv.dimensie ||
-                    (dv as any).dimenisie ||
-                    "–"}{" "}
-                  · Subdimensie: {dv.subdimensie || "–"}
-                  <br />
-                  <em>{dv.toelichtingVoorDocent}</em>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section style={{ marginTop: "1.5rem" }}>
-          <h3>Bronkoppeling per deelvraag</h3>
-          {["0", "1", "2", "3"].map((key) => {
-            const bronRefs = docent.bronkoppeling?.[key] || [];
-            if (!bronRefs.length) return null;
-            const dvIndex = parseInt(key, 10);
-            return (
-              <div key={key} style={{ marginBottom: "1rem" }}>
-                <strong>Deelvraag {dvIndex + 1}</strong>
-                <ul style={{ paddingLeft: "1.2rem", marginTop: "0.25rem" }}>
-                  {bronRefs.map((b) => {
-                    const full = sources.find((s) => s.id === b.id);
-                    return (
-                      <li key={b.id}>
-                        <span>
-                          <strong>
-                            {full?.title || `Bron ${b.id}`}
-                          </strong>{" "}
-                          – {b.relevatie}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            );
-          })}
-        </section>
-
-        <section style={{ marginTop: "1.5rem" }}>
-          <h3>Lesplanning (globaal)</h3>
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: "0.9rem",
-            }}
-          >
-            <thead>
-              <tr>
-                <th style={{ borderBottom: "1px solid #ddd", textAlign: "left", padding: "0.4rem" }}>
-                  Fase
-                </th>
-                <th style={{ borderBottom: "1px solid #ddd", textAlign: "left", padding: "0.4rem" }}>
-                  Activiteit
-                </th>
-                <th style={{ borderBottom: "1px solid #ddd", textAlign: "left", padding: "0.4rem", whiteSpace: "nowrap" }}>
-                  Tijd
-                </th>
-                <th style={{ borderBottom: "1px solid #ddd", textAlign: "left", padding: "0.4rem" }}>
-                  Doel
-                </th>
-                <th style={{ borderBottom: "1px solid #ddd", textAlign: "left", padding: "0.4rem" }}>
-                  Product
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {docent.lesplanning.map((fase, idx) => (
-                <tr key={idx}>
-                  <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.4rem", fontWeight: 600 }}>
-                    {fase.fase}
-                  </td>
-                  <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.4rem" }}>
-                    {fase.activiteit}
-                  </td>
-                  <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.4rem" }}>
-                    {fase.tijd}
-                  </td>
-                  <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.4rem" }}>
-                    {fase.doel}
-                  </td>
-                  <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.4rem" }}>
-                    {fase.product}
-                  </td>
-                </tr>
+        <section>
+          <h3 className="font-semibold mb-2">Deelvragen</h3>
+          {deelvragen.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              Geen deelvragen beschikbaar.
+            </p>
+          ) : (
+            <ol className="list-decimal list-inside space-y-1 text-sm">
+              {deelvragen.map((dv, idx) => (
+                <li key={idx}>{dv}</li>
               ))}
-            </tbody>
-          </table>
+            </ol>
+          )}
+        </section>
+
+        <section>
+          <h3 className="font-semibold mb-2">Lesplanning (lesfasen)</h3>
+          {lesfasen.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              Geen lesfasen beschikbaar.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm border border-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="border-b border-gray-200 px-2 py-1 text-left">
+                      Fase
+                    </th>
+                    <th className="border-b border-gray-200 px-2 py-1 text-left">
+                      Tijd
+                    </th>
+                    <th className="border-b border-gray-200 px-2 py-1 text-left">
+                      Doel
+                    </th>
+                    <th className="border-b border-gray-200 px-2 py-1 text-left">
+                      Activiteit
+                    </th>
+                    <th className="border-b border-gray-200 px-2 py-1 text-left">
+                      Werkvorm
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lesfasen.map((fase, idx) => (
+                    <tr key={idx} className="align-top">
+                      <td className="border-b border-gray-200 px-2 py-1">
+                        {fase.fase || `Fase ${idx + 1}`}
+                      </td>
+                      <td className="border-b border-gray-200 px-2 py-1">
+                        {fase.tijd || "–"}
+                      </td>
+                      <td className="border-b border-gray-200 px-2 py-1">
+                        {fase.doel || "–"}
+                      </td>
+                      <td className="border-b border-gray-200 px-2 py-1">
+                        {fase.activiteit || "–"}
+                      </td>
+                      <td className="border-b border-gray-200 px-2 py-1">
+                        {fase.werkvorm || "–"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section>
+          <h3 className="font-semibold mb-2">
+            Bronverwijzingen per deelvraag
+          </h3>
+          {koppelingen.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              Geen bronverwijzingen beschikbaar.
+            </p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {koppelingen.map((koppeling, idx) => (
+                <li key={idx}>
+                  <div className="font-medium">
+                    {koppeling.deelvraag || `Deelvraag ${idx + 1}`}
+                  </div>
+                  <div className="text-gray-700">
+                    Bronnen:{" "}
+                    {koppeling.bronnen && koppeling.bronnen.length > 0
+                      ? koppeling.bronnen.join(", ")
+                      : "–"}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
     );
   };
 
   const renderLeerlingTab = () => {
-    if (loadingStep2 && !step2) {
-      return <p>Leerlingmateriaal wordt gegenereerd…</p>;
+    if (step2Loading) {
+      return <p className="p-4 text-sm text-gray-600">Step 2 laden…</p>;
     }
-    if (!step2) {
+
+    if (step2Error) {
       return (
-        <p>
-          Geen leerlingmateriaal beschikbaar (stap 2). De keten draait wel, maar
-          de presentatie kun je later verder verfijnen.
-        </p>
+        <div className="p-4 text-sm text-red-600">
+          <p className="font-semibold mb-1">
+            Fout bij genereren van het leerlingmateriaal (stap 2).
+          </p>
+          <p>{step2Error}</p>
+        </div>
       );
     }
 
-    // Voor nu: simpele debug-dump, totdat we de v7-leerling-UI precies hebben.
+    if (!step2Data) {
+      return (
+        <div className="p-4 text-sm text-gray-700">
+          <p className="mb-2">
+            Er is nog geen leerlingmateriaal gegenereerd voor deze les.
+          </p>
+          <p className="mb-2">
+            Klik op{" "}
+            <button
+              className="inline-flex items-center px-3 py-1 rounded-full border border-gray-300 text-xs"
+              onClick={generateStep2}
+            >
+              Step 2 – genereer leerlingmateriaal
+            </button>{" "}
+            om STEP 2 te starten.
+          </p>
+        </div>
+      );
+    }
+
     return (
-      <div>
-        <h2>Stap 2 – Leerlingmateriaal</h2>
-        <p style={{ fontSize: "0.85rem", color: "#666" }}>
-          v7-keten is actief; deze weergave kun je later mooi maken.
-        </p>
-        <pre
-          style={{
-            marginTop: "1rem",
-            padding: "0.75rem",
-            borderRadius: "0.75rem",
-            background: "#111",
-            color: "#eee",
-            fontSize: "0.75rem",
-            maxHeight: "24rem",
-            overflow: "auto",
-          }}
-        >
-          {JSON.stringify(step2, null, 2)}
-        </pre>
+      <div className="p-4 space-y-4">
+        <section>
+          <h3 className="font-semibold mb-2">Debug-weergave STEP 2 JSON</h3>
+          <pre className="text-xs bg-gray-50 border border-gray-200 rounded-md p-2 overflow-auto max-h-[60vh]">
+            {JSON.stringify(step2Data, null, 2)}
+          </pre>
+        </section>
       </div>
     );
   };
 
+  // ===== Main render =====
+
+  if (!concept || !concept.hoofdvraag) {
+    return (
+      <div className="max-w-5xl mx-auto p-4">
+        <button
+          className="mb-4 text-sm text-blue-600 hover:underline"
+          onClick={handleBackToProposals}
+        >
+          ← Terug naar lesvoorstellen
+        </button>
+        <p className="text-sm text-red-600">
+          Geen lesconcept gevonden. Ga terug naar de lesvoorstellen.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <main
-      style={{
-        maxWidth: "1100px",
-        margin: "0 auto",
-        padding: "1.5rem 1rem 3rem",
-        display: "grid",
-        gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1.4fr)",
-        gap: "2rem",
-      }}
-    >
-      <div>
-        {renderLesconcept()}
+    <div className="max-w-5xl mx-auto border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm mt-4">
+      {renderConcept()}
 
-        <div style={{ marginTop: "1.5rem", display: "flex", gap: "0.5rem" }}>
-          <button
-            type="button"
-            onClick={() => setActiveTab("docent")}
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "999px",
-              border: "1px solid #111",
-              background: activeTab === "docent" ? "#111" : "#fff",
-              color: activeTab === "docent" ? "#fff" : "#111",
-              cursor: "pointer",
-            }}
-          >
-            Stap 1 – Docent
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("leerling")}
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "999px",
-              border: "1px solid #111",
-              background: activeTab === "leerling" ? "#111" : "#fff",
-              color: activeTab === "leerling" ? "#fff" : "#111",
-              cursor: "pointer",
-            }}
-          >
-            Stap 2 – Leerling
-          </button>
-        </div>
-
-        <section style={{ marginTop: "1.5rem" }}>
-          {error && (
-            <p style={{ color: "crimson", marginBottom: "1rem" }}>{error}</p>
-          )}
-          {activeTab === "docent" ? renderDocentTab() : renderLeerlingTab()}
-        </section>
+      {/* Tabs */}
+      <div className="px-4 pt-4 border-b border-gray-200 flex gap-2">
+        <button
+          className={`px-4 py-2 rounded-full text-sm border ${
+            activeTab === "docent"
+              ? "bg-black text-white border-black"
+              : "bg-white text-gray-800 border-gray-300"
+          }`}
+          onClick={() => {
+            setActiveTab("docent");
+            if (!step1Docent && !step1Loading) {
+              void generateStep1();
+            }
+          }}
+        >
+          Step 1 – Docent
+        </button>
+        <button
+          className={`px-4 py-2 rounded-full text-sm border ${
+            activeTab === "leerling"
+              ? "bg-black text-white border-black"
+              : "bg-white text-gray-800 border-gray-300"
+          }`}
+          onClick={() => {
+            setActiveTab("leerling");
+            if (!step2Data && !step2Loading) {
+              void generateStep2();
+            }
+          }}
+        >
+          Step 2 – Leerling
+        </button>
       </div>
 
-      <aside>{renderBronnen()}</aside>
-    </main>
+      {/* Tab content */}
+      <div className="min-h-[200px]">
+        {activeTab === "docent" ? renderDocentTab() : renderLeerlingTab()}
+      </div>
+    </div>
   );
 };
 
