@@ -1,628 +1,1027 @@
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-  useRef,
-} from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { useSelectionStore, Source } from "../state/selection.store";
+import React, { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
-// Gebruik de Vite-proxy i.p.v. hard-coded host
-const API_BASE = "/api";
+// ==== Types ====
 
-type Deelvraag = {
-  vraag: string;
-  dimensie?: string;
-  subdimensie?: string;
-};
-
-type Leeropbrengst = {
-  id?: string;
-  beschrijving: string;
-  deelvraagIndex: number | null;
-};
-
-type ProposalConcept = {
-  id: string;
-  title: string;
-  hook?: string;
-  hoofdvraag: string;
-  deelvragen?: Deelvraag[];
-  leeropbrengsten?: Leeropbrengst[];
-  contextLabel?: string;
-  targetAudience?: string;
-  masterSignature: string;
+type TvKaInfo = {
   tv?: string;
+  tvLabel?: string;
   ka?: string;
+  kaLabel?: string;
 };
 
-type Proposal = {
+type RawSource = {
+  id: string | number;
+  provider?: string;
+  type?: string;
+  title?: string;
+  description?: string;
+  fullText?: string;
+  content?: string;
+  url?: string | null;
+  imageUrl?: string | null;
+};
+
+type LessonProposal = {
   id: string;
-  concept: ProposalConcept;
-  sourceIds: Array<string | number>;
-  primarySourceIds?: Array<string | number>;
+  hoofdvraag: string;
+  hook: string;
+  context: string;
+  tv?: string;
+  tvLabel?: string;
+  ka?: string;
+  kaLabel?: string;
+  lesopbrengst?: string;
+  bronIds: Array<string | number>;
+  complexityLevel: number;
+  nuanceLevel: number;
+  extraDocentWish: string;
 };
 
-type ProposalsResponse = {
-  allSources: Source[];
-  proposals: Proposal[];
-  meta: {
-    countAll: number;
-    countProposals: number;
-    masterSignature: string;
-    from: "gemini" | "dummy-fallback";
-    error?: string;
+type ProposalsResponsePayload = {
+  step?: string;
+  data?: {
+    proposals?: any[];
+    allSources?: RawSource[];
+    meta?: {
+      coreSourceIds?: Array<string | number>;
+      tv?: string;
+      ka?: string;
+    };
   };
+  error?: string;
 };
 
-type ProposalsLocationState = {
-  tv?: string | null;
-  ka?: string | null;
-  conceptHint?: string;
-  sources?: Source[];
-};
+// ==== Helpers ====
+
+function isImageSource(source: RawSource): boolean {
+  if (!source) return false;
+  if (source.imageUrl) return true;
+  const t = (source.type || "").toLowerCase();
+  return t.includes("image") || t === "foto" || t === "afbeelding";
+}
+
+function makePreviewText(source: RawSource): string {
+  const text =
+    source.description || source.fullText || source.content || source.title || "";
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= 160) return trimmed;
+  return trimmed.slice(0, 157) + "...";
+}
+
+// BELANGRIJK: alles uit raw.concept.* halen
+function normalizeProposal(raw: any, defaultTvKa: TvKaInfo): LessonProposal {
+  const concept = raw.concept || {};
+
+  const tv = concept.tv || raw.tv || defaultTvKa.tv || "";
+  const tvLabel = concept.tvLabel || raw.tvLabel || defaultTvKa.tvLabel || "";
+  const ka = concept.ka || raw.ka || defaultTvKa.ka || "";
+  const kaLabel = concept.kaLabel || raw.kaLabel || defaultTvKa.kaLabel || "";
+
+  const hoofdvraag: string =
+    concept.hoofdvraag ||
+    concept.hoofdVraag ||
+    raw.hoofdvraag ||
+    raw.hoofdVraag ||
+    raw.hoofd_vraag ||
+    "";
+
+  const hook: string = concept.hook || raw.hook || "";
+  const context: string = concept.context || raw.context || "";
+
+  const lesopbrengst: string =
+    concept.lesopbrengst ||
+    concept.lesOpbrengst ||
+    concept.lesdoel ||
+    concept.lesdoelen ||
+    raw.lesopbrengst ||
+    raw.lesOpbrengst ||
+    raw.lesdoel ||
+    raw.lesdoelen ||
+    "";
+
+  // >>> HIER: bronIds opbouwen uit bronIds, of uit sourceIds/primarySourceIds <<<
+  let bronIds: Array<string | number> = [];
+
+  if (Array.isArray(raw.bronIds)) {
+    bronIds = raw.bronIds;
+  } else if (Array.isArray(raw.bronnenIds)) {
+    bronIds = raw.bronnenIds;
+  } else if (Array.isArray(concept.bronIds)) {
+    bronIds = concept.bronIds;
+  } else {
+    const sourceIds: Array<string | number> = Array.isArray(raw.sourceIds)
+      ? raw.sourceIds
+      : [];
+    const primarySourceIds: Array<string | number> = Array.isArray(
+      raw.primarySourceIds
+    )
+      ? raw.primarySourceIds
+      : [];
+
+    if (primarySourceIds.length || sourceIds.length) {
+      const primarySet = new Set(primarySourceIds.map((id: any) => String(id)));
+      const rest = sourceIds.filter(
+        (id: any) => !primarySet.has(String(id))
+      );
+      bronIds = [...primarySourceIds, ...rest];
+    }
+  }
+
+  return {
+    id: raw.id || `proposal-${Math.random().toString(36).slice(2, 10)}`,
+    hoofdvraag,
+    hook,
+    context,
+    tv,
+    tvLabel,
+    ka,
+    kaLabel,
+    lesopbrengst,
+    bronIds,
+    complexityLevel: 3,
+    nuanceLevel: 3,
+    extraDocentWish: "",
+  };
+}
+
+// ==== Component ====
 
 const ProposalsPage: React.FC = () => {
-  const navigate = useNavigate();
   const location = useLocation();
-  const navState = (location.state || {}) as ProposalsLocationState;
+  const navigate = useNavigate();
 
-  // Global store – zelfde als in de zoekpagina
-  const { sources: globalSources } = useSelectionStore();
+  const state = (location.state || {}) as {
+    sources?: RawSource[];
+    tvKa?: TvKaInfo;
+  };
 
-  // Bronnen die we daadwerkelijk richting backend sturen:
-  // voorkeur: global store; fallback: state uit navigate()
-  const effectiveSources: Source[] =
-    (globalSources && globalSources.length > 0
-      ? globalSources
-      : navState.sources) || [];
+  const initialSources: RawSource[] = state.sources || [];
+  const initialTvKa: TvKaInfo = state.tvKa || {};
 
-  const [loading, setLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [hasRequested, setHasRequested] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [allSources, setAllSources] = useState<Source[]>([]);
-  const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [meta, setMeta] = useState<ProposalsResponse["meta"] | null>(null);
-
-  const [selectedProposalId, setSelectedProposalId] =
-    useState<string | null>(null);
+  const [proposals, setProposals] = useState<LessonProposal[]>([]);
+  const [allSources, setAllSources] = useState<RawSource[]>(initialSources);
+  const [activeSourceIds, setActiveSourceIds] = useState<Set<string | number>>(
+    () => new Set(initialSources.map((s) => s.id))
+  );
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(
+    null
+  );
   const [selectedSourceId, setSelectedSourceId] = useState<
     string | number | null
   >(null);
 
-  // Bronnen die je voor een bepaald voorstel "weggooit"
-  // key = proposalId, value = Set van verborgen bron-ids (als string)
-  const [hiddenByProposal, setHiddenByProposal] = useState<
-    Record<string, Set<string>>
-  >({});
+  const MAX_SOURCES_PER_PROPOSAL = 15;
 
-  const proposalsListRef = useRef<HTMLDivElement | null>(null);
+  // ==== Data ophalen van backend (/api/proposals-v2) ====
 
-  // Proposals ophalen bij eerste mount
   useEffect(() => {
+    if (hasRequested) return;
+    if (!initialSources || initialSources.length === 0) return;
+
     const run = async () => {
-      if (!effectiveSources || effectiveSources.length === 0) {
-        setError(
-          "Geen bronnen gevonden om lesvoorstellen mee te maken. Ga eerst terug en doe een zoekopdracht."
-        );
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
       try {
-        const res = await fetch(`${API_BASE}/proposals-v2`, {
+        setHasRequested(true);
+        setIsLoading(true);
+        setError(null);
+
+        const resp = await fetch("/api/proposals-v2", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tv: navState.tv ?? null,
-            ka: navState.ka ?? null,
-            conceptHint: navState.conceptHint ?? "",
-            sources: effectiveSources,
+            tvKa: initialTvKa,
+            sources: initialSources,
           }),
         });
 
-        if (!res.ok) {
-          throw new Error(`Proposals API fout: ${res.status}`);
+        const raw = (await resp.json()) as ProposalsResponsePayload;
+
+        if (!resp.ok || raw.error) {
+          throw new Error(
+            raw.error || `Backend-fout bij proposals-v2 (status ${resp.status})`
+          );
         }
 
-        const data: ProposalsResponse = await res.json();
+        const payload = raw.data || (raw as any);
 
-        setAllSources(data.allSources || []);
-        setProposals(data.proposals || []);
-        setMeta(data.meta || null);
+        const backendSources: RawSource[] = Array.isArray(payload.allSources)
+          ? payload.allSources
+          : initialSources;
 
-        if (data.proposals && data.proposals.length > 0) {
-          setSelectedProposalId(data.proposals[0].id);
+        const proposalsRaw: any[] = Array.isArray(payload.proposals)
+          ? payload.proposals
+          : [];
+
+        if (proposalsRaw.length === 0) {
+          throw new Error("Backend gaf geen lesvoorstellen terug.");
+        }
+
+        const normalizedProposals = proposalsRaw.map((p) =>
+          normalizeProposal(p, initialTvKa)
+        );
+
+        setProposals(normalizedProposals);
+        setAllSources(backendSources);
+
+        const initialActive = new Set<string | number>(
+          backendSources.map((s) => s.id)
+        );
+        setActiveSourceIds(initialActive);
+
+        if (normalizedProposals[0]) {
+          setSelectedProposalId(normalizedProposals[0].id);
         }
       } catch (err: any) {
-        console.error("[ProposalsPage] fout bij ophalen proposals", err);
-        setError(
-          "Er ging iets mis bij het maken van lesvoorstellen. Controleer de backend-log voor details."
-        );
+        console.error("[ProposalsPage] fout:", err);
+        setError(err.message || "Onbekende fout bij het laden van voorstellen.");
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
 
     run();
-  }, [effectiveSources, navState.tv, navState.ka, navState.conceptHint]);
+  }, [hasRequested, initialSources, initialTvKa]);
 
-  const handleSelectProposal = (id: string) => {
-    setSelectedProposalId(id);
-    setSelectedSourceId(null);
-    if (proposalsListRef.current) {
-      proposalsListRef.current.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  };
+  // ==== Derived state ====
 
-  const selectedProposal = useMemo(
-    () => proposals.find((p) => p.id === selectedProposalId) || null,
-    [proposals, selectedProposalId]
-  );
-
-  // Geselecteerde voorstel altijd bovenaan tonen
-  const orderedProposals: Proposal[] = useMemo(() => {
-    if (!selectedProposalId) return proposals;
-    const selected = proposals.find((p) => p.id === selectedProposalId);
-    if (!selected) return proposals;
-    const rest = proposals.filter((p) => p.id !== selectedProposalId);
-    return [selected, ...rest];
+  const selectedProposal: LessonProposal | null = useMemo(() => {
+    if (!selectedProposalId || proposals.length === 0) return null;
+    return proposals.find((p) => p.id === selectedProposalId) || proposals[0];
   }, [proposals, selectedProposalId]);
 
-  // Helpers voor "weggooien" van bronnen
-  const isHiddenForSelectedProposal = (sourceId: string | number): boolean => {
-    if (!selectedProposalId) return false;
-    const set = hiddenByProposal[selectedProposalId];
-    if (!set) return false;
-    return set.has(String(sourceId));
-  };
+  // Geselecteerd voorstel bovenaan
+  const sortedProposals: LessonProposal[] = useMemo(() => {
+    if (!selectedProposal) return proposals;
+    const rest = proposals.filter((p) => p.id !== selectedProposal.id);
+    return [selectedProposal, ...rest];
+  }, [proposals, selectedProposal]);
 
-  const hideSourceForSelectedProposal = (sourceId: string | number) => {
-    if (!selectedProposalId) return;
-    setHiddenByProposal((prev) => {
-      const currentSet = prev[selectedProposalId]
-        ? new Set(prev[selectedProposalId])
-        : new Set<string>();
-      currentSet.add(String(sourceId));
-      return {
-        ...prev,
-        [selectedProposalId]: currentSet,
-      };
+  // "Meest relevante" = eerste helft van bronIds van dit voorstel
+  const coreIdsForSelected: Set<string> = useMemo(() => {
+    if (!selectedProposal) return new Set();
+    const ids = selectedProposal.bronIds || [];
+    if (ids.length === 0) return new Set();
+    const coreCount = Math.min(
+      Math.max(3, Math.floor(MAX_SOURCES_PER_PROPOSAL / 2)),
+      ids.length
+    );
+    const coreSlice = ids.slice(0, coreCount).map((id) => String(id));
+    return new Set(coreSlice);
+  }, [selectedProposal]);
+
+  const selectedProposalSources: RawSource[] = useMemo(() => {
+    if (!selectedProposal) return [];
+
+    const relevantIds =
+      selectedProposal.bronIds && selectedProposal.bronIds.length > 0
+        ? new Set(selectedProposal.bronIds.map((id: any) => String(id)))
+        : null;
+
+    const filtered = allSources.filter((s) => {
+      if (!activeSourceIds.has(s.id)) return false;
+      if (relevantIds) return relevantIds.has(String(s.id));
+      return true;
     });
-    if (String(selectedSourceId) === String(sourceId)) {
-      setSelectedSourceId(null);
-    }
-  };
 
-  // Bronnen van de geselecteerde proposal (nog zonder weggegooide filter)
-  const selectedProposalSources: Source[] = useMemo(() => {
-    if (!selectedProposal) return [];
+    const limited = filtered.slice(0, MAX_SOURCES_PER_PROPOSAL);
 
-    const setIds = new Set(
-      (selectedProposal.sourceIds || []).map((id) => String(id))
-    );
+    const core: RawSource[] = [];
+    const nonCore: RawSource[] = [];
 
-    return allSources.filter((s) => setIds.has(String(s.id)));
-  }, [selectedProposal, allSources]);
-
-  // Primary eerst, dan de rest – max 15 tonen – minus weggegooide bronnen
-  const sortedRecommendationSources: Source[] = useMemo(() => {
-    if (!selectedProposal) return [];
-
-    const primaryIds = new Set(
-      (selectedProposal.primarySourceIds || []).map((id) => String(id))
-    );
-
-    const hiddenSet = selectedProposalId
-      ? hiddenByProposal[selectedProposalId] || new Set<string>()
-      : new Set<string>();
-
-    const primary: Source[] = [];
-    const rest: Source[] = [];
-
-    for (const src of selectedProposalSources) {
-      if (hiddenSet.has(String(src.id))) continue;
-      if (primaryIds.has(String(src.id))) {
-        primary.push(src);
-      } else {
-        rest.push(src);
-      }
+    for (const s of limited) {
+      if (coreIdsForSelected.has(String(s.id))) core.push(s);
+      else nonCore.push(s);
     }
 
-    const combined = [...primary, ...rest];
-    return combined.slice(0, 15);
-  }, [selectedProposal, selectedProposalSources, hiddenByProposal, selectedProposalId]);
+    return [...core, ...nonCore];
+  }, [selectedProposal, allSources, activeSourceIds, coreIdsForSelected]);
 
-  // Geselecteerde bron-detail
-  const selectedSource: Source | null = useMemo(() => {
+  const selectedSource: RawSource | null = useMemo(() => {
     if (!selectedSourceId) return null;
     return (
       allSources.find((s) => String(s.id) === String(selectedSourceId)) || null
     );
   }, [selectedSourceId, allSources]);
 
-  // IMAGE-URL voor kaarten en detail
-  const getImageUrl = (source: Source) => {
-    if (!source.imageUrl) return undefined;
-    if (source.type === "TEXT") return undefined;
+  // ==== Handlers ====
 
-    const url = source.imageUrl;
-    if (url.includes("profile/picture")) return undefined;
-
-    const isCito =
-      source.provider === "Cito" || String(source.id).startsWith("cito");
-    const isKleio =
-      source.provider === "Kleio" ||
-      (url && (url.includes("kleio") || url.includes("vgn")));
-
-    if (isCito || isKleio) {
-      return `${API_BASE}/image-proxy?url=${encodeURIComponent(url)}`;
-    }
-
-    return url;
+  const handleSelectProposal = (id: string) => {
+    setSelectedProposalId(id);
+    setSelectedSourceId(null);
   };
 
-  /**
-   * Gebruik dit lesvoorstel → naar /lesson
-   * Belangrijk v7.1-regel:
-   * Alles wat de gebruiker "weggooit" bij dit voorstel gaat NIET mee naar step1/2/3/4.
-   */
-  const handleUseProposal = (proposal: Proposal) => {
-    // Welke bronnen zijn expliciet weggegooid voor dit proposal?
-    const hiddenSet = hiddenByProposal[proposal.id] || new Set<string>();
+  const handleToggleSource = (sourceId: string | number) => {
+    setActiveSourceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sourceId)) {
+        next.delete(sourceId);
+      } else {
+        next.add(sourceId);
+      }
+      return next;
+    });
 
-    // Filter de sourceIds van dit proposal op basis van hiddenSet
-    const visibleSourceIds = proposal.sourceIds.filter(
-      (id) => !hiddenSet.has(String(id))
-    );
-    const visibleIdSet = new Set(visibleSourceIds.map((id) => String(id)));
+    if (selectedSourceId === sourceId) {
+      setSelectedSourceId(null);
+    }
+  };
 
-    // Pak alleen de bronnen die bij dit voorstel horen én niet zijn weggegooid
-    const proposalSources = allSources.filter((s) =>
-      visibleIdSet.has(String(s.id))
-    );
+  const handleUseProposal = (proposal: LessonProposal) => {
+    const relevantIds =
+      proposal.bronIds && proposal.bronIds.length > 0
+        ? new Set(proposal.bronIds.map((id: any) => String(id)))
+        : null;
+
+    const selectedSources = allSources.filter((s) => {
+      if (!activeSourceIds.has(s.id)) return false;
+      if (relevantIds) return relevantIds.has(String(s.id));
+      return true;
+    });
+
+    const concept = {
+      hoofdvraag: proposal.hoofdvraag,
+      hook: proposal.hook,
+      context: proposal.context,
+      tv: proposal.tv,
+      tvLabel: proposal.tvLabel,
+      ka: proposal.ka,
+      kaLabel: proposal.kaLabel,
+      lesopbrengst: proposal.lesopbrengst,
+      complexityLevel: proposal.complexityLevel,
+      nuanceLevel: proposal.nuanceLevel,
+      extraDocentWish: proposal.extraDocentWish,
+    };
 
     navigate("/lesson", {
       state: {
-        concept: proposal.concept,
-        sources: proposalSources,
-        tvKa: {
-          tv: navState.tv ? Number(navState.tv) : null,
-          tvLabel: proposal.concept.tv,
-          ka: navState.ka ?? null,
-          kaLabel: proposal.concept.ka,
-        },
-        meta: {
-          from: "proposals",
-          masterSignature: meta?.masterSignature,
-          chainSignature: meta?.masterSignature,
-        },
+        tvKa: initialTvKa,
+        concept,
+        sources: selectedSources,
       },
     });
   };
 
-  const renderLeeropbrengsten = (los?: Leeropbrengst[]) => {
-    if (!los || los.length === 0) return null;
-    return (
-      <ul className="mt-2 space-y-1 text-sm list-disc list-inside">
-        {los.map((lo) => (
-          <li key={lo.id || lo.beschrijving.slice(0, 30)}>
-            {lo.beschrijving}
-          </li>
-        ))}
-      </ul>
+  const handleRefineProposal = async (proposalId: string) => {
+    const proposal = proposals.find((p) => p.id === proposalId);
+    if (!proposal) return;
+
+    try {
+      setError(null);
+
+      const body = {
+        tvKa: {
+          tv: proposal.tv || initialTvKa.tv,
+          tvLabel: proposal.tvLabel || initialTvKa.tvLabel,
+          ka: proposal.ka || initialTvKa.ka,
+          kaLabel: proposal.kaLabel || initialTvKa.kaLabel,
+        },
+        originalConcept: {
+          hoofdvraag: proposal.hoofdvraag,
+          hook: proposal.hook,
+          context: proposal.context,
+          tv: proposal.tv || initialTvKa.tv,
+          tvLabel: proposal.tvLabel || initialTvKa.tvLabel,
+          ka: proposal.ka || initialTvKa.ka,
+          kaLabel: proposal.kaLabel || initialTvKa.kaLabel,
+          lesopbrengst: proposal.lesopbrengst || "",
+        },
+        complexityLevel: proposal.complexityLevel,
+        nuanceLevel: proposal.nuanceLevel,
+        docentInstructie: proposal.extraDocentWish || "",
+      };
+
+      const resp = await fetch("/api/generate-lesson-v2/refine-concept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (resp.status === 404) {
+        console.warn(
+          "[ProposalsPage] refine-concept route (nog) niet beschikbaar (404)"
+        );
+        setError(
+          "AI-verfijning van hoofdvraag/toon is nog niet aangesloten op de backend. " +
+            "De schuifjes en 'Pas aan met AI'-knop gaan werken zodra die route is gebouwd."
+        );
+        return;
+      }
+
+      const data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        throw new Error(
+          data.error ||
+            `Backend-fout bij refine-concept (status ${resp.status})`
+        );
+      }
+
+      const payload = data.data || data;
+      const concept = payload.concept || payload;
+
+      setProposals((prev) =>
+        prev.map((p) => {
+          if (p.id !== proposalId) return p;
+          return {
+            ...p,
+            hoofdvraag: concept.hoofdvraag || p.hoofdvraag,
+            hook: concept.hook || p.hook,
+            context: concept.context || p.context,
+            tv: concept.tv || p.tv,
+            tvLabel: concept.tvLabel || p.tvLabel,
+            ka: concept.ka || p.ka,
+            kaLabel: concept.kaLabel || p.kaLabel,
+            lesopbrengst: concept.lesopbrengst || p.lesopbrengst,
+          };
+        })
+      );
+    } catch (err: any) {
+      console.error("[ProposalsPage] refine-fout:", err);
+      setError(
+        err.message || "Er ging iets mis bij het verfijnen van de hoofdvraag."
+      );
+    }
+  };
+
+  const handleChangeComplexity = (proposalId: string, value: number) => {
+    setProposals((prev) =>
+      prev.map((p) =>
+        p.id === proposalId ? { ...p, complexityLevel: value } : p
+      )
     );
   };
 
-  const proposalsSourceCount = selectedProposalSources.length;
-  const globalSourceCount = effectiveSources.length;
+  const handleChangeNuance = (proposalId: string, value: number) => {
+    setProposals((prev) =>
+      prev.map((p) =>
+        p.id === proposalId ? { ...p, nuanceLevel: value } : p
+      )
+    );
+  };
+
+  const handleChangeDocentWish = (proposalId: string, value: string) => {
+    setProposals((prev) =>
+      prev.map((p) =>
+        p.id === proposalId ? { ...p, extraDocentWish: value } : p
+      )
+    );
+  };
+
+  // ==== Render ====
+
+  if (!initialSources || initialSources.length === 0) {
+    return (
+      <div style={{ padding: "1.5rem" }}>
+        <h1>Lesvoorstellen</h1>
+        <p>Er zijn geen bronnen doorgegeven vanuit de zoekstap.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
-      <header className="bg-white border-b px-6 py-3 flex justify-between items-center shadow-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">🦁</span>
-          <div>
-            <h1 className="font-bold tracking-tight">
-              Lesvoorstellen{" "}
-              <span className="text-indigo-600">Lessie / LesGO v2</span>
-            </h1>
-            <p className="text-xs text-gray-500">
-              gegenereerd op basis van je Kleio/Cito-bronnen (v7-keten,
-              masterprompt v7.1)
-            </p>
-          </div>
+    <div style={{ padding: "1.5rem" }}>
+      <h1 style={{ marginBottom: "0.5rem" }}>Lesvoorstellen</h1>
+      <p style={{ marginBottom: "1rem", maxWidth: "900px" }}>
+        Kies één lesvoorstel, stel eventueel taalniveau en nuance bij en genereer
+        daarna het lesmateriaal. In de middelste kolom zie je de bronnen bij het
+        gekozen voorstel. De geel gemarkeerde bronnen met ster worden als meest
+        richtinggevend gezien.
+      </p>
+
+      {error && (
+        <div
+          style={{
+            marginBottom: "0.75rem",
+            padding: "0.75rem",
+            borderRadius: "0.5rem",
+            backgroundColor: "#ffe6e6",
+            border: "1px solid #ffb3b3",
+            color: "#660000",
+          }}
+        >
+          {error}
         </div>
+      )}
 
-        <div className="text-right text-xs text-gray-500">
-          <div>
-            keten-signature:{" "}
-            <span className="font-mono font-semibold">
-              {meta?.masterSignature || "n.v.t."}
-            </span>
-          </div>
-          <div>
-            bron:{" "}
-            <span className="font-semibold">
-              {meta?.from === "dummy-fallback" ? "dummy-fallback" : "gemini"}
-            </span>
-          </div>
-          <div className="text-[11px] mt-1">
-            debug → sources→Gemini:{" "}
-            <span className="font-mono">{proposalsSourceCount || 0}</span> (effective
-            sources: <span className="font-mono">{globalSourceCount}</span>)
-          </div>
-        </div>
-      </header>
+      {isLoading && (
+        <div style={{ marginBottom: "0.75rem" }}>Lesvoorstellen laden…</div>
+      )}
 
-      <main className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
-        {/* Linkerkolom – proposals */}
-        <section className="col-span-4 border-r border-gray-200 bg-white overflow-y-auto p-4">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wide">
-              Lesvoorstellen
-            </h2>
-            <button
-              onClick={() => navigate(-1)}
-              className="text-xs text-indigo-600 font-semibold hover:underline"
-            >
-              ← Terug naar zoeken
-            </button>
-          </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.2fr)",
+          gap: "1rem",
+        }}
+      >
+        {/* Kolom 1 – Lesvoorstellen */}
+        <div>
+          <h2
+            style={{
+              fontSize: "1rem",
+              marginBottom: "0.5rem",
+            }}
+          >
+            1. Kies een lesvoorstel
+          </h2>
+          {sortedProposals.map((proposal) => {
+            const isSelected = selectedProposal?.id === proposal.id;
+            const cardBg = isSelected ? "#e6f0ff" : "#f7f7f7";
+            const cardBorder = isSelected ? "#5b8def" : "#dddddd";
 
-          {loading && (
-            <div className="text-sm text-gray-500">
-              Lesvoorstellen worden gemaakt…
-            </div>
-          )}
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-lg">
-              <strong>Fout:</strong> {error}
-            </div>
-          )}
-
-          {!loading && !error && orderedProposals.length === 0 && (
-            <div className="text-sm text-gray-500">
-              Geen lesvoorstellen ontvangen van de backend.
-            </div>
-          )}
-
-          <div className="space-y-3 mt-2" ref={proposalsListRef}>
-            {orderedProposals.map((p) => {
-              const isSelected = p.id === selectedProposalId;
-              const concept = p.concept;
-              const los = concept.leeropbrengsten || [];
-
-              return (
+            return (
+              <div
+                key={proposal.id}
+                onClick={() => handleSelectProposal(proposal.id)}
+                style={{
+                  marginBottom: "0.75rem",
+                  padding: "0.75rem",
+                  borderRadius: "0.75rem",
+                  border: `1px solid ${cardBorder}`,
+                  backgroundColor: cardBg,
+                  cursor: "pointer",
+                }}
+              >
                 <div
-                  key={p.id}
-                  className={`border rounded-xl p-3 cursor-pointer transition-all ${
-                    isSelected
-                      ? "border-indigo-500 shadow-md bg-indigo-50/60"
-                      : "border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm"
-                  }`}
-                  onClick={() => handleSelectProposal(p.id)}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "baseline",
+                    gap: "0.5rem",
+                    marginBottom: "0.25rem",
+                  }}
                 >
-                  <div className="flex justify-between items-start gap-2">
-                    <div>
-                      <h3 className="font-bold text-sm">
-                        {concept.title || "Lesvoorstel"}
-                      </h3>
-                      <p className="text-[11px] text-gray-500">
-                        {concept.contextLabel || ""}
-                      </p>
-                    </div>
-                    <div className="text-[11px] text-gray-500 text-right">
-                      <div>
-                        {p.sourceIds.length} bronnen •{" "}
-                        {(p.primarySourceIds || []).length} ⭐
-                      </div>
-                    </div>
+                  <strong style={{ fontSize: "0.95rem" }}>
+                    {proposal.hoofdvraag || "Hoofdvraag ontbreekt"}
+                  </strong>
+                  {isSelected && (
+                    <span
+                      style={{
+                        fontSize: "0.75rem",
+                        padding: "0.1rem 0.4rem",
+                        borderRadius: "999px",
+                        backgroundColor: "#5b8def",
+                        color: "white",
+                      }}
+                    >
+                      Geselecteerd
+                    </span>
+                  )}
+                </div>
+
+                {proposal.hook && (
+                  <p
+                    style={{
+                      fontSize: "0.85rem",
+                      marginBottom: "0.25rem",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    Hook: {proposal.hook}
+                  </p>
+                )}
+
+                {proposal.context && (
+                  <p
+                    style={{
+                      fontSize: "0.85rem",
+                      marginBottom: "0.25rem",
+                    }}
+                  >
+                    Context: {proposal.context}
+                  </p>
+                )}
+
+                {proposal.lesopbrengst && (
+                  <p
+                    style={{
+                      fontSize: "0.85rem",
+                      marginBottom: "0.4rem",
+                    }}
+                  >
+                    <strong>Lesopbrengst:</strong> {proposal.lesopbrengst}
+                  </p>
+                )}
+
+                {/* Refinement-instellingen */}
+                <div
+                  style={{
+                    marginTop: "0.5rem",
+                    paddingTop: "0.5rem",
+                    borderTop: "1px solid rgba(0,0,0,0.08)",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "minmax(0, 1fr)",
+                      gap: "0.4rem",
+                      marginBottom: "0.4rem",
+                    }}
+                  >
+                    <label
+                      style={{
+                        fontSize: "0.8rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.15rem",
+                      }}
+                    >
+                      Taal/complexiteit (1 = eenvoudiger, 5 = abstracter)
+                      <input
+                        type="range"
+                        min={1}
+                        max={5}
+                        value={proposal.complexityLevel}
+                        onChange={(e) =>
+                          handleChangeComplexity(
+                            proposal.id,
+                            Number(e.target.value)
+                          )
+                        }
+                      />
+                      <span style={{ fontSize: "0.75rem" }}>
+                        Huidig: {proposal.complexityLevel}
+                      </span>
+                    </label>
+
+                    <label
+                      style={{
+                        fontSize: "0.8rem",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "0.15rem",
+                      }}
+                    >
+                      Nuance (1 = stelliger, 5 = genuanceerder)
+                      <input
+                        type="range"
+                        min={1}
+                        max={5}
+                        value={proposal.nuanceLevel}
+                        onChange={(e) =>
+                          handleChangeNuance(
+                            proposal.id,
+                            Number(e.target.value)
+                          )
+                        }
+                      />
+                      <span style={{ fontSize: "0.75rem" }}>
+                        Huidig: {proposal.nuanceLevel}
+                      </span>
+                    </label>
                   </div>
 
-                  {concept.hook && (
-                    <p className="mt-2 text-xs italic text-gray-700">
-                      {concept.hook}
-                    </p>
-                  )}
-
-                  {concept.hoofdvraag && (
-                    <div className="mt-2">
-                      <p className="text-[11px] font-semibold text-gray-600 uppercase">
-                        Hoofdvraag
-                      </p>
-                      <p className="text-sm text-gray-800">
-                        {concept.hoofdvraag}
-                      </p>
-                    </div>
-                  )}
-
-                  {renderLeeropbrengsten(los)}
-
-                  <div className="mt-3 flex justify-between items-center">
-                    <span className="text-[11px] text-gray-500">
-                      Doelgroep: {concept.targetAudience || "Havo/vwo bovenbouw"}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleUseProposal(p);
+                  <label
+                    style={{
+                      fontSize: "0.8rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.25rem",
+                      marginBottom: "0.4rem",
+                    }}
+                  >
+                    Extra wens van de docent (optioneel)
+                    <textarea
+                      value={proposal.extraDocentWish}
+                      onChange={(e) =>
+                        handleChangeDocentWish(proposal.id, e.target.value)
+                      }
+                      placeholder="Bijv. 'Maak de hoofdvraag iets scherper voor discussie' of 'Hou de toon wat neutraler'."
+                      rows={2}
+                      style={{
+                        resize: "vertical",
+                        fontSize: "0.8rem",
+                        padding: "0.35rem",
+                        borderRadius: "0.5rem",
+                        border: "1px solid #cccccc",
                       }}
-                      className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg shadow-sm"
+                    />
+                  </label>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "0.4rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleRefineProposal(proposal.id)}
+                      style={{
+                        fontSize: "0.8rem",
+                        padding: "0.35rem 0.6rem",
+                        borderRadius: "999px",
+                        border: "1px solid #5b8def",
+                        backgroundColor: "#edf3ff",
+                        color: "#21427a",
+                        cursor: "pointer",
+                      }}
                     >
-                      Gebruik dit lesvoorstel →
+                      Pas aan met AI
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleUseProposal(proposal)}
+                      style={{
+                        fontSize: "0.8rem",
+                        padding: "0.35rem 0.6rem",
+                        borderRadius: "999px",
+                        border: "none",
+                        backgroundColor: "#2563eb",
+                        color: "white",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Gebruik dit lesvoorstel
                     </button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </section>
+              </div>
+            );
+          })}
+        </div>
 
-        {/* Middenkolom – aanbevolen bronnen */}
-        <section className="col-span-4 border-r border-gray-200 bg-gray-50 overflow-y-auto p-4">
-          <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">
-            Aanbevolen bronnen bij dit voorstel
+        {/* Kolom 2 – Bronnen bij geselecteerd voorstel */}
+        <div>
+          <h2
+            style={{
+              fontSize: "1rem",
+              marginBottom: "0.5rem",
+            }}
+          >
+            2. Bronnen bij het gekozen voorstel
           </h2>
 
-          {selectedProposal && sortedRecommendationSources.length === 0 && (
-            <p className="text-sm text-gray-500">
-              Geen bronnen gevonden voor dit voorstel.
+          {!selectedProposal && (
+            <p style={{ fontSize: "0.85rem" }}>
+              Kies eerst een lesvoorstel in de eerste kolom.
             </p>
           )}
 
-          <div className="space-y-3">
-            {sortedRecommendationSources.map((src) => {
-              const isPrimary = (selectedProposal?.primarySourceIds || []).some(
-                (id) => String(id) === String(src.id)
-              );
-              const imgUrl = getImageUrl(src);
+          {selectedProposal && selectedProposalSources.length === 0 && (
+            <p style={{ fontSize: "0.85rem" }}>
+              Er zijn geen actieve bronnen meer voor dit voorstel. Zet eventueel
+              bronnen weer "aan" of kies een ander voorstel.
+            </p>
+          )}
+
+          {selectedProposal &&
+            selectedProposalSources.map((s) => {
+              const isCore = coreIdsForSelected.has(String(s.id));
+              const isActive = activeSourceIds.has(s.id);
+              const preview = makePreviewText(s);
+
+              const bg = !isActive
+                ? "#f3f3f3"
+                : isCore
+                ? "#fff8d5"
+                : "#ffffff";
+              const border = isCore ? "#f0c96b" : "#dddddd";
 
               return (
                 <div
-                  key={src.id}
-                  className={`border rounded-lg p-2 flex gap-2 items-stretch cursor-pointer transition-all ${
-                    isPrimary
-                      ? "bg-yellow-50 border-yellow-300"
-                      : "bg-white border-gray-200 hover:border-indigo-200"
-                  }`}
-                  onClick={() => setSelectedSourceId(src.id)}
+                  key={s.id}
+                  onClick={() => setSelectedSourceId(s.id)}
+                  style={{
+                    marginBottom: "0.5rem",
+                    padding: "0.6rem",
+                    borderRadius: "0.65rem",
+                    border: `1px solid ${border}`,
+                    backgroundColor: bg,
+                    opacity: isActive ? 1 : 0.6,
+                    cursor: "pointer",
+                    display: "flex",
+                    gap: "0.5rem",
+                    alignItems: "flex-start",
+                  }}
                 >
-                  <div className="w-16 h-16 rounded-md overflow-hidden flex items-center justify-center bg-gray-100 border border-gray-200 shrink-0">
-                    {src.type === "TEXT" || !imgUrl ? (
-                      <span className="text-xl font-bold text-gray-400">T</span>
-                    ) : (
+                  <div
+                    style={{
+                      width: "40px",
+                      height: "40px",
+                      borderRadius: "0.5rem",
+                      overflow: "hidden",
+                      flexShrink: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: "1px solid rgba(0,0,0,0.06)",
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    {isImageSource(s) && s.imageUrl ? (
                       <img
-                        src={imgUrl}
-                        alt={src.title || ""}
-                        className="w-full h-full object-cover"
+                        src={s.imageUrl}
+                        alt={s.title || "bronafbeelding"}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                        }}
                       />
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: "0.85rem",
+                          fontWeight: 600,
+                        }}
+                      >
+                        T
+                      </span>
                     )}
                   </div>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1 text-[11px] text-gray-500">
-                        {isPrimary && (
-                          <span className="text-yellow-500" title="Kernbron">
-                            ⭐
-                          </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "0.4rem",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: "0.85rem",
+                            fontWeight: 600,
+                            marginBottom: "0.15rem",
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {s.title || `Bron ${String(s.id)}`}
+                        </div>
+                        {s.provider && (
+                          <div
+                            style={{
+                              fontSize: "0.7rem",
+                              color: "#555555",
+                              marginBottom: "0.15rem",
+                            }}
+                          >
+                            {s.provider}
+                          </div>
                         )}
-                        <span className="font-mono text-[10px] text-gray-500">
-                          #{src.id}
-                        </span>
-                        {src.type && (
-                          <span className="uppercase font-semibold">
-                            {src.type}
-                          </span>
-                        )}
-                        {src.provider && (
-                          <span className="text-indigo-600 font-semibold">
-                            {src.provider}
-                          </span>
+                        {preview && (
+                          <div
+                            style={{
+                              fontSize: "0.8rem",
+                              color: "#333333",
+                              wordBreak: "word-break",
+                            }}
+                          >
+                            {preview}
+                          </div>
                         )}
                       </div>
-                      <button
-                        className="text-[11px] text-gray-400 hover:text-red-500"
-                        title="Bron weggooien uit deze selectie"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          hideSourceForSelectedProposal(src.id);
+
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "0.2rem",
+                          alignItems: "flex-end",
                         }}
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        ×
-                      </button>
+                        {isCore && (
+                          <span
+                            style={{
+                              fontSize: "0.8rem",
+                              color: "#b38700",
+                            }}
+                          >
+                            ★
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSource(s.id)}
+                          title={
+                            isActive
+                              ? "Bron uitsluiten uit de les"
+                              : "Bron weer toevoegen aan de les"
+                          }
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: isActive ? "#b00020" : "#4caf50",
+                            cursor: "pointer",
+                            fontSize: "0.9rem",
+                          }}
+                        >
+                          {isActive ? "✕" : "⤴"}
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-xs font-semibold text-gray-800 truncate">
-                      {src.title || "Zonder titel"}
-                    </p>
-                    <p className="text-[11px] text-gray-600 line-clamp-2">
-                      {src.snippet ||
-                        src.description ||
-                        src.fullText?.slice(0, 120) ||
-                        "Geen korte beschrijving beschikbaar."}
-                    </p>
                   </div>
                 </div>
               );
             })}
-          </div>
-        </section>
+        </div>
 
-        {/* Rechterkolom – bron-detail */}
-        <section className="col-span-4 bg-white overflow-y-auto p-6">
-          {!selectedSource ? (
-            <div className="h-full flex flex-col items-center justify-center text-gray-300">
-              <span className="text-6xl mb-3">👈</span>
-              <p className="text-sm font-medium">
-                Klik op een bron in de middelste kolom voor details
-              </p>
-            </div>
-          ) : (
-            <div className="max-w-2xl mx-auto">
-              <div className="mb-4 border-b pb-3">
-                <div className="text-[11px] text-gray-500 flex gap-2 items-center mb-1">
-                  {selectedSource.type && (
-                    <span className="uppercase font-semibold">
-                      {selectedSource.type}
-                    </span>
-                  )}
-                  {selectedSource.provider && (
-                    <span className="text-indigo-600 font-semibold">
-                      {selectedSource.provider}
-                    </span>
-                  )}
-                  <span className="font-mono text-[10px] text-gray-400">
-                    #{selectedSource.id}
-                  </span>
-                </div>
-                <h2 className="text-xl font-bold text-gray-900">
-                  {selectedSource.title || "Zonder titel"}
-                </h2>
-              </div>
+        {/* Kolom 3 – Bron-detail */}
+        <div>
+          <h2
+            style={{
+              fontSize: "1rem",
+              marginBottom: "0.5rem",
+            }}
+          >
+            3. Detailweergave bron
+          </h2>
 
-              {getImageUrl(selectedSource) && (
-                <div className="mb-4 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
-                  <img
-                    src={getImageUrl(selectedSource)}
-                    alt={selectedSource.title || ""}
-                    className="w-full max-h-[420px] object-contain"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = "none";
-                    }}
-                  />
-                </div>
-              )}
-
-              <div className="prose prose-sm max-w-none text-gray-800">
-                <p>
-                  {selectedSource.fullText ||
-                    selectedSource.content ||
-                    selectedSource.description ||
-                    selectedSource.snippet ||
-                    "Geen toelichting beschikbaar."}
-                </p>
-              </div>
-
-              {selectedSource.url && (
-                <div className="mt-6 pt-4 border-t">
-                  <a
-                    href={selectedSource.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-indigo-600 font-semibold hover:underline text-sm"
-                  >
-                    Bekijk originele bron ↗
-                  </a>
-                </div>
-              )}
-            </div>
+          {!selectedSource && (
+            <p style={{ fontSize: "0.85rem" }}>
+              Klik in de middelste kolom op een bron om hier de uitgebreide
+              weergave te zien (zoals in de presearch).
+            </p>
           )}
-        </section>
-      </main>
+
+          {selectedSource && (() => {
+            const detailText =
+              selectedSource.fullText ||
+              selectedSource.content ||
+              selectedSource.description ||
+              "Geen extra tekst beschikbaar voor deze bron.";
+
+            return (
+              <div
+                style={{
+                  borderRadius: "0.75rem",
+                  border: "1px solid #dddddd",
+                  padding: "0.75rem",
+                  backgroundColor: "#fafafa",
+                }}
+              >
+                {isImageSource(selectedSource) && selectedSource.imageUrl && (
+                  <div
+                    style={{
+                      marginBottom: "0.5rem",
+                      borderRadius: "0.75rem",
+                      overflow: "hidden",
+                      border: "1px solid rgba(0,0,0,0.06)",
+                      maxHeight: "220px",
+                    }}
+                  >
+                    <img
+                      src={selectedSource.imageUrl}
+                      alt={selectedSource.title || "bronafbeelding"}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
+                    />
+                  </div>
+                )}
+
+                <h3
+                  style={{
+                    fontSize: "0.95rem",
+                    marginBottom: "0.25rem",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {selectedSource.title || `Bron ${String(selectedSource.id)}`}
+                </h3>
+
+                {selectedSource.provider && (
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      color: "#555",
+                      marginBottom: "0.25rem",
+                    }}
+                  >
+                    {selectedSource.provider}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {detailText}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
     </div>
   );
 };

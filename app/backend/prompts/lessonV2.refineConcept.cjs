@@ -1,133 +1,73 @@
+"use strict";
+
 // backend/prompts/lessonV2.refineConcept.cjs
-// Bouwt een prompt voor het licht herschrijven van een concept
-// (title, hook, hoofdvraag) met behoud van masterSignature.
+// Dunne wrapper rond MASTERPROMPT v7.1 voor refine-concept endpoint
 
-const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
+const {
+  CHAIN_SIGNATURE,
+  buildBaseRefineConceptPrompt,
+} = require("./lessonV2.base.cjs");
 
-function buildRefineConceptPrompt({ concept, mode, userHint }) {
-  const c = concept || {};
-  const m = mode || "default";
-  const hint = userHint || "";
+/**
+ * Bouwt de prompt voor het verfijnen van een bestaand lesconcept.
+ */
+function buildRefineConceptPrompt(params) {
+  return buildBaseRefineConceptPrompt(params);
+}
 
-  const payload = {
-    chainSignature: MASTER_SIGNATURE,
-    mode: m,
-    userHint: hint,
-    concept: {
-      id: c.id || null,
-      title: c.title || "",
-      hook: c.hook || "",
-      hoofdvraag: c.hoofdvraag || c.hoofdvraagText || "",
-      masterSignature: c.masterSignature || MASTER_SIGNATURE,
-      tv: c.tv || "",
-      ka: c.ka || "",
-    },
+/**
+ * Eenvoudige validatie + normalisatie van de Gemini-response.
+ */
+function validateRefineConceptResponse(json) {
+  if (!json || typeof json !== "object") {
+    throw new Error("Refine-concept: JSON-response is leeg of ongeldig.");
+  }
+
+  const concept =
+    json.concept ||
+    (json.data && json.data.concept) ||
+    json.conceptRefined ||
+    json;
+
+  if (!concept || typeof concept !== "object") {
+    throw new Error("Refine-concept: geen 'concept'-object in response.");
+  }
+
+  if (!concept.hoofdvraag) {
+    throw new Error(
+      "Refine-concept: 'hoofdvraag' ontbreekt in concept-object."
+    );
+  }
+
+  const safeConcept = {
+    hoofdvraag: String(concept.hoofdvraag || ""),
+    hook: String(concept.hook || ""),
+    context: String(concept.context || ""),
+    tv: concept.tv != null ? String(concept.tv) : "",
+    tvLabel: String(concept.tvLabel || ""),
+    ka: concept.ka != null ? String(concept.ka) : "",
+    kaLabel: String(concept.kaLabel || ""),
+    lesopbrengst: String(concept.lesopbrengst || ""),
   };
 
-  const systemText =
-`Je bent een expert in geschiedenisdidactiek.
-Je werkt volgens:
-- Het Vreemde Verleden
-- historisch redeneren en contextualiseren
-- anti-presentisme in de uitleg
-- WEL presentistische verwondering in de hoofdvraag ("Hoe konden zij...?").
+  const meta = {
+    chainSignature: CHAIN_SIGNATURE,
+    complexityLevel:
+      (json.meta && json.meta.complexityLevel) !== undefined
+        ? json.meta.complexityLevel
+        : undefined,
+    nuanceLevel:
+      (json.meta && json.meta.nuanceLevel) !== undefined
+        ? json.meta.nuanceLevel
+        : undefined,
+    uitleg: (json.meta && json.meta.uitleg) || "",
+  };
 
-Je krijgt één concept (title, hook, hoofdvraag, tv, ka) en een mode:
-
-MODES (toonregeling):
-- "default":
-  * behoud de huidige toon, maak alleen kleine stilistische verbeteringen
-    (duidelijker, korter, beter lopende zin);
-  * toon ≈ categorie 1 (mild/sophisticated leerlingentaal).
-- "more_judgement":
-  * maak hook en hoofdvraag merkbaar scherper, met meer morele spanning;
-  * gebruik EENVOUDIGE, duidelijke leerlingentaal;
-  * je mag woorden gebruiken als:
-    "naïef", "goedgelovig", "klakkeloos", "blind", "hardnekkig",
-    "te goedgelovig", "te snel overtuigd";
-  * maar je noemt tijdgenoten NIET "dom", "achterlijk" en maakt er GEEN
-    hedendaags partijpolitiek frame van (geen PVV/SP/D66-achtige toon).
-
-- "softer":
-  * maak de toon iets neutraler en meer onderzoekend;
-  * minder harde oordelen, meer focus op vragen ("hoe kwam het dat...?");
-  * toon ≈ iets milder dan default.
-
-Regels voor de hoofdvraag:
-- blijft een LEERLINGVRAAG in 1 zin (vermijd lange bijzinnen en "terwijl").
-- blijft presentistisch in de zin van verwondering ("Hoe konden zij...?").
-- GEEN hindsight:
-  * vermijd woorden als "tegenwoordig", "nu", "achteraf", "met de kennis van nu",
-    "wij weten nu dat", "in onze tijd".
-- Je laat wel voelen dat iets vreemd / schokkend / onbegrijpelijk is,
-  vooral bij mode "more_judgement", maar zonder 2025-superieur moralistisch commentaar.
-
-Voorbeeld van toegestane toon (HARDER, maar nog didactisch):
-- "Hoe konden zoveel mensen zo klakkeloos alles geloven wat hun leiders riepen?"
-- "Hoe konden regeringen zo blind doorstomen richting oorlog, terwijl zoveel mensen
-   al bang waren voor de gevolgen?"
-- "Hoe konden gewone burgers zo goedgelovig zijn dat propaganda zwaarder woog dan hun
-   eigen gezonde verstand?"
-
-Gebruik de userHint alleen als extra nuance (bijvoorbeeld: sterker naar
-de slachtoffers, of juist meer naar de daders kijken), NIET als totale
-herontwerp-opdracht.
-
-GEWENSTE OUTPUT:
-
-Geef ALLEEN JSON terug met:
-
-{
-  "chainSignature": "<exacte CHAIN_SIGNATURE>",
-  "mode": "<mode>",
-  "concept": {
-    "id": "...",
-    "title": "...",
-    "hook": "...",
-    "hoofdvraag": "...",
-    "masterSignature": "<ongewijzigde masterSignature>",
-    "tv": "...",
-    "ka": "..."
-  }
-}
-
-GEEN extra tekst, GEEN markdown, GEEN uitleg.`;
-
-  const jsonInput = JSON.stringify(payload, null, 2);
-
-  const prompt = `${systemText}
-
-INVOER:
-${jsonInput}
-
-CHAIN_SIGNATURE: ${MASTER_SIGNATURE}`;
-
-  return prompt;
-}
-
-function validateRefineResponse(json, expectedSignature = MASTER_SIGNATURE) {
-  if (!json || typeof json !== "object") {
-    throw new Error("Refine-response is geen JSON-object");
-  }
-  if (json.chainSignature !== expectedSignature) {
-    throw new Error(
-      `Refine chainSignature mismatch: expected "${expectedSignature}", got "${json.chainSignature}"`
-    );
-  }
-  if (!json.concept || typeof json.concept !== "object") {
-    throw new Error("Refine-response mist concept-object");
-  }
-  if (json.concept.masterSignature !== expectedSignature) {
-    throw new Error(
-      `Refine concept.masterSignature mismatch: expected "${expectedSignature}", got "${json.concept.masterSignature}"`
-    );
-  }
-  return json;
+  return { concept: safeConcept, meta };
 }
 
 module.exports = {
-  MASTER_SIGNATURE,
   buildRefineConceptPrompt,
-  validateRefineResponse,
+  validateRefineConceptResponse,
 };
 
