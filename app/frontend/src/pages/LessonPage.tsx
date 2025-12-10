@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 type LessonConcept = {
@@ -53,16 +53,16 @@ type Step1Docent = {
 };
 
 type Step1Response = {
-  step: "step1";
+  step?: "step1";
   data: {
-    chainSignature: string;
+    chainSignature?: string;
     docent: Step1Docent;
   };
 };
 
 type Step2BronNummering = {
   nummer: number;
-  id: string;
+  id: string | number;
   label: string;
   provider: string;
   type: string;
@@ -104,6 +104,7 @@ type Step2BronVraagUnit = {
 
 type Step2BronVragenPerBron = {
   bronNummer: number;
+  bronId?: string | number;
   vragen: Step2BronVraagUnit[];
 };
 
@@ -117,9 +118,9 @@ type Step2Leerling = {
 };
 
 type Step2Response = {
-  step: "step2";
+  step?: "step2";
   data: {
-    chainSignature: string;
+    chainSignature?: string;
     leerling: Step2Leerling;
   };
 };
@@ -148,8 +149,12 @@ const LessonPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<TabKey>("docent");
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [step1Loading, setStep1Loading] = useState(false);
+  const [step2Loading, setStep2Loading] = useState(false);
+  const anyLoading = step1Loading || step2Loading;
+
+  const [step1Error, setStep1Error] = useState<string | null>(null);
+  const [step2Error, setStep2Error] = useState<string | null>(null);
 
   const [step1Docent, setStep1Docent] = useState<Step1Docent | null>(null);
   const [step1ChainSignature, setStep1ChainSignature] = useState<string | null>(
@@ -164,79 +169,6 @@ const LessonPage: React.FC = () => {
   );
   const [step2DebugJson, setStep2DebugJson] = useState<any | null>(null);
 
-  useEffect(() => {
-    if (!concept || sources.length === 0) {
-      return;
-    }
-
-    const body = {
-      concept,
-      sources,
-      tvKa,
-    };
-
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const [res1, res2] = await Promise.all([
-          fetch("/api/generate-lesson-v2/step1", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          }),
-          fetch("/api/generate-lesson-v2/step2", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          }),
-        ]);
-
-        if (!res1.ok) {
-          const err1 = await res1.json().catch(() => null);
-          throw new Error(
-            err1?.error ||
-              `Fout bij step1: HTTP ${res1.status} ${res1.statusText}`
-          );
-        }
-
-        if (!res2.ok) {
-          const err2 = await res2.json().catch(() => null);
-          throw new Error(
-            err2?.error ||
-              `Fout bij step2: HTTP ${res2.status} ${res2.statusText}`
-          );
-        }
-
-        const json1 = (await res1.json()) as Step1Response;
-        const json2 = (await res2.json()) as Step2Response;
-
-        if (json1?.data?.docent) {
-          setStep1Docent(json1.data.docent);
-          setStep1ChainSignature(json1.data.chainSignature);
-        } else {
-          setStep1Docent(null);
-        }
-
-        if (json2?.data?.leerling) {
-          setStep2Leerling(json2.data.leerling);
-          setStep2ChainSignature(json2.data.chainSignature);
-          setStep2DebugJson(json2);
-        } else {
-          setStep2Leerling(null);
-          setStep2DebugJson(json2);
-        }
-      } catch (e: any) {
-        setError(e?.message || "Er ging iets mis bij het ophalen van de les.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [concept, sources, tvKa]);
-
   if (!concept) {
     return (
       <div style={{ padding: "1.5rem" }}>
@@ -249,6 +181,100 @@ const LessonPage: React.FC = () => {
       </div>
     );
   }
+
+  const baseBody = {
+    concept,
+    sources,
+    tvKa,
+  };
+
+  const handleGenerateStep1 = async () => {
+    if (!concept || sources.length === 0) {
+      setStep1Error("Geen concept of bronnen beschikbaar om Step 1 te genereren.");
+      return;
+    }
+    if (anyLoading) return;
+
+    setStep1Loading(true);
+    setStep1Error(null);
+
+    try {
+      const res1 = await fetch("/api/generate-lesson-v2/step1", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(baseBody),
+      });
+
+      if (!res1.ok) {
+        const err1 = await res1.json().catch(() => null);
+        throw new Error(
+          err1?.error ||
+            `Fout bij step1: HTTP ${res1.status} ${res1.statusText}`
+        );
+      }
+
+      const json1 = (await res1.json()) as Step1Response;
+
+      if (json1?.data?.docent) {
+        setStep1Docent(json1.data.docent);
+        setStep1ChainSignature(json1.data.chainSignature || null);
+      } else {
+        setStep1Docent(null);
+        throw new Error("Step 1 antwoord bevat geen docentmateriaal.");
+      }
+    } catch (e: any) {
+      setStep1Error(
+        e?.message || "Er ging iets mis bij het genereren van Step 1."
+      );
+    } finally {
+      setStep1Loading(false);
+    }
+  };
+
+  const handleGenerateStep2 = async () => {
+    if (!concept || sources.length === 0) {
+      setStep2Error("Geen concept of bronnen beschikbaar om Step 2 te genereren.");
+      return;
+    }
+    if (anyLoading) return;
+
+    setStep2Loading(true);
+    setStep2Error(null);
+
+    try {
+      const res2 = await fetch("/api/generate-lesson-v2/step2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(baseBody),
+      });
+
+      if (!res2.ok) {
+        const err2 = await res2.json().catch(() => null);
+        throw new Error(
+          err2?.error ||
+            `Fout bij step2: HTTP ${res2.status} ${res2.statusText}`
+        );
+      }
+
+      const json2 = (await res2.json()) as Step2Response;
+
+      if (json2?.data?.leerling) {
+        setStep2Leerling(json2.data.leerling);
+        setStep2ChainSignature(json2.data.chainSignature || null);
+        setStep2DebugJson(json2);
+      } else {
+        setStep2Leerling(null);
+        setStep2DebugJson(json2);
+        throw new Error("Step 2 antwoord bevat geen leerlingmateriaal.");
+      }
+    } catch (e: any) {
+      setStep2Error(
+        e?.message || "Er ging iets mis bij het genereren van Step 2."
+      );
+    } finally {
+      setStep2Loading(false);
+    }
+  };
 
   const renderHeader = () => {
     return (
@@ -273,6 +299,7 @@ const LessonPage: React.FC = () => {
         {concept.context && (
           <p style={{ marginBottom: "0.25rem" }}>Context: {concept.context}</p>
         )}
+
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
           {tvKa?.tvLabel && (
             <span
@@ -308,7 +335,7 @@ const LessonPage: React.FC = () => {
                 opacity: 0.7,
               }}
             >
-              chain: {step1ChainSignature}
+              chain1: {step1ChainSignature}
             </span>
           )}
           {step2ChainSignature && (
@@ -322,6 +349,47 @@ const LessonPage: React.FC = () => {
               }}
             >
               step2: {step2ChainSignature}
+            </span>
+          )}
+        </div>
+
+        <div
+          style={{
+            marginTop: "1rem",
+            display: "flex",
+            gap: "0.75rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            onClick={handleGenerateStep1}
+            disabled={anyLoading}
+            style={{
+              padding: "0.5rem 0.9rem",
+              borderRadius: "999px",
+              border: "1px solid #000",
+              background: anyLoading ? "#eee" : "#fff",
+              cursor: anyLoading ? "default" : "pointer",
+            }}
+          >
+            {step1Loading ? "Step 1 genereren…" : "Step 1 – Docentmateriaal"}
+          </button>
+          <button
+            onClick={handleGenerateStep2}
+            disabled={anyLoading}
+            style={{
+              padding: "0.5rem 0.9rem",
+              borderRadius: "999px",
+              border: "1px solid #000",
+              background: anyLoading ? "#eee" : "#fff",
+              cursor: anyLoading ? "default" : "pointer",
+            }}
+          >
+            {step2Loading ? "Step 2 genereren…" : "Step 2 – Leerlingmateriaal"}
+          </button>
+          {anyLoading && (
+            <span style={{ fontSize: "0.85rem", opacity: 0.7 }}>
+              Bezig met genereren… (één stap tegelijk)
             </span>
           )}
         </div>
@@ -367,16 +435,16 @@ const LessonPage: React.FC = () => {
   };
 
   const renderDocentTab = () => {
-    if (loading && !step1Docent) {
+    if (step1Loading && !step1Docent) {
       return (
         <div style={{ padding: "1.5rem" }}>Bezig met genereren van Step 1…</div>
       );
     }
 
-    if (error && !step1Docent) {
+    if (step1Error && !step1Docent) {
       return (
         <div style={{ padding: "1.5rem", color: "darkred" }}>
-          Fout bij laden van Step 1: {error}
+          Fout bij Step 1: {step1Error}
         </div>
       );
     }
@@ -384,7 +452,8 @@ const LessonPage: React.FC = () => {
     if (!step1Docent) {
       return (
         <div style={{ padding: "1.5rem" }}>
-          Nog geen docentmateriaal ontvangen voor Step 1.
+          Nog geen docentmateriaal ontvangen voor Step 1. Klik boven op
+          <strong> "Step 1 – Docentmateriaal"</strong> om het te genereren.
         </div>
       );
     }
@@ -605,16 +674,16 @@ const LessonPage: React.FC = () => {
   };
 
   const renderLeerlingTab = () => {
-    if (loading && !step2Leerling) {
+    if (step2Loading && !step2Leerling) {
       return (
         <div style={{ padding: "1.5rem" }}>Bezig met genereren van Step 2…</div>
       );
     }
 
-    if (error && !step2Leerling) {
+    if (step2Error && !step2Leerling) {
       return (
         <div style={{ padding: "1.5rem", color: "darkred" }}>
-          Fout bij laden van Step 2: {error}
+          Fout bij Step 2: {step2Error}
         </div>
       );
     }
@@ -622,7 +691,8 @@ const LessonPage: React.FC = () => {
     if (!step2Leerling) {
       return (
         <div style={{ padding: "1.5rem" }}>
-          Nog geen leerlingmateriaal ontvangen voor Step 2.
+          Nog geen leerlingmateriaal ontvangen voor Step 2. Klik boven op
+          <strong> "Step 2 – Leerlingmateriaal"</strong> om het te genereren.
         </div>
       );
     }
@@ -972,7 +1042,7 @@ const LessonPage: React.FC = () => {
             {JSON.stringify(step2DebugJson, null, 2)}
           </pre>
         ) : (
-          <p>Geen debug-data beschikbaar voor Step 2.</p>
+          <p>Geen debug-data beschikbaar voor Step 2. Genereer eerst Step 2.</p>
         )}
       </div>
     );

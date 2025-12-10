@@ -6,8 +6,8 @@
  * DUN DOORGEEF-LUIK VOOR STEP 2 (LEERLINGMATERIAAL)
  *
  * Alle inhoudelijke / didactische regels voor stap 2
- * (anti-presentisme, kwadrant, samenwerkingstabel, woordbanken, reflectie, enz.)
- * staan in de MASTERPROMPT + lessonV2.base.cjs.
+ * (anti-presentisme, bronvragen, samenwerkingstabel, reflectie, enz.)
+ * staan in lessonV2.base.cjs (masterprompt v7.1).
  *
  * Deze file doet NIETS anders dan:
  *   - de payload (concept, sources, tvKa, etc.) aannemen;
@@ -16,7 +16,7 @@
  */
 
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
-const { buildLessonV2BasePrompt } = require("./lessonV2.base.cjs");
+const { buildBaseStep2Prompt } = require("./lessonV2.base.cjs");
 
 /**
  * Bouwt de prompt voor STEP 2 door de centrale base-builder aan te sturen.
@@ -24,7 +24,7 @@ const { buildLessonV2BasePrompt } = require("./lessonV2.base.cjs");
  * @param {object} payload
  *   Verwacht o.a.:
  *   - concept: { hoofdvraag, deelvragen, ... }
- *   - sources: LIGHT sources (id, title, provider, type)
+ *   - sources: LIGHT sources (id, title, provider, type, snippet/tekst)
  *   - tvKa: { tv, tvLabel, ka, kaLabel }
  *
  * @returns {string} prompt-tekst voor Gemini
@@ -36,7 +36,7 @@ function buildStep2Prompt(payload = {}) {
     masterSignature: MASTER_SIGNATURE,
   };
 
-  return buildLessonV2BasePrompt(safePayload);
+  return buildBaseStep2Prompt(safePayload);
 }
 
 module.exports = {

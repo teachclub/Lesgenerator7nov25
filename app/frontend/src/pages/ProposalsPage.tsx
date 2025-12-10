@@ -3,12 +3,12 @@ import React, {
   useMemo,
   useState,
   useRef,
-} from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { useSelectionStore, Source } from '../state/selection.store';
+} from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useSelectionStore, Source } from "../state/selection.store";
 
 // Gebruik de Vite-proxy i.p.v. hard-coded host
-const API_BASE = '/api';
+const API_BASE = "/api";
 
 type Deelvraag = {
   vraag: string;
@@ -50,7 +50,7 @@ type ProposalsResponse = {
     countAll: number;
     countProposals: number;
     masterSignature: string;
-    from: 'gemini' | 'dummy-fallback';
+    from: "gemini" | "dummy-fallback";
     error?: string;
   };
 };
@@ -82,11 +82,10 @@ const ProposalsPage: React.FC = () => {
 
   const [allSources, setAllSources] = useState<Source[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [meta, setMeta] = useState<ProposalsResponse['meta'] | null>(null);
+  const [meta, setMeta] = useState<ProposalsResponse["meta"] | null>(null);
 
-  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(
-    null
-  );
+  const [selectedProposalId, setSelectedProposalId] =
+    useState<string | null>(null);
   const [selectedSourceId, setSelectedSourceId] = useState<
     string | number | null
   >(null);
@@ -104,7 +103,7 @@ const ProposalsPage: React.FC = () => {
     const run = async () => {
       if (!effectiveSources || effectiveSources.length === 0) {
         setError(
-          'Geen bronnen gevonden om lesvoorstellen mee te maken. Ga eerst terug en doe een zoekopdracht.'
+          "Geen bronnen gevonden om lesvoorstellen mee te maken. Ga eerst terug en doe een zoekopdracht."
         );
         return;
       }
@@ -114,12 +113,12 @@ const ProposalsPage: React.FC = () => {
 
       try {
         const res = await fetch(`${API_BASE}/proposals-v2`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tv: navState.tv ?? null,
             ka: navState.ka ?? null,
-            conceptHint: navState.conceptHint ?? '',
+            conceptHint: navState.conceptHint ?? "",
             sources: effectiveSources,
           }),
         });
@@ -138,9 +137,9 @@ const ProposalsPage: React.FC = () => {
           setSelectedProposalId(data.proposals[0].id);
         }
       } catch (err: any) {
-        console.error('[ProposalsPage] fout bij ophalen proposals', err);
+        console.error("[ProposalsPage] fout bij ophalen proposals", err);
         setError(
-          'Er ging iets mis bij het maken van lesvoorstellen. Controleer de backend-log voor details.'
+          "Er ging iets mis bij het maken van lesvoorstellen. Controleer de backend-log voor details."
         );
       } finally {
         setLoading(false);
@@ -154,7 +153,7 @@ const ProposalsPage: React.FC = () => {
     setSelectedProposalId(id);
     setSelectedSourceId(null);
     if (proposalsListRef.current) {
-      proposalsListRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      proposalsListRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
@@ -197,7 +196,7 @@ const ProposalsPage: React.FC = () => {
     }
   };
 
-  // Bronnen van de geselecteerde proposal
+  // Bronnen van de geselecteerde proposal (nog zonder weggegooide filter)
   const selectedProposalSources: Source[] = useMemo(() => {
     if (!selectedProposal) return [];
 
@@ -216,11 +215,15 @@ const ProposalsPage: React.FC = () => {
       (selectedProposal.primarySourceIds || []).map((id) => String(id))
     );
 
+    const hiddenSet = selectedProposalId
+      ? hiddenByProposal[selectedProposalId] || new Set<string>()
+      : new Set<string>();
+
     const primary: Source[] = [];
     const rest: Source[] = [];
 
     for (const src of selectedProposalSources) {
-      if (isHiddenForSelectedProposal(src.id)) continue;
+      if (hiddenSet.has(String(src.id))) continue;
       if (primaryIds.has(String(src.id))) {
         primary.push(src);
       } else {
@@ -230,7 +233,7 @@ const ProposalsPage: React.FC = () => {
 
     const combined = [...primary, ...rest];
     return combined.slice(0, 15);
-  }, [selectedProposal, selectedProposalSources, hiddenByProposal]);
+  }, [selectedProposal, selectedProposalSources, hiddenByProposal, selectedProposalId]);
 
   // Geselecteerde bron-detail
   const selectedSource: Source | null = useMemo(() => {
@@ -243,16 +246,16 @@ const ProposalsPage: React.FC = () => {
   // IMAGE-URL voor kaarten en detail
   const getImageUrl = (source: Source) => {
     if (!source.imageUrl) return undefined;
-    if (source.type === 'TEXT') return undefined;
+    if (source.type === "TEXT") return undefined;
 
     const url = source.imageUrl;
-    if (url.includes('profile/picture')) return undefined;
+    if (url.includes("profile/picture")) return undefined;
 
     const isCito =
-      source.provider === 'Cito' || String(source.id).startsWith('cito');
+      source.provider === "Cito" || String(source.id).startsWith("cito");
     const isKleio =
-      source.provider === 'Kleio' ||
-      (url && (url.includes('kleio') || url.includes('vgn')));
+      source.provider === "Kleio" ||
+      (url && (url.includes("kleio") || url.includes("vgn")));
 
     if (isCito || isKleio) {
       return `${API_BASE}/image-proxy?url=${encodeURIComponent(url)}`;
@@ -261,11 +264,27 @@ const ProposalsPage: React.FC = () => {
     return url;
   };
 
+  /**
+   * Gebruik dit lesvoorstel → naar /lesson
+   * Belangrijk v7.1-regel:
+   * Alles wat de gebruiker "weggooit" bij dit voorstel gaat NIET mee naar step1/2/3/4.
+   */
   const handleUseProposal = (proposal: Proposal) => {
-    const setIds = new Set(proposal.sourceIds.map((id) => String(id)));
-    const proposalSources = allSources.filter((s) => setIds.has(String(s.id)));
+    // Welke bronnen zijn expliciet weggegooid voor dit proposal?
+    const hiddenSet = hiddenByProposal[proposal.id] || new Set<string>();
 
-    navigate('/lesson', {
+    // Filter de sourceIds van dit proposal op basis van hiddenSet
+    const visibleSourceIds = proposal.sourceIds.filter(
+      (id) => !hiddenSet.has(String(id))
+    );
+    const visibleIdSet = new Set(visibleSourceIds.map((id) => String(id)));
+
+    // Pak alleen de bronnen die bij dit voorstel horen én niet zijn weggegooid
+    const proposalSources = allSources.filter((s) =>
+      visibleIdSet.has(String(s.id))
+    );
+
+    navigate("/lesson", {
       state: {
         concept: proposal.concept,
         sources: proposalSources,
@@ -276,7 +295,7 @@ const ProposalsPage: React.FC = () => {
           kaLabel: proposal.concept.ka,
         },
         meta: {
-          from: 'proposals',
+          from: "proposals",
           masterSignature: meta?.masterSignature,
           chainSignature: meta?.masterSignature,
         },
@@ -289,7 +308,9 @@ const ProposalsPage: React.FC = () => {
     return (
       <ul className="mt-2 space-y-1 text-sm list-disc list-inside">
         {los.map((lo) => (
-          <li key={lo.id || lo.beschrijving.slice(0, 30)}>{lo.beschrijving}</li>
+          <li key={lo.id || lo.beschrijving.slice(0, 30)}>
+            {lo.beschrijving}
+          </li>
         ))}
       </ul>
     );
@@ -305,32 +326,33 @@ const ProposalsPage: React.FC = () => {
           <span className="text-2xl">🦁</span>
           <div>
             <h1 className="font-bold tracking-tight">
-              Lesvoorstellen <span className="text-indigo-600">LesGO v2</span>
+              Lesvoorstellen{" "}
+              <span className="text-indigo-600">Lessie / LesGO v2</span>
             </h1>
             <p className="text-xs text-gray-500">
-              gegenereerd op basis van je Kleio/Cito-bronnen (v6-keten)
+              gegenereerd op basis van je Kleio/Cito-bronnen (v7-keten,
+              masterprompt v7.1)
             </p>
           </div>
         </div>
 
         <div className="text-right text-xs text-gray-500">
           <div>
-            keten-signature:{' '}
+            keten-signature:{" "}
             <span className="font-mono font-semibold">
-              {meta?.masterSignature || 'n.v.t.'}
+              {meta?.masterSignature || "n.v.t."}
             </span>
           </div>
           <div>
-            bron:{' '}
+            bron:{" "}
             <span className="font-semibold">
-              {meta?.from === 'dummy-fallback' ? 'dummy-fallback' : 'gemini'}
+              {meta?.from === "dummy-fallback" ? "dummy-fallback" : "gemini"}
             </span>
           </div>
           <div className="text-[11px] mt-1">
-            debug → sources→Gemini:{' '}
+            debug → sources→Gemini:{" "}
             <span className="font-mono">{proposalsSourceCount || 0}</span> (effective
-            sources:{' '}
-            <span className="font-mono">{globalSourceCount}</span>)
+            sources: <span className="font-mono">{globalSourceCount}</span>)
           </div>
         </div>
       </header>
@@ -379,23 +401,23 @@ const ProposalsPage: React.FC = () => {
                   key={p.id}
                   className={`border rounded-xl p-3 cursor-pointer transition-all ${
                     isSelected
-                      ? 'border-indigo-500 shadow-md bg-indigo-50/60'
-                      : 'border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm'
+                      ? "border-indigo-500 shadow-md bg-indigo-50/60"
+                      : "border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm"
                   }`}
                   onClick={() => handleSelectProposal(p.id)}
                 >
                   <div className="flex justify-between items-start gap-2">
                     <div>
                       <h3 className="font-bold text-sm">
-                        {concept.title || 'Lesvoorstel'}
+                        {concept.title || "Lesvoorstel"}
                       </h3>
                       <p className="text-[11px] text-gray-500">
-                        {concept.contextLabel || ''}
+                        {concept.contextLabel || ""}
                       </p>
                     </div>
                     <div className="text-[11px] text-gray-500 text-right">
                       <div>
-                        {p.sourceIds.length} bronnen •{' '}
+                        {p.sourceIds.length} bronnen •{" "}
                         {(p.primarySourceIds || []).length} ⭐
                       </div>
                     </div>
@@ -422,7 +444,7 @@ const ProposalsPage: React.FC = () => {
 
                   <div className="mt-3 flex justify-between items-center">
                     <span className="text-[11px] text-gray-500">
-                      Doelgroep: {concept.targetAudience || 'Havo/Vwo bovenbouw'}
+                      Doelgroep: {concept.targetAudience || "Havo/vwo bovenbouw"}
                     </span>
                     <button
                       onClick={(e) => {
@@ -464,18 +486,18 @@ const ProposalsPage: React.FC = () => {
                   key={src.id}
                   className={`border rounded-lg p-2 flex gap-2 items-stretch cursor-pointer transition-all ${
                     isPrimary
-                      ? 'bg-yellow-50 border-yellow-300'
-                      : 'bg-white border-gray-200 hover:border-indigo-200'
+                      ? "bg-yellow-50 border-yellow-300"
+                      : "bg-white border-gray-200 hover:border-indigo-200"
                   }`}
                   onClick={() => setSelectedSourceId(src.id)}
                 >
                   <div className="w-16 h-16 rounded-md overflow-hidden flex items-center justify-center bg-gray-100 border border-gray-200 shrink-0">
-                    {src.type === 'TEXT' || !imgUrl ? (
+                    {src.type === "TEXT" || !imgUrl ? (
                       <span className="text-xl font-bold text-gray-400">T</span>
                     ) : (
                       <img
                         src={imgUrl}
-                        alt={src.title || ''}
+                        alt={src.title || ""}
                         className="w-full h-full object-cover"
                       />
                     )}
@@ -515,13 +537,13 @@ const ProposalsPage: React.FC = () => {
                       </button>
                     </div>
                     <p className="text-xs font-semibold text-gray-800 truncate">
-                      {src.title || 'Zonder titel'}
+                      {src.title || "Zonder titel"}
                     </p>
                     <p className="text-[11px] text-gray-600 line-clamp-2">
                       {src.snippet ||
                         src.description ||
                         src.fullText?.slice(0, 120) ||
-                        'Geen korte beschrijving beschikbaar.'}
+                        "Geen korte beschrijving beschikbaar."}
                     </p>
                   </div>
                 </div>
@@ -558,7 +580,7 @@ const ProposalsPage: React.FC = () => {
                   </span>
                 </div>
                 <h2 className="text-xl font-bold text-gray-900">
-                  {selectedSource.title || 'Zonder titel'}
+                  {selectedSource.title || "Zonder titel"}
                 </h2>
               </div>
 
@@ -566,10 +588,10 @@ const ProposalsPage: React.FC = () => {
                 <div className="mb-4 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
                   <img
                     src={getImageUrl(selectedSource)}
-                    alt={selectedSource.title || ''}
+                    alt={selectedSource.title || ""}
                     className="w-full max-h-[420px] object-contain"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
+                      (e.target as HTMLImageElement).style.display = "none";
                     }}
                   />
                 </div>
@@ -581,7 +603,7 @@ const ProposalsPage: React.FC = () => {
                     selectedSource.content ||
                     selectedSource.description ||
                     selectedSource.snippet ||
-                    'Geen toelichting beschikbaar.'}
+                    "Geen toelichting beschikbaar."}
                 </p>
               </div>
 
