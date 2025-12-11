@@ -9,6 +9,9 @@ type LessonConcept = {
   tvLabel?: string;
   ka?: string;
   kaLabel?: string;
+  lesopbrengst?: string;
+  complexityLevel?: number;
+  nuanceLevel?: number;
 };
 
 type Source = {
@@ -120,13 +123,11 @@ const LessonPage: React.FC = () => {
   const concept: LessonConcept | undefined = state.concept;
   const sources: Source[] = state.sources || [];
 
-  // === State voor step 1 ===
   const [step1Status, setStep1Status] = useState<StepStatus>("idle");
   const [step1Error, setStep1Error] = useState<string | null>(null);
   const [docentData, setDocentData] = useState<Step1DocentData | null>(null);
   const [deelvragenFromStep1, setDeelvragenFromStep1] = useState<string[]>([]);
 
-  // === State voor step 2 ===
   const [step2Status, setStep2Status] = useState<StepStatus>("idle");
   const [step2Error, setStep2Error] = useState<string | null>(null);
   const [leerlingData, setLeerlingData] = useState<Step2LeerlingData | null>(
@@ -134,20 +135,17 @@ const LessonPage: React.FC = () => {
   );
   const [step2RawJson, setStep2RawJson] = useState<string>("");
 
-  // Welke tab is actief?
   const [activeTab, setActiveTab] = useState<"step1" | "step2" | "debug">(
     "step1"
   );
 
-  // === Veiligheid: als er geen concept of sources zijn, terug naar home ===
   useEffect(() => {
     if (!concept || !sources || sources.length === 0) {
-      // Veilige fallback: terug naar start
-      // (of later: navigate("/") als je een homepage hebt)
+      // eventueel navigate("/") als je een echte home hebt
     }
   }, [concept, sources]);
 
-  // === STEP 1 – automatisch starten bij binnenkomst ===
+  // STEP 1 – automatisch draaien
   useEffect(() => {
     if (!concept || !sources || sources.length === 0) return;
     if (step1Status !== "idle") return;
@@ -202,7 +200,7 @@ const LessonPage: React.FC = () => {
     runStep1();
   }, [concept, sources, tvKa, step1Status]);
 
-  // === STEP 2 – wordt pas gestart als docent op knop drukt én step1 klaar is ===
+  // STEP 2 – handmatig
   const canRunStep2 =
     step1Status === "done" && deelvragenFromStep1.length > 0 && !!concept;
 
@@ -218,7 +216,6 @@ const LessonPage: React.FC = () => {
         tvKa,
         concept,
         sources,
-        // Belangrijk: deelvragen uit STEP 1 expliciet meesturen
         deelvragen: deelvragenFromStep1,
       };
 
@@ -253,10 +250,8 @@ const LessonPage: React.FC = () => {
     }
   };
 
-  // === Kleine helper voor titel bovenaan ===
   const hoofdvraagText =
     concept?.hoofdvraag || "Hoofdvraag ontbreekt in concept.";
-
   const hookText = concept?.hook || "";
 
   if (!concept || !sources || sources.length === 0) {
@@ -285,7 +280,7 @@ const LessonPage: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "960px" }}>
+    <div style={{ padding: "1.5rem", maxWidth: "960px", margin: "0 auto" }}>
       <button
         type="button"
         onClick={() => navigate(-1)}
@@ -300,7 +295,6 @@ const LessonPage: React.FC = () => {
         ← Terug
       </button>
 
-      {/* Kop: hoofdvraag + hook */}
       <div style={{ marginBottom: "1rem" }}>
         <p
           style={{
@@ -321,9 +315,16 @@ const LessonPage: React.FC = () => {
             Hook: {hookText}
           </p>
         )}
+        {(tvKa.tvLabel || tvKa.kaLabel) && (
+          <p style={{ fontSize: "0.85rem", color: "#555" }}>
+            {tvKa.tvLabel && <span>{tvKa.tvLabel}</span>}
+            {tvKa.tvLabel && tvKa.kaLabel && <span> · </span>}
+            {tvKa.kaLabel && <span>{tvKa.kaLabel}</span>}
+          </p>
+        )}
       </div>
 
-      {/* Knoppen voor genereren step 1 / 2 */}
+      {/* Actieknoppen */}
       <div
         style={{
           display: "flex",
@@ -335,7 +336,6 @@ const LessonPage: React.FC = () => {
         <button
           type="button"
           onClick={() => {
-            // je kunt altijd opnieuw step1 draaien
             setStep1Status("idle");
             setStep2Status("idle");
             setLeerlingData(null);
@@ -345,8 +345,9 @@ const LessonPage: React.FC = () => {
           style={{
             padding: "0.45rem 0.9rem",
             borderRadius: "999px",
-            border: "1px solid #111",
-            backgroundColor: "#fff",
+            border: "1px solid #111827",
+            backgroundColor: "#111827",
+            color: "#ffffff",
             cursor: "pointer",
             fontSize: "0.9rem",
           }}
@@ -362,9 +363,11 @@ const LessonPage: React.FC = () => {
           style={{
             padding: "0.45rem 0.9rem",
             borderRadius: "999px",
-            border: "1px solid #111",
-            backgroundColor: !canRunStep2 ? "#f0f0f0" : "#fff",
-            color: !canRunStep2 ? "#999" : "#000",
+            border: "1px solid #2563eb",
+            backgroundColor:
+              !canRunStep2 || step2Status === "loading" ? "#dbeafe" : "#2563eb",
+            color:
+              !canRunStep2 || step2Status === "loading" ? "#6b7280" : "#ffffff",
             cursor:
               !canRunStep2 || step2Status === "loading"
                 ? "not-allowed"
@@ -378,13 +381,39 @@ const LessonPage: React.FC = () => {
 
         <button
           type="button"
+          onClick={() =>
+            navigate("/lesson/step3", {
+              state: {
+                tvKa,
+                concept,
+                sources,
+              },
+            })
+          }
+          style={{
+            padding: "0.45rem 0.9rem",
+            borderRadius: "999px",
+            border: "1px solid #059669",
+            backgroundColor: "#10b981",
+            color: "#ffffff",
+            cursor: "pointer",
+            fontSize: "0.9rem",
+          }}
+        >
+          Step 3 – Bronnenblad
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab("debug")}
           style={{
-            padding: "0.3rem 0.6rem",
-            borderRadius: "0.5rem",
-            border: "1px solid #aaa",
-            backgroundColor: "#f3f3f3",
+            padding: "0.35rem 0.75rem",
+            borderRadius: "999px",
+            border: "1px solid #f97316",
+            backgroundColor: "#ffedd5",
+            color: "#9a3412",
             fontSize: "0.8rem",
+            cursor: "pointer",
           }}
         >
           Debug STEP 2 JSON
@@ -485,7 +514,9 @@ const LessonPage: React.FC = () => {
             paddingBottom: "0.35rem",
             cursor: "pointer",
             borderBottom:
-              activeTab === "debug" ? "2px solid #111" : "2px solid transparent",
+              activeTab === "debug"
+                ? "2px solid #111"
+                : "2px solid transparent",
             fontWeight: activeTab === "debug" ? 600 : 400,
           }}
         >
@@ -493,7 +524,7 @@ const LessonPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Inhoud per tab */}
+      {/* Tab-inhoud */}
       {activeTab === "step1" && (
         <div style={{ fontSize: "0.9rem" }}>
           {!docentData && step1Status === "loading" && (
