@@ -567,17 +567,31 @@ SAMENWERKINGSTABEL
   - "Subdimensie / soort verklaring"
 - Rijen:
   - één rij per bron (bijv. "Bron 1", "Bron 2", ...).
-- Geef in een subobject "meerkeuze" drie sets keuzemogelijkheden:
+
+- BOVEN DE TABEL staat een duidelijke invulstrook met keuzemogelijkheden:
+  - Leg in "samenwerkingstabel.instructie" uit dat leerlingen:
+    - eerst uit de keuzelijsten boven de tabel een passende optie kiezen;
+    - die gekozen optie vervolgens in de betreffende kolom van de tabel invullen;
+    - daarna eigen woorden toevoegen bij observatie/interpretatie.
+  - De invulstrook is GEEN aparte tabel, maar de drie keuzelijsten in het subobject "meerkeuze".
+
+- Geef in een subobject "meerkeuze" drie sets keuzemogelijkheden voor boven de tabel:
   - "wieSpreektOpties":
-    - bijvoorbeeld: "politicus", "soldaat", "burger", "journalist",
-      "religieus leider", "gevangene", "buitenlandse leider".
+    - bijvoorbeeld 5–8 roltypes: "politicus", "soldaat", "burger", "journalist",
+      "religieus leider", "gevangene", "buitenlandse leider", "ondernemer".
   - "dimensieOpties":
     - politiek-institutioneel, sociaal-economisch,
       cultureel-mentaal/ideologisch, individueel/biografisch, internationaal/militair.
   - "subdimensieOpties":
     - enkele passende subdimensies, afhankelijk van de casus
       (bijv. "angst voor communisme", "economische belangen",
-       "nationalistische gevoelens", "religieuze tegenstellingen", "propaganda").
+       "nationalistische gevoelens", "religieuze tegenstellingen", "propaganda",
+       "sociale ongelijkheid", "persoonlijke carrière", "veiligheid/angst").
+- Zorg dat:
+  - elke lijst minstens 5 opties bevat;
+  - de opties in elke lijst in een willekeurige, niet-alfabetische volgorde staan
+    (dus door elkaar gehusseld, zodat leerlingen niet altijd dezelfde volgorde zien);
+  - er geen lege lijsten zijn.
 
 REFLECTIE
 

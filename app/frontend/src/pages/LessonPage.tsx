@@ -760,6 +760,56 @@ const LessonPage: React.FC = () => {
                     )}
                 </>
               )}
+{/* Meerkeuze-opties onder de tabel */}
+{leerlingData.samenwerkingstabel?.meerkeuze && (
+  <div style={{ marginTop: "1rem" }}>
+    <h4 style={{ fontSize: "0.9rem", marginBottom: "0.25rem" }}>
+      Keuzemogelijkheden
+    </h4>
+
+    {/* Wie spreekt */}
+    {leerlingData.samenwerkingstabel.meerkeuze.wieSpreektOpties && (
+      <>
+        <strong>Wie spreekt in de bron?</strong>
+        <ul>
+          {leerlingData.samenwerkingstabel.meerkeuze.wieSpreektOpties.map(
+            (opt, idx) => (
+              <li key={idx}>{opt}</li>
+            )
+          )}
+        </ul>
+      </>
+    )}
+
+    {/* Dimensies */}
+    {leerlingData.samenwerkingstabel.meerkeuze.dimensieOpties && (
+      <>
+        <strong>Dimensies</strong>
+        <ul>
+          {leerlingData.samenwerkingstabel.meerkeuze.dimensieOpties.map(
+            (opt, idx) => (
+              <li key={idx}>{opt}</li>
+            )
+          )}
+        </ul>
+      </>
+    )}
+
+    {/* Subdimensies */}
+    {leerlingData.samenwerkingstabel.meerkeuze.subdimensieOpties && (
+      <>
+        <strong>Subdimensies / soorten verklaring</strong>
+        <ul>
+          {leerlingData.samenwerkingstabel.meerkeuze.subdimensieOpties.map(
+            (opt, idx) => (
+              <li key={idx}>{opt}</li>
+            )
+          )}
+        </ul>
+      </>
+    )}
+  </div>
+)}
 
               {leerlingData.reflectie && (
                 <>
