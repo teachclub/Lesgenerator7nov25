@@ -11,7 +11,8 @@
  *   - POST   /api/search-preset     → a13.searchPreset
  *   - POST   /api/thesaurus         → a22.thesaurus
  *   - POST   /api/proposals-v2      → a35.proposals-v2
- *   - POST   /api/generate-lesson-v2/step1..4 → lessonV2.step*.cjs
+ *   - POST   /api/generate-lesson-v2/refine-concept → lessonV2.refineConcept
+ *   - POST   /api/generate-lesson-v2/step1..4       → lessonV2.step*.cjs
  */
 
 const path = require("path");
@@ -52,6 +53,7 @@ app.use("/api", require("./routes/a12.search.cjs"));
 app.use("/api", require("./routes/a13.searchPreset.cjs"));
 app.use("/api", require("./routes/a22.thesaurus.cjs"));
 app.use("/api", require("./routes/a35.proposals-v2.cjs"));
+app.use("/api", require("./routes/lessonV2.refineConcept.cjs")); // ← hier hangt refine-concept aan
 
 // 7. LESSON V2 – step1..4 via register*Routes
 const lessonRouter = express.Router();
