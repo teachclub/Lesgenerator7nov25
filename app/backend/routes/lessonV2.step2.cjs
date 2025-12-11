@@ -7,7 +7,7 @@
 // v7-fix:
 // - Alleen LIGHT sources (id, title, type, provider) richting de prompt.
 // - Geen snippets/description/content naar Gemini.
-// - Basisvalidatie van concept/tvKa/bronvragen.
+// - Basisvalidatie van concept/tvKa/deelvragen.
 
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
 const { buildStep2Prompt } = require("../prompts/lessonV2.step2.cjs");
@@ -18,22 +18,34 @@ function registerLessonV2Step2Routes(router) {
     try {
       const body = req.body || {};
 
-      const concept = body.concept || {};
-      if (!concept || typeof concept !== "object") {
+      const conceptRaw = body.concept || {};
+      if (!conceptRaw || typeof conceptRaw !== "object") {
         throw new Error("STEP2: ontbrekend of ongeldig 'concept' in body");
       }
       if (
-        typeof concept.hoofdvraag !== "string" ||
-        !concept.hoofdvraag.trim()
+        typeof conceptRaw.hoofdvraag !== "string" ||
+        !conceptRaw.hoofdvraag.trim()
       ) {
         throw new Error("STEP2: 'concept.hoofdvraag' ontbreekt of is leeg");
       }
-      if (
-        !Array.isArray(concept.deelvragen) ||
-        concept.deelvragen.length === 0
-      ) {
-        throw new Error("STEP2: 'concept.deelvragen' ontbreekt of is leeg");
+
+      // >>> BELANGRIJK: deelvragen komen uit STEP 1 en worden
+      // expliciet als body.deelvragen meegestuurd door LessonPage.
+      let deelvragen = Array.isArray(body.deelvragen)
+        ? body.deelvragen
+        : Array.isArray(conceptRaw.deelvragen)
+        ? conceptRaw.deelvragen
+        : [];
+
+      if (!Array.isArray(deelvragen) || deelvragen.length === 0) {
+        throw new Error("STEP2: 'deelvragen' ontbreekt of is leeg");
       }
+
+      // Concept verrijkt met deelvragen (zodat base-prompt gewoon concept.deelvragen heeft)
+      const concept = {
+        ...conceptRaw,
+        deelvragen,
+      };
 
       const tvKa = body.tvKa || {};
       if (!tvKa || typeof tvKa !== "object") {

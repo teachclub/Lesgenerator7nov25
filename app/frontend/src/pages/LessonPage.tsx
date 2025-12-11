@@ -660,7 +660,7 @@ const LessonPage: React.FC = () => {
                       <ul>
                         {blok.vragen.map((v, idx) => (
                           <li key={idx}>
-                            [{v.type}] {v.vraag}
+                            {idx + 1}. [{v.type}] {v.vraag}
                           </li>
                         ))}
                       </ul>
@@ -741,7 +741,7 @@ const LessonPage: React.FC = () => {
                   {leerlingData.reflectie.vragen && (
                     <ol>
                       {leerlingData.reflectie.vragen.map((vr, idx) => (
-                        <li key={idx}>{vr}</li>
+                        <li key={idx}>{`${idx + 1}. ${vr}`}</li>
                       ))}
                     </ol>
                   )}

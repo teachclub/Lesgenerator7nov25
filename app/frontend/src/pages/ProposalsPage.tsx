@@ -35,7 +35,6 @@ type LessonProposal = {
   bronIds: Array<string | number>;
   complexityLevel: number;
   nuanceLevel: number;
-  extraDocentWish: string;
 };
 
 type ProposalsResponsePayload = {
@@ -63,14 +62,18 @@ function isImageSource(source: RawSource): boolean {
 
 function makePreviewText(source: RawSource): string {
   const text =
-    source.description || source.fullText || source.content || source.title || "";
+    source.description ||
+    source.fullText ||
+    source.content ||
+    source.title ||
+    "";
   const trimmed = text.replace(/\s+/g, " ").trim();
   if (!trimmed) return "";
   if (trimmed.length <= 160) return trimmed;
   return trimmed.slice(0, 157) + "...";
 }
 
-// BELANGRIJK: alles uit raw.concept.* halen
+// Alles uit raw.concept.* halen, met fallback op raw.* en default tv/ka
 function normalizeProposal(raw: any, defaultTvKa: TvKaInfo): LessonProposal {
   const concept = raw.concept || {};
 
@@ -101,36 +104,24 @@ function normalizeProposal(raw: any, defaultTvKa: TvKaInfo): LessonProposal {
     raw.lesdoelen ||
     "";
 
-  // >>> HIER: bronIds opbouwen uit bronIds, of uit sourceIds/primarySourceIds <<<
-  let bronIds: Array<string | number> = [];
-
-  if (Array.isArray(raw.bronIds)) {
-    bronIds = raw.bronIds;
-  } else if (Array.isArray(raw.bronnenIds)) {
-    bronIds = raw.bronnenIds;
-  } else if (Array.isArray(concept.bronIds)) {
-    bronIds = concept.bronIds;
-  } else {
-    const sourceIds: Array<string | number> = Array.isArray(raw.sourceIds)
-      ? raw.sourceIds
-      : [];
-    const primarySourceIds: Array<string | number> = Array.isArray(
-      raw.primarySourceIds
-    )
-      ? raw.primarySourceIds
-      : [];
-
-    if (primarySourceIds.length || sourceIds.length) {
-      const primarySet = new Set(primarySourceIds.map((id: any) => String(id)));
-      const rest = sourceIds.filter(
-        (id: any) => !primarySet.has(String(id))
-      );
-      bronIds = [...primarySourceIds, ...rest];
-    }
-  }
+  // BELANGRIJK: bronIds nu ook vullen vanuit sourceIds (v7/validateProposalsResponse)
+  const bronIds: Array<string | number> = Array.isArray(raw.bronIds)
+    ? raw.bronIds
+    : Array.isArray(raw.bronnenIds)
+    ? raw.bronnenIds
+    : Array.isArray(concept.bronIds)
+    ? concept.bronIds
+    : Array.isArray(raw.sourceIds)
+    ? raw.sourceIds
+    : [];
 
   return {
-    id: raw.id || `proposal-${Math.random().toString(36).slice(2, 10)}`,
+    id:
+      raw.id ||
+      "proposal-" +
+        Math.random()
+          .toString(36)
+          .slice(2, 10),
     hoofdvraag,
     hook,
     context,
@@ -142,7 +133,6 @@ function normalizeProposal(raw: any, defaultTvKa: TvKaInfo): LessonProposal {
     bronIds,
     complexityLevel: 3,
     nuanceLevel: 3,
-    extraDocentWish: "",
   };
 }
 
@@ -166,9 +156,11 @@ const ProposalsPage: React.FC = () => {
 
   const [proposals, setProposals] = useState<LessonProposal[]>([]);
   const [allSources, setAllSources] = useState<RawSource[]>(initialSources);
-  const [activeSourceIds, setActiveSourceIds] = useState<Set<string | number>>(
-    () => new Set(initialSources.map((s) => s.id))
-  );
+
+  const [activeSourceIds, setActiveSourceIds] = useState<
+    Set<string | number>
+  >(() => new Set(initialSources.map((s) => s.id)));
+
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(
     null
   );
@@ -179,7 +171,6 @@ const ProposalsPage: React.FC = () => {
   const MAX_SOURCES_PER_PROPOSAL = 15;
 
   // ==== Data ophalen van backend (/api/proposals-v2) ====
-
   useEffect(() => {
     if (hasRequested) return;
     if (!initialSources || initialSources.length === 0) return;
@@ -203,7 +194,8 @@ const ProposalsPage: React.FC = () => {
 
         if (!resp.ok || raw.error) {
           throw new Error(
-            raw.error || `Backend-fout bij proposals-v2 (status ${resp.status})`
+            raw.error ||
+              `Backend-fout bij proposals-v2 (status ${resp.status})`
           );
         }
 
@@ -238,7 +230,9 @@ const ProposalsPage: React.FC = () => {
         }
       } catch (err: any) {
         console.error("[ProposalsPage] fout:", err);
-        setError(err.message || "Onbekende fout bij het laden van voorstellen.");
+        setError(
+          err.message || "Onbekende fout bij het laden van voorstellen."
+        );
       } finally {
         setIsLoading(false);
       }
@@ -251,7 +245,9 @@ const ProposalsPage: React.FC = () => {
 
   const selectedProposal: LessonProposal | null = useMemo(() => {
     if (!selectedProposalId || proposals.length === 0) return null;
-    return proposals.find((p) => p.id === selectedProposalId) || proposals[0];
+    return (
+      proposals.find((p) => p.id === selectedProposalId) || proposals[0] || null
+    );
   }, [proposals, selectedProposalId]);
 
   // Geselecteerd voorstel bovenaan
@@ -266,6 +262,7 @@ const ProposalsPage: React.FC = () => {
     if (!selectedProposal) return new Set();
     const ids = selectedProposal.bronIds || [];
     if (ids.length === 0) return new Set();
+
     const coreCount = Math.min(
       Math.max(3, Math.floor(MAX_SOURCES_PER_PROPOSAL / 2)),
       ids.length
@@ -343,6 +340,9 @@ const ProposalsPage: React.FC = () => {
       return true;
     });
 
+    // Maximaal 15 bronnen mee naar de les-flow
+    const limitedSources = selectedSources.slice(0, MAX_SOURCES_PER_PROPOSAL);
+
     const concept = {
       hoofdvraag: proposal.hoofdvraag,
       hook: proposal.hook,
@@ -354,14 +354,13 @@ const ProposalsPage: React.FC = () => {
       lesopbrengst: proposal.lesopbrengst,
       complexityLevel: proposal.complexityLevel,
       nuanceLevel: proposal.nuanceLevel,
-      extraDocentWish: proposal.extraDocentWish,
     };
 
     navigate("/lesson", {
       state: {
         tvKa: initialTvKa,
         concept,
-        sources: selectedSources,
+        sources: limitedSources,
       },
     });
   };
@@ -392,7 +391,6 @@ const ProposalsPage: React.FC = () => {
         },
         complexityLevel: proposal.complexityLevel,
         nuanceLevel: proposal.nuanceLevel,
-        docentInstructie: proposal.extraDocentWish || "",
       };
 
       const resp = await fetch("/api/generate-lesson-v2/refine-concept", {
@@ -464,14 +462,6 @@ const ProposalsPage: React.FC = () => {
     );
   };
 
-  const handleChangeDocentWish = (proposalId: string, value: string) => {
-    setProposals((prev) =>
-      prev.map((p) =>
-        p.id === proposalId ? { ...p, extraDocentWish: value } : p
-      )
-    );
-  };
-
   // ==== Render ====
 
   if (!initialSources || initialSources.length === 0) {
@@ -487,10 +477,10 @@ const ProposalsPage: React.FC = () => {
     <div style={{ padding: "1.5rem" }}>
       <h1 style={{ marginBottom: "0.5rem" }}>Lesvoorstellen</h1>
       <p style={{ marginBottom: "1rem", maxWidth: "900px" }}>
-        Kies één lesvoorstel, stel eventueel taalniveau en nuance bij en genereer
-        daarna het lesmateriaal. In de middelste kolom zie je de bronnen bij het
-        gekozen voorstel. De geel gemarkeerde bronnen met ster worden als meest
-        richtinggevend gezien.
+        Kies één lesvoorstel, stel eventueel taalniveau en nuance bij en
+        genereer daarna het lesmateriaal. In de middelste kolom zie je de
+        bronnen bij het gekozen voorstel. De geel gemarkeerde bronnen met ster
+        worden als meest richtinggevend gezien.
       </p>
 
       {error && (
@@ -509,26 +499,25 @@ const ProposalsPage: React.FC = () => {
       )}
 
       {isLoading && (
-        <div style={{ marginBottom: "0.75rem" }}>Lesvoorstellen laden…</div>
+        <div style={{ marginBottom: "0.75rem" }}>
+          Lesvoorstellen laden…
+        </div>
       )}
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.2fr)",
+          gridTemplateColumns:
+            "minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.2fr)",
           gap: "1rem",
         }}
       >
         {/* Kolom 1 – Lesvoorstellen */}
         <div>
-          <h2
-            style={{
-              fontSize: "1rem",
-              marginBottom: "0.5rem",
-            }}
-          >
+          <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>
             1. Kies een lesvoorstel
           </h2>
+
           {sortedProposals.map((proposal) => {
             const isSelected = selectedProposal?.id === proposal.id;
             const cardBg = isSelected ? "#e6f0ff" : "#f7f7f7";
@@ -608,7 +597,7 @@ const ProposalsPage: React.FC = () => {
                   </p>
                 )}
 
-                {/* Refinement-instellingen */}
+                {/* Refinement-instellingen (alleen schuifjes) */}
                 <div
                   style={{
                     marginTop: "0.5rem",
@@ -678,33 +667,6 @@ const ProposalsPage: React.FC = () => {
                     </label>
                   </div>
 
-                  <label
-                    style={{
-                      fontSize: "0.8rem",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "0.25rem",
-                      marginBottom: "0.4rem",
-                    }}
-                  >
-                    Extra wens van de docent (optioneel)
-                    <textarea
-                      value={proposal.extraDocentWish}
-                      onChange={(e) =>
-                        handleChangeDocentWish(proposal.id, e.target.value)
-                      }
-                      placeholder="Bijv. 'Maak de hoofdvraag iets scherper voor discussie' of 'Hou de toon wat neutraler'."
-                      rows={2}
-                      style={{
-                        resize: "vertical",
-                        fontSize: "0.8rem",
-                        padding: "0.35rem",
-                        borderRadius: "0.5rem",
-                        border: "1px solid #cccccc",
-                      }}
-                    />
-                  </label>
-
                   <div
                     style={{
                       display: "flex",
@@ -753,12 +715,7 @@ const ProposalsPage: React.FC = () => {
 
         {/* Kolom 2 – Bronnen bij geselecteerd voorstel */}
         <div>
-          <h2
-            style={{
-              fontSize: "1rem",
-              marginBottom: "0.5rem",
-            }}
-          >
+          <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>
             2. Bronnen bij het gekozen voorstel
           </h2>
 
@@ -861,6 +818,7 @@ const ProposalsPage: React.FC = () => {
                         >
                           {s.title || `Bron ${String(s.id)}`}
                         </div>
+
                         {s.provider && (
                           <div
                             style={{
@@ -872,12 +830,13 @@ const ProposalsPage: React.FC = () => {
                             {s.provider}
                           </div>
                         )}
+
                         {preview && (
                           <div
                             style={{
                               fontSize: "0.8rem",
                               color: "#333333",
-                              wordBreak: "word-break",
+                              wordBreak: "break-word",
                             }}
                           >
                             {preview}
@@ -904,6 +863,7 @@ const ProposalsPage: React.FC = () => {
                             ★
                           </span>
                         )}
+
                         <button
                           type="button"
                           onClick={() => handleToggleSource(s.id)}
@@ -932,12 +892,7 @@ const ProposalsPage: React.FC = () => {
 
         {/* Kolom 3 – Bron-detail */}
         <div>
-          <h2
-            style={{
-              fontSize: "1rem",
-              marginBottom: "0.5rem",
-            }}
-          >
+          <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>
             3. Detailweergave bron
           </h2>
 
@@ -948,78 +903,73 @@ const ProposalsPage: React.FC = () => {
             </p>
           )}
 
-          {selectedSource && (() => {
-            const detailText =
-              selectedSource.fullText ||
-              selectedSource.content ||
-              selectedSource.description ||
-              "Geen extra tekst beschikbaar voor deze bron.";
-
-            return (
-              <div
-                style={{
-                  borderRadius: "0.75rem",
-                  border: "1px solid #dddddd",
-                  padding: "0.75rem",
-                  backgroundColor: "#fafafa",
-                }}
-              >
-                {isImageSource(selectedSource) && selectedSource.imageUrl && (
-                  <div
-                    style={{
-                      marginBottom: "0.5rem",
-                      borderRadius: "0.75rem",
-                      overflow: "hidden",
-                      border: "1px solid rgba(0,0,0,0.06)",
-                      maxHeight: "220px",
-                    }}
-                  >
-                    <img
-                      src={selectedSource.imageUrl}
-                      alt={selectedSource.title || "bronafbeelding"}
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                      }}
-                    />
-                  </div>
-                )}
-
-                <h3
-                  style={{
-                    fontSize: "0.95rem",
-                    marginBottom: "0.25rem",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {selectedSource.title || `Bron ${String(selectedSource.id)}`}
-                </h3>
-
-                {selectedSource.provider && (
-                  <div
-                    style={{
-                      fontSize: "0.75rem",
-                      color: "#555",
-                      marginBottom: "0.25rem",
-                    }}
-                  >
-                    {selectedSource.provider}
-                  </div>
-                )}
-
+          {selectedSource && (
+            <div
+              style={{
+                borderRadius: "0.75rem",
+                border: "1px solid #dddddd",
+                padding: "0.75rem",
+                backgroundColor: "#fafafa",
+              }}
+            >
+              {isImageSource(selectedSource) && selectedSource.imageUrl && (
                 <div
                   style={{
-                    fontSize: "0.85rem",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
+                    marginBottom: "0.5rem",
+                    borderRadius: "0.75rem",
+                    overflow: "hidden",
+                    border: "1px solid rgba(0,0,0,0.06)",
+                    maxHeight: "220px",
                   }}
                 >
-                  {detailText}
+                  <img
+                    src={selectedSource.imageUrl}
+                    alt={selectedSource.title || "bronafbeelding"}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
                 </div>
+              )}
+
+              <h3
+                style={{
+                  fontSize: "0.95rem",
+                  marginBottom: "0.25rem",
+                  wordBreak: "break-word",
+                }}
+              >
+                {selectedSource.title || `Bron ${String(selectedSource.id)}`}
+              </h3>
+
+              {selectedSource.provider && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#555",
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  {selectedSource.provider}
+                </div>
+              )}
+
+              <div
+                style={{
+                  fontSize: "0.85rem",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}
+              >
+                {selectedSource.description ||
+                  selectedSource.fullText ||
+                  selectedSource.content ||
+                  "Geen extra tekst beschikbaar voor deze bron."}
               </div>
-            );
-          })()}
+            </div>
+          )}
         </div>
       </div>
     </div>
