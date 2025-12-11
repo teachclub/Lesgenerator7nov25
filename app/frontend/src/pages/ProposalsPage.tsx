@@ -32,7 +32,7 @@ type LessonProposal = {
   ka?: string;
   kaLabel?: string;
   lesopbrengst?: string;
-  bronIds: Array<string | number>;
+  sourceIds: Array<string | number>;
   primarySourceIds: Array<string | number>;
   complexityLevel: number;
   nuanceLevel: number;
@@ -63,19 +63,20 @@ function isImageSource(source: RawSource): boolean {
 
 /**
  * Bepaalt de daadwerkelijke img-src:
- * - Eerst imageUrl (zoals uit presearch / Kleio-proxy)
- * - Anders, als het een image-type is en er is een url: via /api/image-proxy
+ * - ALTIJD via /api/image-proxy, zowel voor Kleio als Cito
+ * - Eerst imageUrl, anders (als type image is) de url
  */
 function getImageSrc(source: RawSource): string | null {
   if (!source) return null;
 
-  if (source.imageUrl) {
-    return source.imageUrl;
-  }
-
   const t = (source.type || "").toLowerCase();
   const isImgType =
     t.includes("image") || t === "foto" || t === "afbeelding";
+
+  if (source.imageUrl) {
+    const encoded = encodeURIComponent(source.imageUrl);
+    return `/api/image-proxy?url=${encoded}`;
+  }
 
   if (isImgType && source.url) {
     const encoded = encodeURIComponent(source.url);
@@ -87,9 +88,9 @@ function getImageSrc(source: RawSource): string | null {
 
 function makePreviewText(source: RawSource): string {
   const text =
-    source.description ||
     source.fullText ||
     source.content ||
+    source.description ||
     source.title ||
     "";
   const trimmed = text.replace(/\s+/g, " ").trim();
@@ -129,23 +130,30 @@ function normalizeProposal(raw: any, defaultTvKa: TvKaInfo): LessonProposal {
     raw.lesdoelen ||
     "";
 
-  // BronIds: oude namen + nieuwe schema (sourceIds)
-  const bronIds: Array<string | number> = Array.isArray(raw.bronIds)
+  const sourceIds: Array<string | number> = Array.isArray(raw.sourceIds)
+    ? raw.sourceIds
+    : Array.isArray(raw.bronIds)
     ? raw.bronIds
     : Array.isArray(raw.bronnenIds)
     ? raw.bronnenIds
-    : Array.isArray(raw.sourceIds)
-    ? raw.sourceIds
+    : Array.isArray(concept.sourceIds)
+    ? concept.sourceIds
     : Array.isArray(concept.bronIds)
     ? concept.bronIds
     : [];
 
-  // Kernbronnen: nieuwe schema primarySourceIds
-  const primarySourceIds: Array<string | number> = Array.isArray(
+  let primarySourceIds: Array<string | number> = Array.isArray(
     raw.primarySourceIds
   )
     ? raw.primarySourceIds
+    : Array.isArray(concept.primarySourceIds)
+    ? concept.primarySourceIds
     : [];
+
+  if (!primarySourceIds.length && sourceIds.length > 0) {
+    const maxPrim = Math.min(10, sourceIds.length);
+    primarySourceIds = sourceIds.slice(0, maxPrim);
+  }
 
   return {
     id:
@@ -162,7 +170,7 @@ function normalizeProposal(raw: any, defaultTvKa: TvKaInfo): LessonProposal {
     ka,
     kaLabel,
     lesopbrengst,
-    bronIds,
+    sourceIds,
     primarySourceIds,
     complexityLevel: 3,
     nuanceLevel: 3,
@@ -236,7 +244,7 @@ const ProposalsPage: React.FC = () => {
 
         const backendSources: RawSource[] = Array.isArray(payload.allSources)
           ? payload.allSources
-          : initialSources;
+          : (payload.sources as RawSource[]) || initialSources;
 
         const proposalsRaw: any[] = Array.isArray(payload.proposals)
           ? payload.proposals
@@ -290,9 +298,7 @@ const ProposalsPage: React.FC = () => {
     return [selectedProposal, ...rest];
   }, [proposals, selectedProposal]);
 
-  // Bepaal set met kernbronnen:
-  // - primair: primarySourceIds uit backend
-  // - fallback: eerste helft van bronIds (oude gedrag)
+  // "Meest relevante" = primarySourceIds; zo niet, dan fallback op eerste helft van sourceIds
   const coreIdsForSelected: Set<string> = useMemo(() => {
     if (!selectedProposal) return new Set();
 
@@ -301,7 +307,7 @@ const ProposalsPage: React.FC = () => {
       return new Set(primary.map((id) => String(id)));
     }
 
-    const ids = selectedProposal.bronIds || [];
+    const ids = selectedProposal.sourceIds || [];
     if (ids.length === 0) return new Set();
 
     const coreCount = Math.min(
@@ -315,9 +321,11 @@ const ProposalsPage: React.FC = () => {
   const selectedProposalSources: RawSource[] = useMemo(() => {
     if (!selectedProposal) return [];
 
+    const proposalSourceIds = selectedProposal.sourceIds || [];
+
     const relevantIds =
-      selectedProposal.bronIds && selectedProposal.bronIds.length > 0
-        ? new Set(selectedProposal.bronIds.map((id: any) => String(id)))
+      proposalSourceIds && proposalSourceIds.length > 0
+        ? new Set(proposalSourceIds.map((id: any) => String(id)))
         : null;
 
     const filtered = allSources.filter((s) => {
@@ -370,9 +378,11 @@ const ProposalsPage: React.FC = () => {
   };
 
   const handleUseProposal = (proposal: LessonProposal) => {
+    const proposalSourceIds = proposal.sourceIds || [];
+
     const relevantIds =
-      proposal.bronIds && proposal.bronIds.length > 0
-        ? new Set(proposal.bronIds.map((id: any) => String(id)))
+      proposalSourceIds && proposalSourceIds.length > 0
+        ? new Set(proposalSourceIds.map((id: any) => String(id)))
         : null;
 
     const selectedSources = allSources.filter((s) => {
