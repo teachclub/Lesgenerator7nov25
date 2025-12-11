@@ -33,6 +33,7 @@ type LessonProposal = {
   kaLabel?: string;
   lesopbrengst?: string;
   bronIds: Array<string | number>;
+  primarySourceIds: Array<string | number>;
   complexityLevel: number;
   nuanceLevel: number;
 };
@@ -58,6 +59,30 @@ function isImageSource(source: RawSource): boolean {
   if (source.imageUrl) return true;
   const t = (source.type || "").toLowerCase();
   return t.includes("image") || t === "foto" || t === "afbeelding";
+}
+
+/**
+ * Bepaalt de daadwerkelijke img-src:
+ * - Eerst imageUrl (zoals uit presearch / Kleio-proxy)
+ * - Anders, als het een image-type is en er is een url: via /api/image-proxy
+ */
+function getImageSrc(source: RawSource): string | null {
+  if (!source) return null;
+
+  if (source.imageUrl) {
+    return source.imageUrl;
+  }
+
+  const t = (source.type || "").toLowerCase();
+  const isImgType =
+    t.includes("image") || t === "foto" || t === "afbeelding";
+
+  if (isImgType && source.url) {
+    const encoded = encodeURIComponent(source.url);
+    return `/api/image-proxy?url=${encoded}`;
+  }
+
+  return null;
 }
 
 function makePreviewText(source: RawSource): string {
@@ -104,15 +129,22 @@ function normalizeProposal(raw: any, defaultTvKa: TvKaInfo): LessonProposal {
     raw.lesdoelen ||
     "";
 
-  // BELANGRIJK: bronIds nu ook vullen vanuit sourceIds (v7/validateProposalsResponse)
+  // BronIds: oude namen + nieuwe schema (sourceIds)
   const bronIds: Array<string | number> = Array.isArray(raw.bronIds)
     ? raw.bronIds
     : Array.isArray(raw.bronnenIds)
     ? raw.bronnenIds
-    : Array.isArray(concept.bronIds)
-    ? concept.bronIds
     : Array.isArray(raw.sourceIds)
     ? raw.sourceIds
+    : Array.isArray(concept.bronIds)
+    ? concept.bronIds
+    : [];
+
+  // Kernbronnen: nieuwe schema primarySourceIds
+  const primarySourceIds: Array<string | number> = Array.isArray(
+    raw.primarySourceIds
+  )
+    ? raw.primarySourceIds
     : [];
 
   return {
@@ -131,6 +163,7 @@ function normalizeProposal(raw: any, defaultTvKa: TvKaInfo): LessonProposal {
     kaLabel,
     lesopbrengst,
     bronIds,
+    primarySourceIds,
     complexityLevel: 3,
     nuanceLevel: 3,
   };
@@ -257,9 +290,17 @@ const ProposalsPage: React.FC = () => {
     return [selectedProposal, ...rest];
   }, [proposals, selectedProposal]);
 
-  // "Meest relevante" = eerste helft van bronIds van dit voorstel
+  // Bepaal set met kernbronnen:
+  // - primair: primarySourceIds uit backend
+  // - fallback: eerste helft van bronIds (oude gedrag)
   const coreIdsForSelected: Set<string> = useMemo(() => {
     if (!selectedProposal) return new Set();
+
+    const primary = selectedProposal.primarySourceIds || [];
+    if (primary.length > 0) {
+      return new Set(primary.map((id) => String(id)));
+    }
+
     const ids = selectedProposal.bronIds || [];
     if (ids.length === 0) return new Set();
 
@@ -340,7 +381,6 @@ const ProposalsPage: React.FC = () => {
       return true;
     });
 
-    // Maximaal 15 bronnen mee naar de les-flow
     const limitedSources = selectedSources.slice(0, MAX_SOURCES_PER_PROPOSAL);
 
     const concept = {
@@ -737,6 +777,7 @@ const ProposalsPage: React.FC = () => {
               const isCore = coreIdsForSelected.has(String(s.id));
               const isActive = activeSourceIds.has(s.id);
               const preview = makePreviewText(s);
+              const imgSrc = getImageSrc(s);
 
               const bg = !isActive
                 ? "#f3f3f3"
@@ -776,9 +817,9 @@ const ProposalsPage: React.FC = () => {
                       backgroundColor: "#fafafa",
                     }}
                   >
-                    {isImageSource(s) && s.imageUrl ? (
+                    {imgSrc ? (
                       <img
-                        src={s.imageUrl}
+                        src={imgSrc}
                         alt={s.title || "bronafbeelding"}
                         style={{
                           width: "100%",
@@ -912,27 +953,31 @@ const ProposalsPage: React.FC = () => {
                 backgroundColor: "#fafafa",
               }}
             >
-              {isImageSource(selectedSource) && selectedSource.imageUrl && (
-                <div
-                  style={{
-                    marginBottom: "0.5rem",
-                    borderRadius: "0.75rem",
-                    overflow: "hidden",
-                    border: "1px solid rgba(0,0,0,0.06)",
-                    maxHeight: "220px",
-                  }}
-                >
-                  <img
-                    src={selectedSource.imageUrl}
-                    alt={selectedSource.title || "bronafbeelding"}
+              {(() => {
+                const imgSrc = getImageSrc(selectedSource);
+                if (!imgSrc) return null;
+                return (
+                  <div
                     style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
+                      marginBottom: "0.5rem",
+                      borderRadius: "0.75rem",
+                      overflow: "hidden",
+                      border: "1px solid rgba(0,0,0,0.06)",
+                      maxHeight: "220px",
                     }}
-                  />
-                </div>
-              )}
+                  >
+                    <img
+                      src={imgSrc}
+                      alt={selectedSource.title || "bronafbeelding"}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
+                    />
+                  </div>
+                );
+              })()}
 
               <h3
                 style={{
@@ -963,9 +1008,9 @@ const ProposalsPage: React.FC = () => {
                   wordBreak: "break-word",
                 }}
               >
-                {selectedSource.description ||
-                  selectedSource.fullText ||
+                {selectedSource.fullText ||
                   selectedSource.content ||
+                  selectedSource.description ||
                   "Geen extra tekst beschikbaar voor deze bron."}
               </div>
             </div>
