@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 type LessonConcept = {
@@ -23,1038 +23,751 @@ type Source = {
   imageUrl?: string | null;
 };
 
-type TvKa = {
+type TvKaInfo = {
   tv?: string;
   tvLabel?: string;
   ka?: string;
   kaLabel?: string;
 };
 
-type Step1DocentLesfase = {
-  fase: string;
-  tijd: string;
-  doel: string;
-  activiteit: string;
-  werkvorm: string;
-};
-
-type Step1DocentBronkoppeling = {
-  deelvraag: string;
-  bronnen: number[];
-};
-
-type Step1Docent = {
-  wat: string;
-  hoe: string;
-  waarom: string;
-  deelvragen: string[];
-  bronverwijzingenPerDeelvraag: Step1DocentBronkoppeling[];
-  lesfasen: Step1DocentLesfase[];
+type Step1DocentData = {
+  wat?: string;
+  hoe?: string;
+  waarom?: string;
+  deelvragen?: string[];
+  bronverwijzingenPerDeelvraag?: {
+    deelvraag?: string;
+    bronnen?: number[];
+  }[];
+  lesfasen?: {
+    fase?: string;
+    tijd?: string;
+    doel?: string;
+    activiteit?: string;
+    werkvorm?: string;
+  }[];
 };
 
 type Step1Response = {
-  step?: "step1";
-  data: {
+  step?: string;
+  data?: {
     chainSignature?: string;
-    docent: Step1Docent;
+    docent?: Step1DocentData;
   };
+  error?: string;
 };
 
-type Step2BronNummering = {
-  nummer: number;
-  id: string | number;
-  label: string;
-  provider: string;
-  type: string;
-  url: string | null;
-};
-
-type Step2Bronnenblad = {
-  instructie: string;
-  bronNummering: Step2BronNummering[];
-};
-
-type Step2SamenwerkingMeerkeuze = {
-  wieSpreektOpties: string[];
-  dimensieOpties: string[];
-  subdimensieOpties: string[];
-};
-
-type Step2Samenwerkingstabel = {
-  instructie: string;
-  kolommen: string[];
-  rijen: string[];
-  meerkeuze: Step2SamenwerkingMeerkeuze;
-};
-
-type Step2Startopdracht = {
-  beschrijving: string;
-  stappen: string[];
-};
-
-type Step2Reflectie = {
-  instructie: string;
-  vragen: string[];
-};
-
-type Step2BronVraagUnit = {
-  type: string;
-  vraag: string;
-};
-
-type Step2BronVragenPerBron = {
-  bronNummer: number;
-  bronId?: string | number;
-  vragen: Step2BronVraagUnit[];
-};
-
-type Step2Leerling = {
-  antiPresentismeIntro: string;
-  startopdracht: Step2Startopdracht;
-  bronnenblad: Step2Bronnenblad;
-  samenwerkingstabel: Step2Samenwerkingstabel;
-  bronvragen?: Step2BronVragenPerBron[];
-  reflectie: Step2Reflectie;
+type Step2LeerlingData = {
+  antiPresentismeIntro?: string;
+  startopdracht?: {
+    beschrijving?: string;
+    stappen?: string[];
+  };
+  bronnenblad?: {
+    instructie?: string;
+    bronNummering?: {
+      nummer: number;
+      id: string | number;
+      label?: string;
+      provider?: string;
+      type?: string;
+      url?: string | null;
+    }[];
+  };
+  bronvragen?: {
+    bronNummer: number;
+    bronId: string | number;
+    vragen: { type: string; vraag: string }[];
+  }[];
+  samenwerkingstabel?: {
+    instructie?: string;
+    kolommen?: string[];
+    rijen?: string[];
+    meerkeuze?: {
+      wieSpreektOpties?: string[];
+      dimensieOpties?: string[];
+      subdimensieOpties?: string[];
+    };
+  };
+  reflectie?: {
+    instructie?: string;
+    vragen?: string[];
+  };
 };
 
 type Step2Response = {
-  step?: "step2";
-  data: {
+  step?: string;
+  data?: {
     chainSignature?: string;
-    leerling: Step2Leerling;
+    leerling?: Step2LeerlingData;
   };
+  error?: string;
 };
 
-type LocationState = {
-  concept?: LessonConcept;
-  sources?: Source[];
-  tvKa?: TvKa;
-};
-
-type TabKey = "docent" | "leerling" | "debug";
+type StepStatus = "idle" | "loading" | "done" | "error";
 
 const LessonPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const state = (location.state || {}) as LocationState;
 
-  const concept = state.concept;
-  const sources = state.sources || [];
-  const tvKa = state.tvKa || {
-    tv: concept?.tv,
-    tvLabel: concept?.tvLabel,
-    ka: concept?.ka,
-    kaLabel: concept?.kaLabel,
+  const state = (location.state || {}) as {
+    tvKa?: TvKaInfo;
+    concept?: LessonConcept;
+    sources?: Source[];
   };
 
-  const [activeTab, setActiveTab] = useState<TabKey>("docent");
+  const tvKa: TvKaInfo = state.tvKa || {};
+  const concept: LessonConcept | undefined = state.concept;
+  const sources: Source[] = state.sources || [];
 
-  const [step1Loading, setStep1Loading] = useState(false);
-  const [step2Loading, setStep2Loading] = useState(false);
-  const anyLoading = step1Loading || step2Loading;
-
+  // === State voor step 1 ===
+  const [step1Status, setStep1Status] = useState<StepStatus>("idle");
   const [step1Error, setStep1Error] = useState<string | null>(null);
+  const [docentData, setDocentData] = useState<Step1DocentData | null>(null);
+  const [deelvragenFromStep1, setDeelvragenFromStep1] = useState<string[]>([]);
+
+  // === State voor step 2 ===
+  const [step2Status, setStep2Status] = useState<StepStatus>("idle");
   const [step2Error, setStep2Error] = useState<string | null>(null);
-
-  const [step1Docent, setStep1Docent] = useState<Step1Docent | null>(null);
-  const [step1ChainSignature, setStep1ChainSignature] = useState<string | null>(
+  const [leerlingData, setLeerlingData] = useState<Step2LeerlingData | null>(
     null
   );
+  const [step2RawJson, setStep2RawJson] = useState<string>("");
 
-  const [step2Leerling, setStep2Leerling] = useState<Step2Leerling | null>(
-    null
+  // Welke tab is actief?
+  const [activeTab, setActiveTab] = useState<"step1" | "step2" | "debug">(
+    "step1"
   );
-  const [step2ChainSignature, setStep2ChainSignature] = useState<string | null>(
-    null
-  );
-  const [step2DebugJson, setStep2DebugJson] = useState<any | null>(null);
 
-  if (!concept) {
+  // === Veiligheid: als er geen concept of sources zijn, terug naar home ===
+  useEffect(() => {
+    if (!concept || !sources || sources.length === 0) {
+      // Veilige fallback: terug naar start
+      // (of later: navigate("/") als je een homepage hebt)
+    }
+  }, [concept, sources]);
+
+  // === STEP 1 – automatisch starten bij binnenkomst ===
+  useEffect(() => {
+    if (!concept || !sources || sources.length === 0) return;
+    if (step1Status !== "idle") return;
+
+    const runStep1 = async () => {
+      try {
+        setStep1Status("loading");
+        setStep1Error(null);
+
+        const resp = await fetch("/api/generate-lesson-v2/step1", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tvKa,
+            concept,
+            sources,
+          }),
+        });
+
+        const data = (await resp.json()) as Step1Response;
+
+        if (!resp.ok || data.error) {
+          throw new Error(
+            data.error ||
+              `Backend-fout bij step1 (status ${resp.status || "onbekend"})`
+          );
+        }
+
+        if (!data.data || !data.data.docent) {
+          throw new Error("STEP1: ontbrekend docent-object in response");
+        }
+
+        const docent = data.data.docent;
+        setDocentData(docent);
+
+        const dv =
+          Array.isArray(docent.deelvragen) && docent.deelvragen.length > 0
+            ? docent.deelvragen
+            : [];
+        setDeelvragenFromStep1(dv);
+
+        setStep1Status("done");
+      } catch (err: any) {
+        console.error("[LessonPage] step1-fout:", err);
+        setStep1Error(
+          err.message || "Er ging iets mis bij het genereren van step 1."
+        );
+        setStep1Status("error");
+      }
+    };
+
+    runStep1();
+  }, [concept, sources, tvKa, step1Status]);
+
+  // === STEP 2 – wordt pas gestart als docent op knop drukt én step1 klaar is ===
+  const canRunStep2 =
+    step1Status === "done" && deelvragenFromStep1.length > 0 && !!concept;
+
+  const handleRunStep2 = async () => {
+    if (!canRunStep2 || !concept) return;
+
+    try {
+      setStep2Status("loading");
+      setStep2Error(null);
+      setActiveTab("step2");
+
+      const body = {
+        tvKa,
+        concept,
+        sources,
+        // Belangrijk: deelvragen uit STEP 1 expliciet meesturen
+        deelvragen: deelvragenFromStep1,
+      };
+
+      const resp = await fetch("/api/generate-lesson-v2/step2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = (await resp.json()) as Step2Response;
+
+      if (!resp.ok || data.error) {
+        throw new Error(
+          data.error ||
+            `Backend-fout bij step2 (status ${resp.status || "onbekend"})`
+        );
+      }
+
+      if (!data.data || !data.data.leerling) {
+        throw new Error("STEP2: ontbrekend leerling-object in response");
+      }
+
+      setLeerlingData(data.data.leerling);
+      setStep2RawJson(JSON.stringify(data, null, 2));
+      setStep2Status("done");
+    } catch (err: any) {
+      console.error("[LessonPage] step2-fout:", err);
+      setStep2Error(
+        err.message || "Er ging iets mis bij het genereren van step 2."
+      );
+      setStep2Status("error");
+    }
+  };
+
+  // === Kleine helper voor titel bovenaan ===
+  const hoofdvraagText =
+    concept?.hoofdvraag || "Hoofdvraag ontbreekt in concept.";
+
+  const hookText = concept?.hook || "";
+
+  if (!concept || !sources || sources.length === 0) {
     return (
       <div style={{ padding: "1.5rem" }}>
-        <h1>Geen lesconcept gevonden</h1>
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          style={{
+            marginBottom: "1rem",
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            fontSize: "0.9rem",
+          }}
+        >
+          ← Terug
+        </button>
+        <h1>Lesgenerator</h1>
         <p>
-          Er is geen concept meegegeven aan deze pagina. Ga terug naar de
-          lesvoorstellen en kies een concept opnieuw.
+          Er is geen lesconcept of er zijn geen bronnen doorgegeven. Ga terug en
+          kies eerst een lesvoorstel met bronnen.
         </p>
-        <button onClick={() => navigate(-1)}>Terug</button>
       </div>
     );
   }
 
-  const baseBody = {
-    concept,
-    sources,
-    tvKa,
-  };
-
-  const handleGenerateStep1 = async () => {
-    if (!concept || sources.length === 0) {
-      setStep1Error("Geen concept of bronnen beschikbaar om Step 1 te genereren.");
-      return;
-    }
-    if (anyLoading) return;
-
-    setStep1Loading(true);
-    setStep1Error(null);
-
-    try {
-      const res1 = await fetch("/api/generate-lesson-v2/step1", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(baseBody),
-      });
-
-      if (!res1.ok) {
-        const err1 = await res1.json().catch(() => null);
-        throw new Error(
-          err1?.error ||
-            `Fout bij step1: HTTP ${res1.status} ${res1.statusText}`
-        );
-      }
-
-      const json1 = (await res1.json()) as Step1Response;
-
-      if (json1?.data?.docent) {
-        setStep1Docent(json1.data.docent);
-        setStep1ChainSignature(json1.data.chainSignature || null);
-      } else {
-        setStep1Docent(null);
-        throw new Error("Step 1 antwoord bevat geen docentmateriaal.");
-      }
-    } catch (e: any) {
-      setStep1Error(
-        e?.message || "Er ging iets mis bij het genereren van Step 1."
-      );
-    } finally {
-      setStep1Loading(false);
-    }
-  };
-
-  const handleGenerateStep2 = async () => {
-    if (!concept || sources.length === 0) {
-      setStep2Error("Geen concept of bronnen beschikbaar om Step 2 te genereren.");
-      return;
-    }
-    if (anyLoading) return;
-
-    setStep2Loading(true);
-    setStep2Error(null);
-
-    try {
-      const res2 = await fetch("/api/generate-lesson-v2/step2", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(baseBody),
-      });
-
-      if (!res2.ok) {
-        const err2 = await res2.json().catch(() => null);
-        throw new Error(
-          err2?.error ||
-            `Fout bij step2: HTTP ${res2.status} ${res2.statusText}`
-        );
-      }
-
-      const json2 = (await res2.json()) as Step2Response;
-
-      if (json2?.data?.leerling) {
-        setStep2Leerling(json2.data.leerling);
-        setStep2ChainSignature(json2.data.chainSignature || null);
-        setStep2DebugJson(json2);
-      } else {
-        setStep2Leerling(null);
-        setStep2DebugJson(json2);
-        throw new Error("Step 2 antwoord bevat geen leerlingmateriaal.");
-      }
-    } catch (e: any) {
-      setStep2Error(
-        e?.message || "Er ging iets mis bij het genereren van Step 2."
-      );
-    } finally {
-      setStep2Loading(false);
-    }
-  };
-
-  const renderHeader = () => {
-    return (
-      <div
+  return (
+    <div style={{ padding: "1.5rem", maxWidth: "960px" }}>
+      <button
+        type="button"
+        onClick={() => navigate(-1)}
         style={{
-          padding: "1.5rem",
-          borderBottom: "1px solid #ddd",
-          marginBottom: "1rem",
+          marginBottom: "0.75rem",
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          fontSize: "0.9rem",
         }}
       >
-        <button onClick={() => navigate(-1)} style={{ marginBottom: "0.75rem" }}>
-          ← Terug
-        </button>
-        <h1 style={{ marginBottom: "0.5rem" }}>
-          Hoofdvraag: {concept.hoofdvraag}
-        </h1>
-        {concept.hook && (
-          <p style={{ fontStyle: "italic", marginBottom: "0.25rem" }}>
-            Hook: {concept.hook}
-          </p>
-        )}
-        {concept.context && (
-          <p style={{ marginBottom: "0.25rem" }}>Context: {concept.context}</p>
-        )}
+        ← Terug
+      </button>
 
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          {tvKa?.tvLabel && (
-            <span
-              style={{
-                padding: "0.25rem 0.5rem",
-                borderRadius: "999px",
-                border: "1px solid #ccc",
-                fontSize: "0.85rem",
-              }}
-            >
-              {tvKa.tvLabel}
-            </span>
-          )}
-          {tvKa?.kaLabel && (
-            <span
-              style={{
-                padding: "0.25rem 0.5rem",
-                borderRadius: "999px",
-                border: "1px solid #ccc",
-                fontSize: "0.85rem",
-              }}
-            >
-              {tvKa.kaLabel}
-            </span>
-          )}
-          {step1ChainSignature && (
-            <span
-              style={{
-                padding: "0.25rem 0.5rem",
-                borderRadius: "999px",
-                border: "1px solid #ccc",
-                fontSize: "0.8rem",
-                opacity: 0.7,
-              }}
-            >
-              chain1: {step1ChainSignature}
-            </span>
-          )}
-          {step2ChainSignature && (
-            <span
-              style={{
-                padding: "0.25rem 0.5rem",
-                borderRadius: "999px",
-                border: "1px solid #ccc",
-                fontSize: "0.8rem",
-                opacity: 0.7,
-              }}
-            >
-              step2: {step2ChainSignature}
-            </span>
-          )}
-        </div>
-
-        <div
+      {/* Kop: hoofdvraag + hook */}
+      <div style={{ marginBottom: "1rem" }}>
+        <p
           style={{
-            marginTop: "1rem",
-            display: "flex",
-            gap: "0.75rem",
-            flexWrap: "wrap",
+            fontWeight: 600,
+            marginBottom: "0.25rem",
+            fontSize: "1rem",
           }}
         >
-          <button
-            onClick={handleGenerateStep1}
-            disabled={anyLoading}
+          Hoofdvraag: {hoofdvraagText}
+        </p>
+        {hookText && (
+          <p
             style={{
-              padding: "0.5rem 0.9rem",
-              borderRadius: "999px",
-              border: "1px solid #000",
-              background: anyLoading ? "#eee" : "#fff",
-              cursor: anyLoading ? "default" : "pointer",
+              fontStyle: "italic",
+              marginBottom: "0.25rem",
             }}
           >
-            {step1Loading ? "Step 1 genereren…" : "Step 1 – Docentmateriaal"}
-          </button>
-          <button
-            onClick={handleGenerateStep2}
-            disabled={anyLoading}
-            style={{
-              padding: "0.5rem 0.9rem",
-              borderRadius: "999px",
-              border: "1px solid #000",
-              background: anyLoading ? "#eee" : "#fff",
-              cursor: anyLoading ? "default" : "pointer",
-            }}
-          >
-            {step2Loading ? "Step 2 genereren…" : "Step 2 – Leerlingmateriaal"}
-          </button>
-          {anyLoading && (
-            <span style={{ fontSize: "0.85rem", opacity: 0.7 }}>
-              Bezig met genereren… (één stap tegelijk)
-            </span>
-          )}
-        </div>
+            Hook: {hookText}
+          </p>
+        )}
       </div>
-    );
-  };
 
-  const renderTabs = () => {
-    const tabs: { key: TabKey; label: string }[] = [
-      { key: "docent", label: "Step 1 – Docent" },
-      { key: "leerling", label: "Step 2 – Leerling" },
-      { key: "debug", label: "Debug STEP 2 JSON" },
-    ];
-
-    return (
+      {/* Knoppen voor genereren step 1 / 2 */}
       <div
         style={{
           display: "flex",
-          gap: "0.5rem",
-          borderBottom: "1px solid #ddd",
-          padding: "0 1.5rem",
+          gap: "0.75rem",
+          marginBottom: "1rem",
+          flexWrap: "wrap",
         }}
       >
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+        <button
+          type="button"
+          onClick={() => {
+            // je kunt altijd opnieuw step1 draaien
+            setStep1Status("idle");
+            setStep2Status("idle");
+            setLeerlingData(null);
+            setStep2RawJson("");
+            setActiveTab("step1");
+          }}
+          style={{
+            padding: "0.45rem 0.9rem",
+            borderRadius: "999px",
+            border: "1px solid #111",
+            backgroundColor: "#fff",
+            cursor: "pointer",
+            fontSize: "0.9rem",
+          }}
+        >
+          Step 1 – Docentmateriaal
+          {step1Status === "loading" ? " (bezig…)" : ""}
+        </button>
+
+        <button
+          type="button"
+          onClick={handleRunStep2}
+          disabled={!canRunStep2 || step2Status === "loading"}
+          style={{
+            padding: "0.45rem 0.9rem",
+            borderRadius: "999px",
+            border: "1px solid #111",
+            backgroundColor: !canRunStep2 ? "#f0f0f0" : "#fff",
+            color: !canRunStep2 ? "#999" : "#000",
+            cursor:
+              !canRunStep2 || step2Status === "loading"
+                ? "not-allowed"
+                : "pointer",
+            fontSize: "0.9rem",
+          }}
+        >
+          Step 2 – Leerlingmateriaal
+          {step2Status === "loading" ? " (bezig…)" : ""}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("debug")}
+          style={{
+            padding: "0.3rem 0.6rem",
+            borderRadius: "0.5rem",
+            border: "1px solid #aaa",
+            backgroundColor: "#f3f3f3",
+            fontSize: "0.8rem",
+          }}
+        >
+          Debug STEP 2 JSON
+        </button>
+      </div>
+
+      {/* Status / foutmeldingen */}
+      <div style={{ marginBottom: "0.75rem", fontSize: "0.8rem" }}>
+        {step1Status === "loading" && (
+          <div>Step 1 wordt gegenereerd… (docentmateriaal)</div>
+        )}
+        {step1Error && (
+          <div
             style={{
-              border: "none",
-              borderBottom:
-                activeTab === tab.key ? "2px solid #000" : "2px solid transparent",
-              background: "transparent",
-              padding: "0.75rem 0.5rem",
-              cursor: "pointer",
-              fontWeight: activeTab === tab.key ? 600 : 400,
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-    );
-  };
-
-  const renderDocentTab = () => {
-    if (step1Loading && !step1Docent) {
-      return (
-        <div style={{ padding: "1.5rem" }}>Bezig met genereren van Step 1…</div>
-      );
-    }
-
-    if (step1Error && !step1Docent) {
-      return (
-        <div style={{ padding: "1.5rem", color: "darkred" }}>
-          Fout bij Step 1: {step1Error}
-        </div>
-      );
-    }
-
-    if (!step1Docent) {
-      return (
-        <div style={{ padding: "1.5rem" }}>
-          Nog geen docentmateriaal ontvangen voor Step 1. Klik boven op
-          <strong> "Step 1 – Docentmateriaal"</strong> om het te genereren.
-        </div>
-      );
-    }
-
-    const d = step1Docent;
-
-    return (
-      <div style={{ padding: "1.5rem", display: "grid", gap: "1.5rem" }}>
-        <section>
-          <h2>WAT</h2>
-          <p>{d.wat}</p>
-        </section>
-
-        <section>
-          <h2>HOE</h2>
-          <p>{d.hoe}</p>
-        </section>
-
-        <section>
-          <h2>WAAROM</h2>
-          <p>{d.waarom}</p>
-        </section>
-
-        <section>
-          <h2>Deelvragen (docent)</h2>
-          <ol>
-            {Array.isArray(d.deelvragen) &&
-              d.deelvragen.map((dv, idx) => (
-                <li key={idx} style={{ marginBottom: "0.25rem" }}>
-                  {dv}
-                </li>
-              ))}
-          </ol>
-        </section>
-
-        <section>
-          <h2>Bronverwijzingen per deelvraag</h2>
-          {Array.isArray(d.bronverwijzingenPerDeelvraag) &&
-          d.bronverwijzingenPerDeelvraag.length > 0 ? (
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                marginTop: "0.5rem",
-              }}
-            >
-              <thead>
-                <tr>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    Deelvraag
-                  </th>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    Bronnen (Bron-nummers)
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.bronverwijzingenPerDeelvraag.map((bk, idx) => (
-                  <tr key={idx}>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                        verticalAlign: "top",
-                      }}
-                    >
-                      {bk.deelvraag}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                        verticalAlign: "top",
-                      }}
-                    >
-                      {Array.isArray(bk.bronnen) && bk.bronnen.length > 0
-                        ? bk.bronnen.map((n) => `Bron ${n}`).join(", ")
-                        : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p>Geen bronverwijzingen bekend.</p>
-          )}
-        </section>
-
-        <section>
-          <h2>Lesfasen (planning)</h2>
-          {Array.isArray(d.lesfasen) && d.lesfasen.length > 0 ? (
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                marginTop: "0.5rem",
-              }}
-            >
-              <thead>
-                <tr>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    Fase
-                  </th>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    Tijd
-                  </th>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    Doel
-                  </th>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    Activiteit
-                  </th>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    Werkvorm
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.lesfasen.map((fase, idx) => (
-                  <tr key={idx}>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                        verticalAlign: "top",
-                      }}
-                    >
-                      {fase.fase}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                        verticalAlign: "top",
-                      }}
-                    >
-                      {fase.tijd}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                        verticalAlign: "top",
-                      }}
-                    >
-                      {fase.doel}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                        verticalAlign: "top",
-                      }}
-                    >
-                      {fase.activiteit}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                        verticalAlign: "top",
-                      }}
-                    >
-                      {fase.werkvorm}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p>Geen lesfasen in de planning gevonden.</p>
-          )}
-        </section>
-      </div>
-    );
-  };
-
-  const renderLeerlingTab = () => {
-    if (step2Loading && !step2Leerling) {
-      return (
-        <div style={{ padding: "1.5rem" }}>Bezig met genereren van Step 2…</div>
-      );
-    }
-
-    if (step2Error && !step2Leerling) {
-      return (
-        <div style={{ padding: "1.5rem", color: "darkred" }}>
-          Fout bij Step 2: {step2Error}
-        </div>
-      );
-    }
-
-    if (!step2Leerling) {
-      return (
-        <div style={{ padding: "1.5rem" }}>
-          Nog geen leerlingmateriaal ontvangen voor Step 2. Klik boven op
-          <strong> "Step 2 – Leerlingmateriaal"</strong> om het te genereren.
-        </div>
-      );
-    }
-
-    const l = step2Leerling;
-    const bronnen = l.bronnenblad?.bronNummering || [];
-    const samenwerkingKolommen = l.samenwerkingstabel?.kolommen || [];
-    const samenwerkingRijen = l.samenwerkingstabel?.rijen || [];
-    const mk = l.samenwerkingstabel?.meerkeuze;
-    const bronLabelMap = new Map<number, string>();
-    for (const b of bronnen) {
-      bronLabelMap.set(b.nummer, b.label);
-    }
-
-    return (
-      <div
-        style={{
-          padding: "1.5rem",
-          display: "grid",
-          gap: "1.5rem",
-          alignItems: "flex-start",
-        }}
-      >
-        <section>
-          <h2>Anti-presentisme (uitleg voor leerlingen)</h2>
-          <p>{l.antiPresentismeIntro}</p>
-        </section>
-
-        <section>
-          <h2>Startopdracht</h2>
-          <p>{l.startopdracht.beschrijving}</p>
-          {Array.isArray(l.startopdracht.stappen) &&
-            l.startopdracht.stappen.length > 0 && (
-              <ol style={{ marginTop: "0.75rem" }}>
-                {l.startopdracht.stappen.map((stap, idx) => (
-                  <li key={idx} style={{ marginBottom: "0.25rem" }}>
-                    {stap}
-                  </li>
-                ))}
-              </ol>
-            )}
-        </section>
-
-        <section>
-          <h2>Bronnenblad (nummering)</h2>
-          <p>{l.bronnenblad.instructie}</p>
-          {bronnen.length > 0 ? (
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                marginTop: "0.75rem",
-              }}
-            >
-              <thead>
-                <tr>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    #
-                  </th>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    Label
-                  </th>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    Provider
-                  </th>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    Type
-                  </th>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      borderBottom: "1px solid #ccc",
-                      padding: "0.5rem",
-                    }}
-                  >
-                    ID (intern)
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {bronnen.map((b) => (
-                  <tr key={b.nummer}>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                      }}
-                    >
-                      {b.nummer}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                      }}
-                    >
-                      {b.label}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                      }}
-                    >
-                      {b.provider}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                      }}
-                    >
-                      {b.type}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "0.5rem",
-                        fontFamily: "monospace",
-                        fontSize: "0.8rem",
-                      }}
-                    >
-                      {b.id}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p>Geen bronnen beschikbaar.</p>
-          )}
-        </section>
-
-        <section>
-          <h2>Bronvragen per bron</h2>
-          {Array.isArray(l.bronvragen) && l.bronvragen.length > 0 ? (
-            <div style={{ display: "grid", gap: "1rem" }}>
-              {l.bronvragen.map((blok) => {
-                const label = bronLabelMap.get(blok.bronNummer);
-                return (
-                  <div
-                    key={blok.bronNummer}
-                    style={{
-                      border: "1px solid #ddd",
-                      borderRadius: "0.5rem",
-                      padding: "0.75rem 1rem",
-                    }}
-                  >
-                    <h3 style={{ marginBottom: "0.5rem" }}>
-                      Bron {blok.bronNummer}
-                      {label ? ` – ${label}` : ""}
-                    </h3>
-                    {Array.isArray(blok.vragen) && blok.vragen.length > 0 ? (
-                      <ol style={{ marginLeft: "1.25rem" }}>
-                        {blok.vragen.map((v, idx) => (
-                          <li key={idx} style={{ marginBottom: "0.25rem" }}>
-                            <span
-                              style={{
-                                fontWeight: 600,
-                                fontSize: "0.85rem",
-                                marginRight: "0.35rem",
-                                textTransform: "capitalize",
-                              }}
-                            >
-                              {v.type}:
-                            </span>
-                            {v.vraag}
-                          </li>
-                        ))}
-                      </ol>
-                    ) : (
-                      <p>Geen vragen voor deze bron.</p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p>Geen bronvragen ontvangen in step2-output.</p>
-          )}
-        </section>
-
-        <section>
-          <h2>Samenwerkingstabel</h2>
-          <p>{l.samenwerkingstabel.instructie}</p>
-
-          {mk && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                gap: "1rem",
-                marginTop: "0.75rem",
-              }}
-            >
-              <div
-                style={{
-                  border: "1px solid #ccc",
-                  borderRadius: "0.5rem",
-                  padding: "0.75rem",
-                }}
-              >
-                <strong>Wie spreekt in de bron?</strong>
-                <ul style={{ marginTop: "0.5rem", paddingLeft: "1.2rem" }}>
-                  {mk.wieSpreektOpties.map((opt, idx) => (
-                    <li key={idx}>{opt}</li>
-                  ))}
-                </ul>
-              </div>
-              <div
-                style={{
-                  border: "1px solid #ccc",
-                  borderRadius: "0.5rem",
-                  padding: "0.75rem",
-                }}
-              >
-                <strong>Dimensie-opties</strong>
-                <ul style={{ marginTop: "0.5rem", paddingLeft: "1.2rem" }}>
-                  {mk.dimensieOpties.map((opt, idx) => (
-                    <li key={idx}>{opt}</li>
-                  ))}
-                </ul>
-              </div>
-              <div
-                style={{
-                  border: "1px solid #ccc",
-                  borderRadius: "0.5rem",
-                  padding: "0.75rem",
-                }}
-              >
-                <strong>Subdimensie / soort verklaring</strong>
-                <ul style={{ marginTop: "0.5rem", paddingLeft: "1.2rem" }}>
-                  {mk.subdimensieOpties.map((opt, idx) => (
-                    <li key={idx}>{opt}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
-
-          {samenwerkingKolommen.length > 0 && samenwerkingRijen.length > 0 && (
-            <div style={{ marginTop: "1rem", overflowX: "auto" }}>
-              <table
-                style={{
-                  minWidth: "100%",
-                  borderCollapse: "collapse",
-                }}
-              >
-                <thead>
-                  <tr>
-                    {samenwerkingKolommen.map((kol, idx) => (
-                      <th
-                        key={idx}
-                        style={{
-                          textAlign: "left",
-                          borderBottom: "1px solid #ccc",
-                          padding: "0.5rem",
-                        }}
-                      >
-                        {kol}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {samenwerkingRijen.map((rij, idx) => (
-                    <tr key={idx}>
-                      {samenwerkingKolommen.map((_, colIdx) => (
-                        <td
-                          key={colIdx}
-                          style={{
-                            borderBottom: "1px solid #eee",
-                            padding: "0.5rem",
-                            verticalAlign: "top",
-                            fontSize: "0.9rem",
-                          }}
-                        >
-                          {colIdx === 0 ? rij : ""}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2>Reflectie-opdrachten</h2>
-          <p>{l.reflectie.instructie}</p>
-          {Array.isArray(l.reflectie.vragen) &&
-            l.reflectie.vragen.length > 0 && (
-              <ol style={{ marginTop: "0.75rem" }}>
-                {l.reflectie.vragen.map((vraag, idx) => (
-                  <li key={idx} style={{ marginBottom: "0.4rem" }}>
-                    {vraag}
-                  </li>
-                ))}
-              </ol>
-            )}
-        </section>
-      </div>
-    );
-  };
-
-  const renderDebugTab = () => {
-    return (
-      <div style={{ padding: "1.5rem" }}>
-        <h2>Debug STEP 2 JSON</h2>
-        {step2DebugJson ? (
-          <pre
-            style={{
-              marginTop: "0.75rem",
-              padding: "0.75rem",
+              color: "#a10000",
+              backgroundColor: "#ffe5e5",
+              padding: "0.5rem",
               borderRadius: "0.5rem",
-              border: "1px solid #ddd",
-              maxHeight: "60vh",
-              overflow: "auto",
-              fontSize: "0.8rem",
+              marginTop: "0.25rem",
             }}
           >
-            {JSON.stringify(step2DebugJson, null, 2)}
-          </pre>
-        ) : (
-          <p>Geen debug-data beschikbaar voor Step 2. Genereer eerst Step 2.</p>
+            Fout bij Step 1: {step1Error}
+          </div>
+        )}
+
+        {step2Status === "loading" && (
+          <div style={{ marginTop: "0.25rem" }}>
+            Step 2 wordt gegenereerd… (leerlingmateriaal)
+          </div>
+        )}
+        {step2Error && (
+          <div
+            style={{
+              color: "#a10000",
+              backgroundColor: "#ffe5e5",
+              padding: "0.5rem",
+              borderRadius: "0.5rem",
+              marginTop: "0.25rem",
+            }}
+          >
+            Fout bij Step 2: {step2Error}
+          </div>
+        )}
+
+        {!canRunStep2 && step1Status === "done" && (
+          <div style={{ marginTop: "0.25rem" }}>
+            Let op: Step 2 wacht op geldige deelvragen uit Step 1.
+          </div>
         )}
       </div>
-    );
-  };
 
-  return (
-    <div>
-      {renderHeader()}
-      {renderTabs()}
-      {activeTab === "docent" && renderDocentTab()}
-      {activeTab === "leerling" && renderLeerlingTab()}
-      {activeTab === "debug" && renderDebugTab()}
+      {/* Tabs */}
+      <div
+        style={{
+          borderBottom: "1px solid #ddd",
+          marginBottom: "0.75rem",
+          display: "flex",
+          gap: "1.5rem",
+          fontSize: "0.9rem",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveTab("step1")}
+          style={{
+            border: "none",
+            background: "transparent",
+            paddingBottom: "0.35rem",
+            cursor: "pointer",
+            borderBottom:
+              activeTab === "step1" ? "2px solid #111" : "2px solid transparent",
+            fontWeight: activeTab === "step1" ? 600 : 400,
+          }}
+        >
+          Step 1 – Docent
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("step2")}
+          style={{
+            border: "none",
+            background: "transparent",
+            paddingBottom: "0.35rem",
+            cursor: "pointer",
+            borderBottom:
+              activeTab === "step2" ? "2px solid #111" : "2px solid transparent",
+            fontWeight: activeTab === "step2" ? 600 : 400,
+          }}
+        >
+          Step 2 – Leerling
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("debug")}
+          style={{
+            border: "none",
+            background: "transparent",
+            paddingBottom: "0.35rem",
+            cursor: "pointer",
+            borderBottom:
+              activeTab === "debug" ? "2px solid #111" : "2px solid transparent",
+            fontWeight: activeTab === "debug" ? 600 : 400,
+          }}
+        >
+          Debug STEP 2 JSON
+        </button>
+      </div>
+
+      {/* Inhoud per tab */}
+      {activeTab === "step1" && (
+        <div style={{ fontSize: "0.9rem" }}>
+          {!docentData && step1Status === "loading" && (
+            <p>Docentmateriaal wordt geladen…</p>
+          )}
+          {!docentData && step1Status === "done" && (
+            <p>Geen docentmateriaal gevonden in de response.</p>
+          )}
+          {docentData && (
+            <>
+              {docentData.wat && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem" }}>WAT</h3>
+                  <p>{docentData.wat}</p>
+                </>
+              )}
+              {docentData.hoe && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem", marginTop: "0.75rem" }}>
+                    HOE
+                  </h3>
+                  <p>{docentData.hoe}</p>
+                </>
+              )}
+              {docentData.waarom && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem", marginTop: "0.75rem" }}>
+                    WAAROM
+                  </h3>
+                  <p>{docentData.waarom}</p>
+                </>
+              )}
+
+              {deelvragenFromStep1.length > 0 && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem", marginTop: "0.75rem" }}>
+                    Deelvragen (voor keten naar Step 2)
+                  </h3>
+                  <ol>
+                    {deelvragenFromStep1.map((dv, idx) => (
+                      <li key={idx}>{dv}</li>
+                    ))}
+                  </ol>
+                </>
+              )}
+
+              {docentData.lesfasen && docentData.lesfasen.length > 0 && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem", marginTop: "0.75rem" }}>
+                    Globale lesfasen
+                  </h3>
+                  <ul>
+                    {docentData.lesfasen.map((fase, idx) => (
+                      <li key={idx} style={{ marginBottom: "0.25rem" }}>
+                        <strong>{fase.fase || `Fase ${idx + 1}`}</strong>
+                        {fase.tijd ? ` – ${fase.tijd}` : ""}
+                        {fase.doel && (
+                          <>
+                            <br />
+                            Doel: {fase.doel}
+                          </>
+                        )}
+                        {fase.activiteit && (
+                          <>
+                            <br />
+                            Activiteit: {fase.activiteit}
+                          </>
+                        )}
+                        {fase.werkvorm && (
+                          <>
+                            <br />
+                            Werkvorm: {fase.werkvorm}
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab === "step2" && (
+        <div style={{ fontSize: "0.9rem" }}>
+          {step2Status === "idle" && (
+            <p>
+              Klik op <em>&quot;Step 2 – Leerlingmateriaal&quot;</em> bovenaan om
+              het leerlingmateriaal te genereren.
+            </p>
+          )}
+          {step2Status === "loading" && <p>Leerlingmateriaal wordt geladen…</p>}
+          {step2Status === "error" && step2Error && (
+            <p style={{ color: "#a10000" }}>{step2Error}</p>
+          )}
+          {step2Status === "done" && !leerlingData && (
+            <p>Geen leerlingmateriaal gevonden in de response.</p>
+          )}
+          {step2Status === "done" && leerlingData && (
+            <>
+              {leerlingData.antiPresentismeIntro && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem" }}>
+                    Anti-presentisme-inleiding
+                  </h3>
+                  <p>{leerlingData.antiPresentismeIntro}</p>
+                </>
+              )}
+
+              {leerlingData.startopdracht && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem", marginTop: "0.75rem" }}>
+                    Startopdracht
+                  </h3>
+                  <p>{leerlingData.startopdracht.beschrijving}</p>
+                  {leerlingData.startopdracht.stappen &&
+                    leerlingData.startopdracht.stappen.length > 0 && (
+                      <ol>
+                        {leerlingData.startopdracht.stappen.map((stap, idx) => (
+                          <li key={idx}>{stap}</li>
+                        ))}
+                      </ol>
+                    )}
+                </>
+              )}
+
+              {leerlingData.bronnenblad && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem", marginTop: "0.75rem" }}>
+                    Bronnenblad
+                  </h3>
+                  {leerlingData.bronnenblad.instructie && (
+                    <p>{leerlingData.bronnenblad.instructie}</p>
+                  )}
+                  {leerlingData.bronnenblad.bronNummering &&
+                    leerlingData.bronnenblad.bronNummering.length > 0 && (
+                      <ul>
+                        {leerlingData.bronnenblad.bronNummering.map((b) => (
+                          <li key={b.nummer}>
+                            <strong>Bron {b.nummer}:</strong>{" "}
+                            {b.label || `id ${String(b.id)}`}{" "}
+                            {b.provider ? `(${b.provider})` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                </>
+              )}
+
+              {leerlingData.bronvragen && leerlingData.bronvragen.length > 0 && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem", marginTop: "0.75rem" }}>
+                    Bronvragen
+                  </h3>
+                  {leerlingData.bronvragen.map((blok) => (
+                    <div
+                      key={`${blok.bronNummer}-${String(blok.bronId)}`}
+                      style={{ marginBottom: "0.5rem" }}
+                    >
+                      <strong>
+                        Bron {blok.bronNummer} – id {String(blok.bronId)}
+                      </strong>
+                      <ul>
+                        {blok.vragen.map((v, idx) => (
+                          <li key={idx}>
+                            [{v.type}] {v.vraag}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {leerlingData.samenwerkingstabel && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem", marginTop: "0.75rem" }}>
+                    Samenwerkingstabel
+                  </h3>
+                  {leerlingData.samenwerkingstabel.instructie && (
+                    <p>{leerlingData.samenwerkingstabel.instructie}</p>
+                  )}
+                  {leerlingData.samenwerkingstabel.kolommen &&
+                    leerlingData.samenwerkingstabel.rijen && (
+                      <table
+                        style={{
+                          borderCollapse: "collapse",
+                          fontSize: "0.8rem",
+                          width: "100%",
+                        }}
+                      >
+                        <thead>
+                          <tr>
+                            {leerlingData.samenwerkingstabel.kolommen.map(
+                              (kol, idx) => (
+                                <th
+                                  key={idx}
+                                  style={{
+                                    border: "1px solid #ccc",
+                                    padding: "0.25rem",
+                                  }}
+                                >
+                                  {kol}
+                                </th>
+                              )
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {leerlingData.samenwerkingstabel.rijen.map(
+                            (rij, idx) => (
+                              <tr key={idx}>
+                                {(
+                                  leerlingData.samenwerkingstabel!.kolommen ||
+                                  []
+                                ).map((_, colIdx) => (
+                                  <td
+                                    key={colIdx}
+                                    style={{
+                                      border: "1px solid #eee",
+                                      padding: "0.25rem",
+                                    }}
+                                  >
+                                    {colIdx === 0 ? rij : ""}
+                                  </td>
+                                ))}
+                              </tr>
+                            )
+                          )}
+                        </tbody>
+                      </table>
+                    )}
+                </>
+              )}
+
+              {leerlingData.reflectie && (
+                <>
+                  <h3 style={{ fontSize: "0.95rem", marginTop: "0.75rem" }}>
+                    Reflectie
+                  </h3>
+                  {leerlingData.reflectie.instructie && (
+                    <p>{leerlingData.reflectie.instructie}</p>
+                  )}
+                  {leerlingData.reflectie.vragen && (
+                    <ol>
+                      {leerlingData.reflectie.vragen.map((vr, idx) => (
+                        <li key={idx}>{vr}</li>
+                      ))}
+                    </ol>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab === "debug" && (
+        <pre
+          style={{
+            fontSize: "0.75rem",
+            backgroundColor: "#111",
+            color: "#f5f5f5",
+            padding: "0.75rem",
+            borderRadius: "0.5rem",
+            whiteSpace: "pre-wrap",
+            maxHeight: "60vh",
+            overflow: "auto",
+          }}
+        >
+          {step2RawJson || "// Nog geen STEP 2 JSON opgehaald"}
+        </pre>
+      )}
     </div>
   );
 };

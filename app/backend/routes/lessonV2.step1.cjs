@@ -3,7 +3,10 @@
 // routes/lessonV2.step1.cjs
 // LESSON V2 – STEP 1 (DOCENTMATERIAAL)
 // Gebruikt de MASTERPROMPT via prompts/lessonV2.step1.cjs + centrale Gemini-service.
-// v7-fix: alleen LIGHT sources (id, title, type, provider) richting de prompt.
+// v7-fix:
+// - concept.deelvragen wordt NIET meer verwacht in de input;
+// - deelvragen worden door Gemini gegenereerd;
+// - deelvragen uit de output kunnen strings of objecten zijn; we normaliseren naar string[];
 
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
 const { buildStep1Prompt } = require("../prompts/lessonV2.step1.cjs");
@@ -26,12 +29,13 @@ function registerLessonV2Step1Routes(router) {
       if (!concept || typeof concept !== "object") {
         throw new Error("STEP1: ontbrekend of ongeldig 'concept' in body");
       }
-      if (typeof concept.hoofdvraag !== "string" || !concept.hoofdvraag.trim()) {
+      if (
+        typeof concept.hoofdvraag !== "string" ||
+        !concept.hoofdvraag.trim()
+      ) {
         throw new Error("STEP1: 'concept.hoofdvraag' ontbreekt of is leeg");
       }
-      if (!Array.isArray(concept.deelvragen) || concept.deelvragen.length === 0) {
-        throw new Error("STEP1: 'concept.deelvragen' ontbreekt of is leeg");
-      }
+      // LET OP: geen check meer op concept.deelvragen – die worden juist in STEP1 bedacht.
 
       // 1. Brondata normaliseren naar LIGHT sources
       const rawSources = Array.isArray(body.sources) ? body.sources : [];
@@ -69,7 +73,9 @@ function registerLessonV2Step1Routes(router) {
         throw new Error("STEP1: response is geen geldig JSON-object");
       }
       if (json.step !== "step1") {
-        throw new Error(`STEP1: onjuiste step-tag in response (got: ${json.step})`);
+        throw new Error(
+          `STEP1: onjuiste step-tag in response (got: ${json.step})`
+        );
       }
       if (!json.data || typeof json.data !== "object") {
         throw new Error("STEP1: ontbrekende data in response");
@@ -87,11 +93,26 @@ function registerLessonV2Step1Routes(router) {
       const docent = json.data.docent;
 
       // 7a. deelvragen -> altijd array van strings
+      //
+      // Toegestaan vanuit Gemini:
+      // - ["In hoeverre ...?", "..."]
+      // - [{ vraag: "In hoeverre ...?", dimensie: "...", ... }, ...]
       if (Array.isArray(docent.deelvragen)) {
         docent.deelvragen = docent.deelvragen
-          .filter((v) => typeof v === "string" && v.trim().length > 0)
-          .map((v) => v.trim());
-      } else if (typeof docent.deelvragen === "string" && docent.deelvragen.trim()) {
+          .map((v) => {
+            if (typeof v === "string") {
+              return v.trim();
+            }
+            if (v && typeof v === "object" && typeof v.vraag === "string") {
+              return v.vraag.trim();
+            }
+            return "";
+          })
+          .filter((v) => v.length > 0);
+      } else if (
+        typeof docent.deelvragen === "string" &&
+        docent.deelvragen.trim()
+      ) {
         docent.deelvragen = [docent.deelvragen.trim()];
       } else {
         docent.deelvragen = [];
@@ -106,7 +127,9 @@ function registerLessonV2Step1Routes(router) {
             .filter((entry) => entry && typeof entry === "object")
             .map((entry) => {
               const deelvraag =
-                typeof entry.deelvraag === "string" ? entry.deelvraag.trim() : "";
+                typeof entry.deelvraag === "string"
+                  ? entry.deelvraag.trim()
+                  : "";
               let bronnen = [];
 
               if (Array.isArray(entry.bronnen)) {
@@ -150,10 +173,19 @@ function registerLessonV2Step1Routes(router) {
       }
 
       // 8. Extra defensieve check: docentobject mag geen inhoud-velden bevatten
-      const forbiddenKeys = ["bronnen", "sources", "snippets", "bronTekst", "sourceText"];
+      const forbiddenKeys = [
+        "bronnen",
+        "sources",
+        "snippets",
+        "bronTekst",
+        "sourceText",
+      ];
       for (const key of forbiddenKeys) {
         if (Object.prototype.hasOwnProperty.call(docent, key)) {
-          console.warn("[lessonV2_step1] WARNING: docent-object bevat verboden veld:", key);
+          console.warn(
+            "[lessonV2_step1] WARNING: docent-object bevat verboden veld:",
+            key
+          );
           delete docent[key];
         }
       }
