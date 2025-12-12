@@ -33,6 +33,18 @@ type TvKaInfo = {
   kaLabel?: string;
 };
 
+type Step1HoofdvraagAntwoord = {
+  vraag?: string;
+  antwoord?: string;
+  gebruikteBronNummers?: number[];
+};
+
+type Step1DeelvraagAntwoord = {
+  deelvraag?: string;
+  antwoord?: string;
+  gebruikteBronNummers?: number[];
+};
+
 type Step1DocentData = {
   wat?: string;
   hoe?: string;
@@ -49,6 +61,9 @@ type Step1DocentData = {
     activiteit?: string;
     werkvorm?: string;
   }[];
+  // ✅ NIEUW: antwoordmodel in Step 1
+  hoofdvraagAntwoord?: Step1HoofdvraagAntwoord | null;
+  deelvraagAntwoorden?: Step1DeelvraagAntwoord[];
 };
 
 type Step1Response = {
@@ -279,6 +294,13 @@ const LessonPage: React.FC = () => {
     );
   }
 
+  const hv = docentData?.hoofdvraagAntwoord || null;
+  const dvAns: Step1DeelvraagAntwoord[] = Array.isArray(
+    docentData?.deelvraagAntwoorden
+  )
+    ? (docentData?.deelvraagAntwoorden as Step1DeelvraagAntwoord[])
+    : [];
+
   return (
     <div style={{ padding: "1.5rem", maxWidth: "960px", margin: "0 auto" }}>
       <button
@@ -401,6 +423,27 @@ const LessonPage: React.FC = () => {
           }}
         >
           Step 3 – Bronnenblad
+        </button>
+
+        {/* ✅ STEP 4 PAGE (blijft bestaan) */}
+        <button
+          type="button"
+          onClick={() =>
+            navigate("/lesson/step4", {
+              state: { tvKa, concept, sources, deelvragen: deelvragenFromStep1 },
+            })
+          }
+          style={{
+            padding: "0.45rem 0.9rem",
+            borderRadius: "999px",
+            border: "1px solid #7c3aed",
+            backgroundColor: "#7c3aed",
+            color: "#ffffff",
+            cursor: "pointer",
+            fontSize: "0.9rem",
+          }}
+        >
+          Step 4 – Antwoordmodel
         </button>
 
         <button
@@ -604,6 +647,55 @@ const LessonPage: React.FC = () => {
                   </ul>
                 </>
               )}
+
+              {/* ✅ NIEUW: Antwoordmodel in Step 1 */}
+              {(hv || dvAns.length > 0) && (
+                <div style={{ marginTop: "1.25rem" }}>
+                  <h3 style={{ fontSize: "0.95rem" }}>Antwoordmodel (docent)</h3>
+
+                  <h4 style={{ marginTop: "0.5rem" }}>Hoofdantwoord</h4>
+                  {hv && (hv.vraag || hv.antwoord) ? (
+                    <div>
+                      {hv.vraag && (
+                        <p style={{ marginBottom: "0.25rem" }}>
+                          <strong>{hv.vraag}</strong>
+                        </p>
+                      )}
+                      {hv.antwoord && <p>{hv.antwoord}</p>}
+                      {hv.gebruikteBronNummers &&
+                        hv.gebruikteBronNummers.length > 0 && (
+                          <p style={{ marginTop: "0.25rem" }}>
+                            <em>
+                              Bronnen: {hv.gebruikteBronNummers.join(", ")}
+                            </em>
+                          </p>
+                        )}
+                    </div>
+                  ) : (
+                    <p>Geen hoofdantwoord aanwezig.</p>
+                  )}
+
+                  <h4 style={{ marginTop: "1rem" }}>Deelantwoorden</h4>
+                  {dvAns.length === 0 && <p>Geen deelantwoorden ontvangen.</p>}
+
+                  {dvAns.map((item, idx) => (
+                    <div key={idx} style={{ marginBottom: "1rem" }}>
+                      <p style={{ marginBottom: "0.25rem" }}>
+                        <strong>{item.deelvraag || `Deelvraag ${idx + 1}`}</strong>
+                      </p>
+                      {item.antwoord && <p>{item.antwoord}</p>}
+                      {item.gebruikteBronNummers &&
+                        item.gebruikteBronNummers.length > 0 && (
+                          <p style={{ marginTop: "0.25rem" }}>
+                            <em>
+                              Bronnen: {item.gebruikteBronNummers.join(", ")}
+                            </em>
+                          </p>
+                        )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -760,56 +852,54 @@ const LessonPage: React.FC = () => {
                     )}
                 </>
               )}
-{/* Meerkeuze-opties onder de tabel */}
-{leerlingData.samenwerkingstabel?.meerkeuze && (
-  <div style={{ marginTop: "1rem" }}>
-    <h4 style={{ fontSize: "0.9rem", marginBottom: "0.25rem" }}>
-      Keuzemogelijkheden
-    </h4>
 
-    {/* Wie spreekt */}
-    {leerlingData.samenwerkingstabel.meerkeuze.wieSpreektOpties && (
-      <>
-        <strong>Wie spreekt in de bron?</strong>
-        <ul>
-          {leerlingData.samenwerkingstabel.meerkeuze.wieSpreektOpties.map(
-            (opt, idx) => (
-              <li key={idx}>{opt}</li>
-            )
-          )}
-        </ul>
-      </>
-    )}
+              {/* Meerkeuze-opties onder de tabel */}
+              {leerlingData.samenwerkingstabel?.meerkeuze && (
+                <div style={{ marginTop: "1rem" }}>
+                  <h4 style={{ fontSize: "0.9rem", marginBottom: "0.25rem" }}>
+                    Keuzemogelijkheden
+                  </h4>
 
-    {/* Dimensies */}
-    {leerlingData.samenwerkingstabel.meerkeuze.dimensieOpties && (
-      <>
-        <strong>Dimensies</strong>
-        <ul>
-          {leerlingData.samenwerkingstabel.meerkeuze.dimensieOpties.map(
-            (opt, idx) => (
-              <li key={idx}>{opt}</li>
-            )
-          )}
-        </ul>
-      </>
-    )}
+                  {leerlingData.samenwerkingstabel.meerkeuze.wieSpreektOpties && (
+                    <>
+                      <strong>Wie spreekt in de bron?</strong>
+                      <ul>
+                        {leerlingData.samenwerkingstabel.meerkeuze.wieSpreektOpties.map(
+                          (opt, idx) => (
+                            <li key={idx}>{opt}</li>
+                          )
+                        )}
+                      </ul>
+                    </>
+                  )}
 
-    {/* Subdimensies */}
-    {leerlingData.samenwerkingstabel.meerkeuze.subdimensieOpties && (
-      <>
-        <strong>Subdimensies / soorten verklaring</strong>
-        <ul>
-          {leerlingData.samenwerkingstabel.meerkeuze.subdimensieOpties.map(
-            (opt, idx) => (
-              <li key={idx}>{opt}</li>
-            )
-          )}
-        </ul>
-      </>
-    )}
-  </div>
-)}
+                  {leerlingData.samenwerkingstabel.meerkeuze.dimensieOpties && (
+                    <>
+                      <strong>Dimensies</strong>
+                      <ul>
+                        {leerlingData.samenwerkingstabel.meerkeuze.dimensieOpties.map(
+                          (opt, idx) => (
+                            <li key={idx}>{opt}</li>
+                          )
+                        )}
+                      </ul>
+                    </>
+                  )}
+
+                  {leerlingData.samenwerkingstabel.meerkeuze.subdimensieOpties && (
+                    <>
+                      <strong>Subdimensies / soorten verklaring</strong>
+                      <ul>
+                        {leerlingData.samenwerkingstabel.meerkeuze.subdimensieOpties.map(
+                          (opt, idx) => (
+                            <li key={idx}>{opt}</li>
+                          )
+                        )}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
 
               {leerlingData.reflectie && (
                 <>
