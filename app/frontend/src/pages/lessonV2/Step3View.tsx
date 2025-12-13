@@ -6,6 +6,10 @@ type Props = {
   step3?: any;
 };
 
+function normStr(x: any) {
+  return typeof x === "string" ? x.trim() : "";
+}
+
 function Box({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
     <div
@@ -22,14 +26,46 @@ function Box({ title, children }: { title?: string; children: React.ReactNode })
   );
 }
 
-export default function Step3View({ status, error, step3 }: Props) {
-  if (status === "idle") {
-    return <div style={{ color: "#555", fontSize: "0.95rem" }}>Klik op “Genereer Step 3” om het bronnenblad te maken.</div>;
-  }
+function Chip({ text }: { text: string }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "0.15rem 0.5rem",
+        borderRadius: "999px",
+        border: "1px solid #e5e7eb",
+        background: "#fafafa",
+        fontSize: "0.85rem",
+        marginRight: "0.4rem",
+        marginBottom: "0.4rem",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {text}
+    </span>
+  );
+}
 
-  if (status === "loading") {
-    return <div>Step 3 wordt gemaakt…</div>;
-  }
+function proxiedImageSrc(url: string) {
+  const u = normStr(url);
+  if (!u) return "";
+  if (u.startsWith("data:")) return u;
+  return `/api/image-proxy?url=${encodeURIComponent(u)}`;
+}
+
+function pickText(b: any) {
+  return (
+    normStr(b?.tekst) ||
+    normStr(b?.fullText) ||
+    normStr(b?.content) ||
+    normStr(b?.description) ||
+    ""
+  );
+}
+
+export default function Step3View({ status, error, step3 }: Props) {
+  if (status === "idle") return <div style={{ color: "#555" }}>Klik op “Genereer Step 3”.</div>;
+  if (status === "loading") return <div>Step 3 wordt opgebouwd…</div>;
 
   if (error) {
     return (
@@ -40,10 +76,10 @@ export default function Step3View({ status, error, step3 }: Props) {
   }
 
   const bronnenblad = step3?.data?.bronnenblad || null;
-  const instructie = typeof bronnenblad?.instructie === "string" ? bronnenblad.instructie : "";
-  const bronnen = Array.isArray(bronnenblad?.bronnen) ? bronnenblad.bronnen : [];
+  const instructie = normStr(bronnenblad?.instructie);
+  const bronNummering = Array.isArray(bronnenblad?.bronNummering) ? bronnenblad.bronNummering : [];
 
-  if (!bronnenblad) {
+  if (!bronnenblad || bronNummering.length === 0) {
     return <div style={{ color: "#555" }}>Geen Step 3 data om te tonen.</div>;
   }
 
@@ -52,69 +88,70 @@ export default function Step3View({ status, error, step3 }: Props) {
       <Box title="Bronnenblad">
         {instructie ? <p style={{ marginTop: 0, whiteSpace: "pre-wrap" }}>{instructie}</p> : null}
 
-        {bronnen.length === 0 ? (
-          <div style={{ color: "#555" }}>Geen bronnen gevonden.</div>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  {["Nr", "Titel/label", "Provider", "Type", "Link"].map((k) => (
-                    <th
-                      key={k}
-                      style={{
-                        textAlign: "left",
-                        borderBottom: "1px solid #e5e7eb",
-                        padding: "0.5rem",
-                        fontSize: "0.95rem",
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          {bronNummering.map((b: any, idx: number) => {
+            const nummer = b?.nummer ?? idx + 1;
+            const titel = normStr(b?.titel) || normStr(b?.label) || "";
+            const provider = normStr(b?.provider);
+            const type = normStr(b?.type);
+            const url = b?.url ? String(b.url) : "";
+            const imageUrl = b?.imageUrl ? String(b.imageUrl) : "";
+            const tekst = pickText(b);
+
+            const isKleio =
+              !!b?.isKleio ||
+              provider.toLowerCase().includes("kleio") ||
+              url.toLowerCase().includes("vgnkleio") ||
+              url.toLowerCase().includes("kleio");
+
+            return (
+              <div key={`${nummer}-${String(b?.id ?? idx)}`} style={{ border: "1px solid #e5e7eb", borderRadius: "0.75rem", padding: "0.8rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: 800 }}>
+                    Bron {nummer}
+                    {titel ? ` — ${titel}` : ""}
+                  </div>
+
+                  <div>
+                    {provider ? <Chip text={provider} /> : null}
+                    {type ? <Chip text={type} /> : null}
+                  </div>
+                </div>
+
+                {isKleio && url ? (
+                  <div style={{ marginTop: "0.35rem" }}>
+                    <a href={url} target="_blank" rel="noreferrer">
+                      Origineel (Kleio)
+                    </a>
+                  </div>
+                ) : null}
+
+                {imageUrl ? (
+                  <div style={{ marginTop: "0.6rem" }}>
+                    <img
+                      src={proxiedImageSrc(imageUrl)}
+                      alt={titel ? titel : `Bron ${nummer}`}
+                      style={{ maxWidth: "100%", borderRadius: "0.6rem", border: "1px solid #eee" }}
+                      onError={(e) => {
+                        const el = e.currentTarget as HTMLImageElement;
+                        el.style.display = "none";
                       }}
-                    >
-                      {k}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {bronnen.map((b: any, i: number) => {
-                  const nr = b?.nummer ?? i + 1;
-                  const label = b?.label || b?.title || `Bron ${nr}`;
-                  const provider = b?.provider || "—";
-                  const type = b?.type || "—";
-                  const url = b?.url || null;
+                    />
+                    <div style={{ fontSize: "0.8rem", color: "#666", marginTop: "0.25rem" }}>
+                      Afbeelding via proxy
+                    </div>
+                  </div>
+                ) : null}
 
-                  return (
-                    <tr key={`${nr}-${String(b?.id ?? i)}`}>
-                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", fontWeight: 800 }}>
-                        {nr}
-                      </td>
-                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
-                        {label}
-                      </td>
-                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem" }}>{provider}</td>
-                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem" }}>{type}</td>
-                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem" }}>
-                        {url ? (
-                          <a href={url} target="_blank" rel="noreferrer">
-                            open
-                          </a>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Box>
-
-      <Box title="Gebruik in opdrachten">
-        <ul style={{ margin: 0, paddingLeft: "1.2rem" }}>
-          <li>Verwijs altijd als: <strong>Bron 1</strong>, <strong>Bron 2</strong>, enz.</li>
-          <li>Laat leerlingen nooit een URL opschrijven; alleen bronnummer + wat ze zagen/ lazen.</li>
-        </ul>
+                {tekst ? (
+                  <p style={{ marginTop: "0.6rem", marginBottom: 0, whiteSpace: "pre-wrap" }}>{tekst}</p>
+                ) : (
+                  <p style={{ marginTop: "0.6rem", marginBottom: 0, color: "#666" }}>Geen tekst gevonden bij deze bron.</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </Box>
     </div>
   );

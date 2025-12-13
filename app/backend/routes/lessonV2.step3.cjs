@@ -2,6 +2,10 @@
 
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
 
+function isObj(x) {
+  return x && typeof x === "object" && !Array.isArray(x);
+}
+
 function normStr(x) {
   return typeof x === "string" ? x.trim() : "";
 }
@@ -9,68 +13,104 @@ function normStr(x) {
 function normType(t) {
   const s = normStr(t).toLowerCase();
   if (!s) return "text";
-  if (s.includes("image")) return "image";
+  if (s.includes("image") || s.includes("afbeeld")) return "image";
   if (s.includes("tekst") || s.includes("text")) return "text";
   return s;
 }
 
-function buildLabel(s, idx) {
-  const title = normStr(s?.title);
-  if (title) return title;
+function pickText(s) {
+  const fullText = normStr(s.fullText);
+  if (fullText) return fullText;
 
-  const desc = normStr(s?.description);
+  const content = normStr(s.content);
+  if (content) return content;
+
+  const desc = normStr(s.description);
   if (desc) return desc;
 
-  const provider = normStr(s?.provider) || "Bron";
-  const type = normType(s?.type);
-  return `${provider} (${type})`;
+  return "";
 }
 
-function resolveSignature(body) {
-  const conceptSig = normStr(body?.concept?.masterSignature);
-  const payloadSig = normStr(body?.masterSignature);
-  return conceptSig || payloadSig || MASTER_SIGNATURE;
+function pickTitle(s) {
+  const t = normStr(s.title);
+  if (t) return t;
+
+  const d = normStr(s.description);
+  if (d) return d.length > 80 ? d.slice(0, 77) + "…" : d;
+
+  return "";
 }
 
-function normalizeSources(rawSources) {
-  const arr = Array.isArray(rawSources) ? rawSources : [];
-  const capped = arr.slice(0, 30);
+function pickImageUrl(s) {
+  const a = normStr(s.imageUrl);
+  if (a) return a;
 
-  return capped.map((s, idx) => {
-    const id = s?.id ?? s?.bronId ?? s?.sourceId ?? String(idx + 1);
-    const provider = normStr(s?.provider);
-    const type = normType(s?.type);
-    const title = normStr(s?.title);
-    const url = s?.url ? s.url : null;
+  const b = normStr(s.image);
+  if (b) return b;
 
-    return {
-      nummer: idx + 1,
-      id,
-      label: buildLabel(s, idx + 1),
-      title: title || null,
-      provider: provider || null,
-      type,
-      url,
-    };
-  });
+  const c = normStr(s.img);
+  if (c) return c;
+
+  return "";
+}
+
+function isKleioSource(s) {
+  const provider = normStr(s.provider).toLowerCase();
+  const url = normStr(s.url).toLowerCase();
+  if (provider.includes("kleio")) return true;
+  if (url.includes("vgnkleio")) return true;
+  if (url.includes("kleio")) return true;
+  return false;
 }
 
 function registerLessonV2Step3Routes(router) {
   router.post("/generate-lesson-v2/step3", async (req, res) => {
     try {
       const body = req.body || {};
+      const concept = isObj(body.concept) ? body.concept : {};
       const sources = Array.isArray(body.sources) ? body.sources : [];
 
-      if (!sources.length) {
+      if (!concept || typeof concept !== "object") {
         return res.status(400).json({
           step: "step3",
-          error: "MISSING_SOURCES",
+          error: "STEP3_MISSING_CONCEPT",
+          message: "Step 3 verwacht concept in de body.",
+        });
+      }
+
+      if (!Array.isArray(sources) || sources.length === 0) {
+        return res.status(400).json({
+          step: "step3",
+          error: "STEP3_MISSING_SOURCES",
           message: "Step 3 verwacht een niet-lege sources array.",
         });
       }
 
-      const chainSignature = resolveSignature(body);
-      const bronnen = normalizeSources(sources);
+      const chainSignature =
+        (typeof concept.masterSignature === "string" && concept.masterSignature.trim()) ||
+        MASTER_SIGNATURE;
+
+      const bronNummering = sources.map((s, idx) => {
+        const id = s?.id ?? idx + 1;
+        const provider = normStr(s?.provider);
+        const type = normType(s?.type);
+        const title = pickTitle(s);
+        const text = pickText(s);
+        const url = normStr(s?.url) || null;
+        const imageUrl = pickImageUrl(s) || null;
+
+        return {
+          nummer: idx + 1,
+          id,
+          titel: title,
+          provider,
+          type,
+          tekst: text,
+          url,
+          imageUrl,
+          isKleio: isKleioSource(s),
+        };
+      });
 
       return res.json({
         step: "step3",
@@ -78,11 +118,8 @@ function registerLessonV2Step3Routes(router) {
           chainSignature,
           bronnenblad: {
             instructie:
-              "Dit is het bronnenblad. Gebruik altijd het bronnummer (Bron 1, Bron 2, ...) wanneer je in opdrachten naar een bron verwijst.",
-            bronnen,
-          },
-          meta: {
-            bronCount: bronnen.length,
+              "Gebruik dit bronnenblad als overzicht. Noteer bij opdrachten steeds het bronnnummer. Als het een Kleio-bron is, kun je via ‘Origineel (Kleio)’ de bron terugvinden.",
+            bronNummering,
           },
         },
       });

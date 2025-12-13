@@ -5,13 +5,6 @@ import Step3View from "./lessonV2/Step3View";
 
 type LessonConcept = {
   hoofdvraag?: string;
-  hook?: string;
-  context?: string;
-  tv?: string;
-  tvLabel?: string;
-  ka?: string;
-  kaLabel?: string;
-  lesopbrengst?: string;
   masterSignature?: string;
 };
 
@@ -34,15 +27,24 @@ type TvKaInfo = {
   kaLabel?: string;
 };
 
-type Step3ApiResponse = {
+type Step1Response = {
+  step?: string;
+  data?: { chainSignature?: string; docent?: any };
+};
+
+type Step2Response = {
+  step?: string;
+  data?: { chainSignature?: string; leerling?: any };
+};
+
+type Step3Response = {
   step?: string;
   data?: {
     chainSignature?: string;
     bronnenblad?: {
       instructie?: string;
-      bronnen?: any[];
+      bronNummering?: any[];
     };
-    meta?: any;
   };
   error?: string;
   message?: string;
@@ -56,26 +58,27 @@ export default function LessonStep3Page() {
     tvKa?: TvKaInfo;
     concept?: LessonConcept;
     sources?: Source[];
-    step1?: any;
-    step2?: any;
-    step3?: Step3ApiResponse;
+    step1?: Step1Response;
+    step2?: Step2Response;
+    step3?: Step3Response;
     step4?: any;
   };
 
   const tvKa = state.tvKa || {};
-  const concept = state.concept || null;
+  const concept = state.concept;
   const sources = state.sources || [];
 
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">(
     state.step3 ? "done" : "idle"
   );
   const [error, setError] = useState<string | null>(null);
-  const [step3, setStep3] = useState<Step3ApiResponse | null>(state.step3 || null);
+  const [step3, setStep3] = useState<Step3Response | null>(state.step3 || null);
 
-  const canRun = sources.length > 0;
+  const canRun = !!concept?.hoofdvraag && sources.length > 0;
 
   const runStep3 = async () => {
     if (!canRun) return;
+
     setStatus("loading");
     setError(null);
 
@@ -87,14 +90,14 @@ export default function LessonStep3Page() {
       });
 
       const text = await res.text();
-      const json = JSON.parse(text) as Step3ApiResponse;
+      const json = JSON.parse(text) as Step3Response;
 
       if (!res.ok || json.error) {
         throw new Error(json.message || json.error || `Backend-fout step3 (${res.status})`);
       }
 
-      if (!json.data?.bronnenblad?.bronnen) {
-        throw new Error("Ongeldige step3-response: data.bronnenblad.bronnen ontbreekt");
+      if (!json.data?.bronnenblad?.bronNummering) {
+        throw new Error("Ongeldige step3-response: data.bronnenblad.bronNummering ontbreekt");
       }
 
       setStep3(json);
@@ -131,7 +134,12 @@ export default function LessonStep3Page() {
       <button
         type="button"
         onClick={() => navigate(-1)}
-        style={{ marginBottom: "0.75rem", border: "none", background: "transparent", cursor: "pointer" }}
+        style={{
+          marginBottom: "0.75rem",
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+        }}
       >
         ← Terug
       </button>
@@ -140,11 +148,12 @@ export default function LessonStep3Page() {
         current="step3"
         canGoStep2={!!state.step1}
         canGoStep3={true}
-        canGoStep4={!!state.step4}
+        canGoStep4={false}
       />
 
-      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
         <h1 style={{ margin: 0 }}>Lesgenerator – Step 3 (Bronnenblad)</h1>
+
         <button
           type="button"
           onClick={runStep3}
