@@ -49,8 +49,10 @@ function normalizeRequestBody(body) {
   const providerRaw = (body.provider || "").toString().toLowerCase().trim();
   if (providerRaw === "cito") {
     filters.kleio = false;
+    filters.cito = true;
   } else if (providerRaw === "kleio") {
     filters.cito = false;
+    filters.kleio = true;
   } else if (providerRaw === "europeana") {
     filters.cito = false;
     filters.kleio = false;
@@ -73,9 +75,7 @@ router.post("/search", async (req, res) => {
 
     if (filters?.cito !== false && citoService) {
       try {
-        if (filters.ka && !Array.isArray(filters.ka)) {
-          filters.ka = [filters.ka];
-        }
+        if (filters.ka && !Array.isArray(filters.ka)) filters.ka = [filters.ka];
         const citoQ = filters.ka ? "" : queryString;
         const citoRes = citoService.searchCito({ query: citoQ, filters }) || [];
         allResults.push(...citoRes);

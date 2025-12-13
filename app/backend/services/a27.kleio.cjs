@@ -43,10 +43,7 @@ const fetchDetail = async (url) => {
 
     if (!isValidImage(img)) img = null;
 
-    return {
-      text: text.replace(/\s+/g, " ").substring(0, 600),
-      image: img,
-    };
+    return { text: text.replace(/\s+/g, " ").substring(0, 600), image: img };
   } catch (e) {
     console.error("[Kleio] detail error:", e && (e.message || e));
     return { text: null, image: null };
@@ -155,11 +152,7 @@ const searchKleio = async ({ query, filters = {} }) => {
     })
   );
 
-  return enriched.filter((it) => {
-    if (filters.images === false && it.type === "IMAGE") return false;
-    if (filters.text === false && it.type === "TEXT") return false;
-    return true;
-  });
+  return enriched;
 };
 
 module.exports = { searchKleio };
