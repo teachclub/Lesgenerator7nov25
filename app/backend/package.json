@@ -11,6 +11,9 @@
     "env:check": "node -r dotenv/config -e \"console.log(process.env.EUROPEANA_API_KEY)\"",
     "health": "curl -s http://localhost:8080/health || true"
   },
+  "engines": {
+    "node": "20.x"
+  },
   "dependencies": {
     "@google-cloud/vertexai": "^1.10.0",
     "@google/generative-ai": "^0.24.1",
@@ -32,3 +35,4 @@
     "remove-accents": "^0.5.0"
   }
 }
+
