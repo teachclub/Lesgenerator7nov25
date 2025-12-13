@@ -1,11 +1,18 @@
-import React, { useMemo } from "react";
+import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import LessonNav from "../components/LessonNav";
+import Step3View from "./lessonV2/Step3View";
 
-type TvKaInfo = {
+type LessonConcept = {
+  hoofdvraag?: string;
+  hook?: string;
+  context?: string;
   tv?: string;
   tvLabel?: string;
   ka?: string;
   kaLabel?: string;
+  lesopbrengst?: string;
+  masterSignature?: string;
 };
 
 type Source = {
@@ -20,17 +27,28 @@ type Source = {
   imageUrl?: string | null;
 };
 
-type LessonConcept = {
-  hoofdvraag?: string;
-  hook?: string;
-  context?: string;
+type TvKaInfo = {
   tv?: string;
   tvLabel?: string;
   ka?: string;
   kaLabel?: string;
 };
 
-const LessonStep3Page: React.FC = () => {
+type Step3ApiResponse = {
+  step?: string;
+  data?: {
+    chainSignature?: string;
+    bronnenblad?: {
+      instructie?: string;
+      bronnen?: any[];
+    };
+    meta?: any;
+  };
+  error?: string;
+  message?: string;
+};
+
+export default function LessonStep3Page() {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -38,235 +56,130 @@ const LessonStep3Page: React.FC = () => {
     tvKa?: TvKaInfo;
     concept?: LessonConcept;
     sources?: Source[];
+    step1?: any;
+    step2?: any;
+    step3?: Step3ApiResponse;
+    step4?: any;
   };
 
-  const tvKa: TvKaInfo = state.tvKa || {};
-  const concept: LessonConcept = state.concept || {};
-  const sources: Source[] = state.sources || [];
+  const tvKa = state.tvKa || {};
+  const concept = state.concept || null;
+  const sources = state.sources || [];
 
-  const numberedSources = useMemo(
-    () =>
-      (sources || []).map((s, index) => ({
-        ...s,
-        displayNumber: index + 1,
-      })),
-    [sources]
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">(
+    state.step3 ? "done" : "idle"
   );
+  const [error, setError] = useState<string | null>(null);
+  const [step3, setStep3] = useState<Step3ApiResponse | null>(state.step3 || null);
 
-  const hasSources = numberedSources.length > 0;
+  const canRun = sources.length > 0;
 
-  const goBack = () => {
-    navigate(-1);
+  const runStep3 = async () => {
+    if (!canRun) return;
+    setStatus("loading");
+    setError(null);
+
+    try {
+      const res = await fetch("/api/generate-lesson-v2/step3", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tvKa, concept, sources }),
+      });
+
+      const text = await res.text();
+      const json = JSON.parse(text) as Step3ApiResponse;
+
+      if (!res.ok || json.error) {
+        throw new Error(json.message || json.error || `Backend-fout step3 (${res.status})`);
+      }
+
+      if (!json.data?.bronnenblad?.bronnen) {
+        throw new Error("Ongeldige step3-response: data.bronnenblad.bronnen ontbreekt");
+      }
+
+      setStep3(json);
+      setStatus("done");
+
+      navigate("/lesson/step3", {
+        replace: true,
+        state: { ...state, step3: json },
+      });
+    } catch (e: any) {
+      setStatus("error");
+      setError(e?.message || "Onbekende fout bij Step 3");
+    }
   };
 
-  return (
-    <div style={{ padding: "1.5rem", maxWidth: "1100px", margin: "0 auto" }}>
-      <h1 style={{ marginBottom: "0.5rem" }}>Stap 3 – Bronnenblad</h1>
-
-      <p
-        style={{
-          marginBottom: "0.75rem",
-          fontSize: "0.9rem",
-          maxWidth: "900px",
-        }}
-      >
-        Dit is het bronnenblad voor de les. De bronnen zijn genummerd als{" "}
-        <strong>Bron 1, Bron 2, …</strong>. Gebruik deze nummers in de
-        opdrachten en in het antwoordmodel. Interne IDs zoals{" "}
-        <code>cito-543</code> worden hier bewust niet getoond.
-      </p>
-
-      {(tvKa.tvLabel || tvKa.kaLabel || concept.hoofdvraag) && (
-        <div
-          style={{
-            marginBottom: "1rem",
-            padding: "0.75rem",
-            borderRadius: "0.75rem",
-            border: "1px solid #e0e0e0",
-            backgroundColor: "#fafafa",
-            fontSize: "0.85rem",
-          }}
-        >
-          {tvKa.tvLabel && (
-            <div style={{ marginBottom: "0.25rem" }}>
-              <strong>Tijdvak:</strong> {tvKa.tvLabel}
-            </div>
-          )}
-          {tvKa.kaLabel && (
-            <div style={{ marginBottom: "0.25rem" }}>
-              <strong>Kenmerkend aspect:</strong> {tvKa.kaLabel}
-            </div>
-          )}
-          {concept.hoofdvraag && (
-            <div>
-              <strong>Hoofdvraag:</strong> {concept.hoofdvraag}
-            </div>
-          )}
-        </div>
-      )}
-
-      {!hasSources && (
-        <div
-          style={{
-            padding: "0.75rem",
-            borderRadius: "0.75rem",
-            border: "1px solid #ffb3b3",
-            backgroundColor: "#ffe6e6",
-            fontSize: "0.85rem",
-          }}
-        >
-          Er zijn geen bronnen doorgegeven aan deze stap. Ga terug naar de
-          vorige stap en controleer of de bronnen correct zijn meegegeven.
-        </div>
-      )}
-
-      {hasSources && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-            gap: "1rem",
-          }}
-        >
-          {numberedSources.map((source) => {
-            const provider = (source.provider || "").toLowerCase();
-            const isKleio = provider.includes("kleio");
-
-            const mainText =
-              source.fullText || source.content || source.description || "";
-
-            return (
-              <div
-                key={source.id}
-                style={{
-                  borderRadius: "0.75rem",
-                  border: "1px solid #dddddd",
-                  padding: "0.75rem",
-                  backgroundColor: "#ffffff",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.4rem",
-                  minHeight: "180px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "0.5rem",
-                    alignItems: "baseline",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "0.8rem",
-                      fontWeight: 600,
-                      padding: "0.15rem 0.5rem",
-                      borderRadius: "999px",
-                      backgroundColor: "#f3f4ff",
-                      border: "1px solid #d0d4ff",
-                    }}
-                  >
-                    Bron {String((source as any).displayNumber)}
-                  </div>
-                  {source.provider && (
-                    <div
-                      style={{
-                        fontSize: "0.75rem",
-                        color: "#555",
-                        textAlign: "right",
-                      }}
-                    >
-                      {source.provider}
-                    </div>
-                  )}
-                </div>
-
-                <div
-                  style={{
-                    fontSize: "0.9rem",
-                    fontWeight: 600,
-                    marginTop: "0.2rem",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {source.title || "Zonder titel"}
-                </div>
-
-                {mainText && (
-                  <div
-                    style={{
-                      fontSize: "0.85rem",
-                      marginTop: "0.2rem",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {mainText}
-                  </div>
-                )}
-
-                {source.imageUrl && (
-                  <div style={{ marginTop: "0.35rem" }}>
-                    <img
-                      src={`/api/image-proxy?url=${encodeURIComponent(
-                        source.imageUrl
-                      )}`}
-                      alt={
-                        source.title ||
-                        `Bron ${String((source as any).displayNumber)}`
-                      }
-                      style={{
-                        maxWidth: "100%",
-                        height: "auto",
-                        borderRadius: "0.5rem",
-                        border: "1px solid #e5e5e5",
-                      }}
-                    />
-                  </div>
-                )}
-
-                {isKleio && source.url && (
-                  <div style={{ marginTop: "0.35rem" }}>
-                    <a
-                      href={source.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        fontSize: "0.8rem",
-                        textDecoration: "none",
-                        color: "#2563eb",
-                      }}
-                    >
-                      Bekijk bron in originele context
-                    </a>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div style={{ marginTop: "1.25rem" }}>
+  if (!concept || sources.length === 0) {
+    return (
+      <div style={{ padding: "1.5rem", maxWidth: 980, margin: "0 auto" }}>
+        <h1>Lesgenerator – Step 3</h1>
+        <p>Er missen concept of bronnen. Ga terug naar de lesvoorstellen.</p>
         <button
           type="button"
-          onClick={goBack}
+          onClick={() => navigate("/proposals")}
+          style={{ padding: "0.6rem 0.9rem", borderRadius: "0.6rem" }}
+        >
+          ← Terug naar lesvoorstellen
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "1.5rem", maxWidth: 1100, margin: "0 auto" }}>
+      <button
+        type="button"
+        onClick={() => navigate(-1)}
+        style={{ marginBottom: "0.75rem", border: "none", background: "transparent", cursor: "pointer" }}
+      >
+        ← Terug
+      </button>
+
+      <LessonNav
+        current="step3"
+        canGoStep2={!!state.step1}
+        canGoStep3={true}
+        canGoStep4={!!state.step4}
+      />
+
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+        <h1 style={{ margin: 0 }}>Lesgenerator – Step 3 (Bronnenblad)</h1>
+        <button
+          type="button"
+          onClick={runStep3}
+          disabled={!canRun || status === "loading"}
           style={{
-            fontSize: "0.85rem",
-            padding: "0.4rem 0.9rem",
-            borderRadius: "999px",
-            border: "1px solid #cccccc",
-            backgroundColor: "#f5f5f5",
-            cursor: "pointer",
+            marginLeft: "0.75rem",
+            padding: "0.6rem 0.9rem",
+            borderRadius: "0.6rem",
+            border: "1px solid #d1d5db",
+            cursor: !canRun || status === "loading" ? "not-allowed" : "pointer",
+            opacity: !canRun ? 0.5 : 1,
           }}
         >
-          ← Terug naar vorige stap
+          {status === "loading" ? "Bezig…" : "Genereer Step 3"}
         </button>
+      </div>
+
+      {error && (
+        <div
+          style={{
+            marginTop: "0.75rem",
+            color: "#a10000",
+            background: "#ffe5e5",
+            padding: "0.75rem",
+            borderRadius: "0.6rem",
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      <div style={{ marginTop: "1rem" }}>
+        <Step3View status={status} error={error} step3={step3} />
       </div>
     </div>
   );
-};
-
-export default LessonStep3Page;
+}
 
