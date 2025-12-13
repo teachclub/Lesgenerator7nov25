@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Minimal clean server voor Lessie / LesGO v2 in /app/backend
+ * Minimal clean server voor Lessie2000 / LesGO v2 in /app/backend
  */
 
 const path = require("path");
@@ -27,6 +27,21 @@ app.use((req, res, next) => {
   console.log(`[req] ${req.method} ${req.url}`);
   next();
 });
+
+function healthPayload() {
+  return {
+    ok: true,
+    service: "Lessie2000-backend",
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/**
+ * Extra health endpoints (Cloud Run/monitoring-friendly)
+ * Laat bestaande GET / (a01.health) intact.
+ */
+app.get("/health", (req, res) => res.json(healthPayload()));
+app.get("/api/health", (req, res) => res.json(healthPayload()));
 
 const healthRouterFactory = require("./routes/a01.health.cjs");
 app.use("/", healthRouterFactory());
@@ -65,7 +80,7 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`[Backend] Luistert op http://127.0.0.1:${PORT}`);
+  console.log(`[Backend] Luistert op http://0.0.0.0:${PORT}`);
 });
 
 module.exports = app;
