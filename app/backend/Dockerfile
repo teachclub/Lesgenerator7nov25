@@ -1,9 +1,15 @@
-# Gebruik een officiële Node.js runtime als basis image
-FROM node:18-slim
-WORKDIR /usr/src/app
-# Kopieer package.json en installeer dependencies
-COPY package*.json ./
-RUN npm install --omit=dev 
+FROM node:20-slim
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev
+
 COPY . .
-EXPOSE 9090
-CMD [ "node", "server.cjs" ]
+
+ENV NODE_ENV=production
+ENV PORT=8080
+EXPOSE 8080
+
+CMD ["node", "server.cjs"]
+
