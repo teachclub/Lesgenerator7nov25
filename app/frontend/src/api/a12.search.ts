@@ -1,8 +1,5 @@
-// De URL van je lokale backend-server
-const API_URL = 'http://localhost:8080/api';
-
-// --- Input Types ---
-// (Deze moeten overeenkomen met je frontend state/componenten)
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+const API_URL = API_BASE ? `${API_BASE}/api` : "/api";
 
 export interface Chip {
   label: string;
@@ -14,16 +11,14 @@ export interface Chip {
   type?: string[];
 }
 
-// Input voor Variant A: Vrije zoekopdracht
 export interface FreeSearchInput {
   query?: string;
-  qf?: string[]; // Extra filters (facets)
+  qf?: string[];
   rows?: number;
   start?: number;
   reusability?: string;
 }
 
-// Input voor Variant B: Zoeken op basis van chips
 export interface ChipSearchInput {
   chips: Chip[];
   rows?: number;
@@ -31,17 +26,13 @@ export interface ChipSearchInput {
   reusability?: string;
 }
 
-// --- Output Types ---
-// (Dit is een algemeen type, aangezien de Europeana-respons complex is)
-
 export interface SearchResponse {
   ok: true;
-  // 'data' bevat de volledige, ongewijzigde Europeana API-respons
   data: {
     success: boolean;
     itemsCount: number;
     totalResults: number;
-    items?: any[]; // De daadwerkelijke resultaten
+    items?: any[];
     facets?: any[];
   };
 }
@@ -51,33 +42,25 @@ export interface SearchError {
   error: string | object;
 }
 
-// --- API Functie ---
-
-/**
- * Roept de /api/search endpoint aan.
- * Accepteert een object dat *ofwel* 'chips' *ofwel* 'query' bevat.
- */
 export async function fetchSearch(
   input: FreeSearchInput | ChipSearchInput
 ): Promise<SearchResponse | SearchError> {
   try {
     const res = await fetch(`${API_URL}/search`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
 
     if (!res.ok) {
-      const errorData = await res.json();
-      return { ok: false, error: errorData.error || `HTTP error ${res.status}` };
+      const errorData = await res.json().catch(() => ({}));
+      return { ok: false, error: (errorData as any).error || `HTTP ${res.status}` };
     }
 
-    // De backend route /api/search stuurt de Europeana-respons direct door
     const data = await res.json();
-
-    // We verpakken het in ons 'ok: true' formaat
     return { ok: true, data: data };
   } catch (err) {
-    return { ok: false, error: (err as Error).message || 'Netwerkfout' };
+    return { ok: false, error: (err as Error).message || "Netwerkfout" };
   }
 }
+

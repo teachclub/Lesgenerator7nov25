@@ -1,10 +1,14 @@
-import React, { useState, useRef } from "react";
+import { useRef, useState } from "react";
+import type { FC } from "react";
 import { useNavigate } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
+
 import { useQueryStore } from "../state/query.store";
-import { useSelectionStore, Source } from "../state/selection.store";
+import { useSelectionStore } from "../state/selection.store";
+import type { Source } from "../types/source";
+
 import { A21TvKaSelect } from "../components/A21.TvKaSelect";
 import { SelectionPanel } from "../components/A18.SelectionPanel";
-import ReactMarkdown from "react-markdown";
 
 interface SearchFilters {
   images: boolean;
@@ -18,28 +22,25 @@ interface SearchFilters {
 interface SearchPresetResponse {
   ok?: boolean;
   error?: string;
-  // Nieuw formaat: lijst met presets
   presets?: {
     id: string;
     label: string;
     terms?: string[];
   }[];
-  // Backwards compat, voor het geval oud formaat nog ergens opduikt
   terms?: string[];
 }
 
-// Gebruik de Vite-proxy i.p.v. hard-coded host
 const API_BASE = "/api";
 
-export const PresetZoekerPage: React.FC = () => {
+const PresetZoekerPage: FC = () => {
   const navigate = useNavigate();
   const { searchQuery, setSearchQuery } = useQueryStore();
   const { sources, setSources, clearSelection } = useSelectionStore();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [selectedDetailSource, setSelectedDetailSource] =
-    useState<Source | null>(null);
+  const [selectedDetailSource, setSelectedDetailSource] = useState<Source | null>(null);
+
   const [filters, setFilters] = useState<SearchFilters>({
     images: true,
     text: true,
@@ -47,33 +48,24 @@ export const PresetZoekerPage: React.FC = () => {
     cito: true,
   });
 
-  // Debug: welke termen zijn uiteindelijk gebruikt richting /api/search?
   const [lastUsedTerms, setLastUsedTerms] = useState<string[]>([]);
-
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const handleTvKaSelect = (selection: {
-    tv?: string;
-    ka?: string;
-    kaTitel?: string;
-  }) => {
+  const handleTvKaSelect = (selection: { tv?: string; ka?: string; kaTitel?: string }) => {
     setFilters((prev) => ({ ...prev, tv: selection.tv, ka: selection.ka }));
-    // Laat de KA ook terugkomen in de query (handig als hint)
     if (selection.ka) setSearchQuery(`KA${selection.ka}`);
   };
 
   const insertOperator = (op: string) => {
     const newQuery = `${searchQuery} ${op} `;
     setSearchQuery(newQuery);
-    if (searchInputRef.current) searchInputRef.current.focus();
+    searchInputRef.current?.focus();
   };
 
   const handleSearch = async () => {
-    const hasUserQuery =
-      typeof searchQuery === "string" && searchQuery.trim().length > 0;
+    const hasUserQuery = typeof searchQuery === "string" && searchQuery.trim().length > 0;
     const hasTvOrKa = !!(filters.tv || filters.ka);
 
-    // Nieuw: toestaan dat je óók alleen op TV/KA zoekt
     if (!hasUserQuery && !hasTvOrKa) {
       setError("Vul een zoekwoord in of kies een tijdvak/KA.");
       return;
@@ -85,7 +77,6 @@ export const PresetZoekerPage: React.FC = () => {
     setSelectedDetailSource(null);
 
     try {
-      // 1) Probeer optioneel de preset-service
       let terms: string[] = [];
 
       const presetBody: any = {};
@@ -103,56 +94,37 @@ export const PresetZoekerPage: React.FC = () => {
         if (presetRes.ok) {
           const presetData: SearchPresetResponse = await presetRes.json();
 
-          // Nieuw formaat: { ok, presets: [{ terms: [...] }, ...] }
           if (presetData.ok && Array.isArray(presetData.presets)) {
             terms = presetData.presets
               .flatMap((p) => p.terms || [])
               .map((t) => String(t).trim())
               .filter((t) => t.length > 0);
           }
-          // Backwards compat: { terms: [...] }
+
           if (terms.length === 0 && Array.isArray(presetData.terms)) {
-            terms = presetData.terms
-              .map((t) => String(t).trim())
-              .filter((t) => t.length > 0);
+            terms = presetData.terms.map((t) => String(t).trim()).filter((t) => t.length > 0);
           }
         } else {
-          // 404 / 500 etc.: gewoon loggen en doorgaan met fallback
-          console.warn(
-            "[PresetZoeker] search-preset niet bruikbaar:",
-            presetRes.status
-          );
+          console.warn("[PresetZoeker] search-preset niet bruikbaar:", presetRes.status);
         }
       } catch (presetErr) {
-        console.warn(
-          "[PresetZoeker] search-preset faalde, fallback naar originele query",
-          presetErr
-        );
-      }
-
-      // 2) Fallback als de preset-service geen termen oplevert
-      if (terms.length === 0) {
-        if (hasUserQuery) {
-          terms = [searchQuery!.trim()];
-        } else if (filters.ka) {
-          // Als er wél een KA is, kun je in uiterste nood nog terugvallen op 'KA45'
-          terms = [`KA${filters.ka}`];
-        }
+        console.warn("[PresetZoeker] search-preset faalde, fallback", presetErr);
       }
 
       if (terms.length === 0) {
-        setError(
-          "Geen geldige zoektermen gevonden. Pas je zoekopdracht of KA/tijdvak aan."
-        );
+        if (hasUserQuery) terms = [searchQuery!.trim()];
+        else if (filters.ka) terms = [`KA${filters.ka}`];
+      }
+
+      if (terms.length === 0) {
+        setError("Geen geldige zoektermen gevonden. Pas je zoekopdracht of KA/tijdvak aan.");
         setLastUsedTerms([]);
         setLoading(false);
         return;
       }
 
-      // Debug-state updaten vóór de echte search-call
       setLastUsedTerms(terms);
 
-      // 3) Altijd zoeken via /api/search, met of zonder presets
       const searchRes = await fetch(`${API_BASE}/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -162,12 +134,9 @@ export const PresetZoekerPage: React.FC = () => {
         }),
       });
 
-      if (!searchRes.ok) {
-        throw new Error(`search fout: ${searchRes.status}`);
-      }
+      if (!searchRes.ok) throw new Error(`search fout: ${searchRes.status}`);
 
       const searchData = await searchRes.json();
-      // searchData.sources bevat hier al Kleio + Cito (afhankelijk van filters)
       setSources(searchData.sources || []);
     } catch (err: unknown) {
       console.error("[PresetZoeker] fout bij zoeken", err);
@@ -189,29 +158,21 @@ export const PresetZoekerPage: React.FC = () => {
     const isCito =
       source.provider === "Cito" ||
       (typeof source.id === "string" && source.id.startsWith("cito"));
-    const isKleio =
-      source.provider === "Kleio" ||
-      url.includes("kleio") ||
-      url.includes("vgn");
 
-    if (isCito || isKleio) {
-      return `${API_BASE}/image-proxy?url=${encodeURIComponent(url)}`;
-    }
+    const isKleio = source.provider === "Kleio" || url.includes("kleio") || url.includes("vgn");
+
+    if (isCito || isKleio) return `${API_BASE}/image-proxy?url=${encodeURIComponent(url)}`;
 
     return url;
   };
 
   const handleGoToProposals = () => {
-    // Combineer alle huidige bronnen (Kleio + Cito) en beperk tot max. 40
     const limitedSources = (sources || []).slice(0, 40);
 
     navigate("/proposals", {
       state: {
-        tv: filters.tv || null,
-        ka: filters.ka || null,
-        // Gebruik de huidige zoekopdracht als didactische hint
+        tvKa: { tv: filters.tv || undefined, ka: filters.ka || undefined },
         conceptHint: searchQuery || "",
-        // Deze array wordt in ProposalsPage doorgestuurd naar /api/proposals-v2
         sources: limitedSources,
       },
     });
@@ -266,9 +227,7 @@ export const PresetZoekerPage: React.FC = () => {
               onClick={handleSearch}
               disabled={loading}
               className={`w-full font-bold py-3 rounded text-sm transition-all flex items-center justify-center gap-2 ${
-                loading
-                  ? "bg-gray-100 text-gray-500 cursor-wait"
-                  : "bg-indigo-600 text-white hover:bg-indigo-700"
+                loading ? "bg-gray-100 text-gray-500 cursor-wait" : "bg-indigo-600 text-white hover:bg-indigo-700"
               }`}
             >
               {loading ? (
@@ -281,7 +240,6 @@ export const PresetZoekerPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Debug-paneel: laat zien wat er naar /api/search gaat */}
           <div className="bg-white p-3 rounded-lg border border-dashed border-gray-300 text-xs text-gray-600 space-y-1">
             <div className="font-bold mb-1">Debug zoektermen</div>
             <div>
@@ -314,17 +272,13 @@ export const PresetZoekerPage: React.FC = () => {
 
           <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="mb-4">
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                Type Bron
-              </label>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Type Bron</label>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer text-sm">
                   <input
                     type="checkbox"
                     checked={filters.images}
-                    onChange={(e) =>
-                      setFilters({ ...filters, images: e.target.checked })
-                    }
+                    onChange={(e) => setFilters({ ...filters, images: e.target.checked })}
                   />
                   Afbeeldingen
                 </label>
@@ -332,9 +286,7 @@ export const PresetZoekerPage: React.FC = () => {
                   <input
                     type="checkbox"
                     checked={filters.text}
-                    onChange={(e) =>
-                      setFilters({ ...filters, text: e.target.checked })
-                    }
+                    onChange={(e) => setFilters({ ...filters, text: e.target.checked })}
                   />
                   Tekstbronnen
                 </label>
@@ -342,17 +294,13 @@ export const PresetZoekerPage: React.FC = () => {
             </div>
 
             <div className="pt-4 border-t border-gray-100">
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                Herkomst
-              </label>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Herkomst</label>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer text-sm">
                   <input
                     type="checkbox"
                     checked={filters.kleio}
-                    onChange={(e) =>
-                      setFilters({ ...filters, kleio: e.target.checked })
-                    }
+                    onChange={(e) => setFilters({ ...filters, kleio: e.target.checked })}
                   />
                   Kleio
                 </label>
@@ -360,9 +308,7 @@ export const PresetZoekerPage: React.FC = () => {
                   <input
                     type="checkbox"
                     checked={filters.cito}
-                    onChange={(e) =>
-                      setFilters({ ...filters, cito: e.target.checked })
-                    }
+                    onChange={(e) => setFilters({ ...filters, cito: e.target.checked })}
                   />
                   Cito
                 </label>
@@ -374,9 +320,7 @@ export const PresetZoekerPage: React.FC = () => {
         <div className="col-span-4 border-r border-gray-200 bg-gray-50 overflow-y-auto p-4">
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-bold text-gray-700">Resultaten</h2>
-            <span className="text-xs bg-gray-200 px-2 py-1 rounded-full">
-              {sources.length}
-            </span>
+            <span className="text-xs bg-gray-200 px-2 py-1 rounded-full">{sources.length}</span>
           </div>
           {error && <div className="text-red-500 text-sm mb-4">{error}</div>}
           {loading ? (
@@ -385,10 +329,7 @@ export const PresetZoekerPage: React.FC = () => {
               <p>Zoeken in Kleio &amp; Cito...</p>
             </div>
           ) : (
-            <SelectionPanel
-              onSelectSource={(s) => setSelectedDetailSource(s)}
-              selectedId={selectedDetailSource?.id}
-            />
+            <SelectionPanel onSelectSource={(s: any) => setSelectedDetailSource(s)} selectedId={selectedDetailSource?.id} />
           )}
         </div>
 
@@ -442,9 +383,7 @@ export const PresetZoekerPage: React.FC = () => {
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-gray-300">
               <span className="text-6xl mb-4">👈</span>
-              <p className="text-lg font-medium">
-                Selecteer een bron om details te bekijken
-              </p>
+              <p className="text-lg font-medium">Selecteer een bron om details te bekijken</p>
             </div>
           )}
         </div>
@@ -452,4 +391,6 @@ export const PresetZoekerPage: React.FC = () => {
     </div>
   );
 };
+
+export default PresetZoekerPage;
 

@@ -16,7 +16,8 @@ export const SelectionPanel = ({ onSelectSource, selectedId }: Props) => {
     const needsProxy = source.provider === 'Cito' || source.provider === 'Kleio' || url.includes('kleio');
 
     if (needsProxy) {
-       return `http://localhost:8081/api/image-proxy?url=${encodeURIComponent(url)}`;
+       return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+
     }
     return url;
   };

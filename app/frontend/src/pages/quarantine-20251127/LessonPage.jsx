@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import SourceDisplay from '../components/SourceDisplay';
 
 // Aanname: uw backend draait op poort 8081
-const API_BASE_URL = 'http://localhost:8081/api'; 
-
+const API_BASE_URL = '/api';
+ 
 const LessonPage = () => {
   const [searchParams] = useSearchParams();
   const conceptId = searchParams.get('conceptId'); // Haalt de ID uit de URL

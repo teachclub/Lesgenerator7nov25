@@ -1,50 +1,43 @@
-import axios from 'axios';
+type JsonValue = any;
 
-// NIEUWE POORT: 8081
-const BASE_URL = 'http://127.0.0.1:8081';
+const BASE_URL = (import.meta as any).env?.VITE_API_BASE || "";
 
-console.log("API Geïnitialiseerd op:", BASE_URL);
+function buildUrl(path: string) {
+  if (!path) return BASE_URL || "";
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  if (!path.startsWith("/")) path = `/${path}`;
+  return `${BASE_URL}${path}`;
+}
 
-export interface Tijdvak { id: string; label: string; naam?: string; }
-export interface KenmerkendAspect { id: string; name: string; naam?: string; }
+export async function fetchJson<T = JsonValue>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const url = buildUrl(path);
 
-async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const url = `${BASE_URL}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
-  console.log(`Fetching: ${url}`);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as any),
+  };
+
+  const res = await fetch(url, { ...options, headers });
+
+  const text = await res.text();
+  let data: any = null;
   try {
-    const response = await fetch(url, options);
-    if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({ error: 'Unknown API error' }));
-      throw new Error(`HTTP error ${response.status}: ${errorBody.error || 'Check server logs.'}`);
-    }
-    return response.json() as Promise<T>;
-  } catch (err) {
-    console.error(`Fout bij fetchen van ${url}:`, err);
-    throw err;
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
   }
+
+  if (!res.ok) {
+    const msg =
+      (data && (data.message || data.error)) || `HTTP ${res.status}`;
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+  }
+
+  return data as T;
 }
 
-export async function fetchTijdvakken(): Promise<Tijdvak[]> {
-  return fetchJson<Tijdvak[]>('/api/tijdvakken');
-}
+export { buildUrl, BASE_URL };
 
-export async function fetchKenmerkendeAspecten(tijdvakId: string): Promise<KenmerkendAspect[]> {
-  return fetchJson<KenmerkendAspect[]>(`/api/ka?tv=${tijdvakId}`);
-}
-
-export async function fetchPreset(payload: any): Promise<any> {
-    try {
-        const response = await fetch(`${BASE_URL}/api/search-preset`, { 
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        if (!response.ok) return { ok: false, error: data.error || 'Search failed' };
-        return { ok: true, data };
-    } catch (e: any) {
-        return { ok: false, error: e.message };
-    }
-}
-
-export const api = axios.create({ baseURL: `${BASE_URL}/api`, headers: { 'Content-Type': 'application/json' } });
