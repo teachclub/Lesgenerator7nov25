@@ -70,8 +70,7 @@ function getImageSrc(source: RawSource): string | null {
   if (!source) return null;
 
   const t = (source.type || "").toLowerCase();
-  const isImgType =
-    t.includes("image") || t === "foto" || t === "afbeelding";
+  const isImgType = t.includes("image") || t === "foto" || t === "afbeelding";
 
   if (source.imageUrl) {
     const encoded = encodeURIComponent(source.imageUrl);
@@ -88,11 +87,7 @@ function getImageSrc(source: RawSource): string | null {
 
 function makePreviewText(source: RawSource): string {
   const text =
-    source.fullText ||
-    source.content ||
-    source.description ||
-    source.title ||
-    "";
+    source.fullText || source.content || source.description || source.title || "";
   const trimmed = text.replace(/\s+/g, " ").trim();
   if (!trimmed) return "";
   if (trimmed.length <= 160) return trimmed;
@@ -142,9 +137,7 @@ function normalizeProposal(raw: any, defaultTvKa: TvKaInfo): LessonProposal {
     ? concept.bronIds
     : [];
 
-  let primarySourceIds: Array<string | number> = Array.isArray(
-    raw.primarySourceIds
-  )
+  let primarySourceIds: Array<string | number> = Array.isArray(raw.primarySourceIds)
     ? raw.primarySourceIds
     : Array.isArray(concept.primarySourceIds)
     ? concept.primarySourceIds
@@ -198,16 +191,14 @@ const ProposalsPage: React.FC = () => {
   const [proposals, setProposals] = useState<LessonProposal[]>([]);
   const [allSources, setAllSources] = useState<RawSource[]>(initialSources);
 
-  const [activeSourceIds, setActiveSourceIds] = useState<
-    Set<string | number>
-  >(() => new Set(initialSources.map((s) => s.id)));
+  const [activeSourceIds, setActiveSourceIds] = useState<Set<string | number>>(
+    () => new Set(initialSources.map((s) => s.id))
+  );
 
-  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | number | null>(
     null
   );
-  const [selectedSourceId, setSelectedSourceId] = useState<
-    string | number | null
-  >(null);
 
   const MAX_SOURCES_PER_PROPOSAL = 15;
 
@@ -235,8 +226,7 @@ const ProposalsPage: React.FC = () => {
 
         if (!resp.ok || raw.error) {
           throw new Error(
-            raw.error ||
-              `Backend-fout bij proposals-v2 (status ${resp.status})`
+            raw.error || `Backend-fout bij proposals-v2 (status ${resp.status})`
           );
         }
 
@@ -261,9 +251,7 @@ const ProposalsPage: React.FC = () => {
         setProposals(normalizedProposals);
         setAllSources(backendSources);
 
-        const initialActive = new Set<string | number>(
-          backendSources.map((s) => s.id)
-        );
+        const initialActive = new Set<string | number>(backendSources.map((s) => s.id));
         setActiveSourceIds(initialActive);
 
         if (normalizedProposals[0]) {
@@ -271,9 +259,7 @@ const ProposalsPage: React.FC = () => {
         }
       } catch (err: any) {
         console.error("[ProposalsPage] fout:", err);
-        setError(
-          err.message || "Onbekende fout bij het laden van voorstellen."
-        );
+        setError(err.message || "Onbekende fout bij het laden van voorstellen.");
       } finally {
         setIsLoading(false);
       }
@@ -286,9 +272,7 @@ const ProposalsPage: React.FC = () => {
 
   const selectedProposal: LessonProposal | null = useMemo(() => {
     if (!selectedProposalId || proposals.length === 0) return null;
-    return (
-      proposals.find((p) => p.id === selectedProposalId) || proposals[0] || null
-    );
+    return proposals.find((p) => p.id === selectedProposalId) || proposals[0] || null;
   }, [proposals, selectedProposalId]);
 
   // Geselecteerd voorstel bovenaan
@@ -349,9 +333,7 @@ const ProposalsPage: React.FC = () => {
 
   const selectedSource: RawSource | null = useMemo(() => {
     if (!selectedSourceId) return null;
-    return (
-      allSources.find((s) => String(s.id) === String(selectedSourceId)) || null
-    );
+    return allSources.find((s) => String(s.id) === String(selectedSourceId)) || null;
   }, [selectedSourceId, allSources]);
 
   // ==== Handlers ====
@@ -406,7 +388,7 @@ const ProposalsPage: React.FC = () => {
       nuanceLevel: proposal.nuanceLevel,
     };
 
-    navigate("/lesson", {
+    navigate("/lesson/step1", {
       state: {
         tvKa: initialTvKa,
         concept,
@@ -464,8 +446,7 @@ const ProposalsPage: React.FC = () => {
 
       if (!resp.ok || data.error) {
         throw new Error(
-          data.error ||
-            `Backend-fout bij refine-concept (status ${resp.status})`
+          data.error || `Backend-fout bij refine-concept (status ${resp.status})`
         );
       }
 
@@ -490,25 +471,19 @@ const ProposalsPage: React.FC = () => {
       );
     } catch (err: any) {
       console.error("[ProposalsPage] refine-fout:", err);
-      setError(
-        err.message || "Er ging iets mis bij het verfijnen van de hoofdvraag."
-      );
+      setError(err.message || "Er ging iets mis bij het verfijnen van de hoofdvraag.");
     }
   };
 
   const handleChangeComplexity = (proposalId: string, value: number) => {
     setProposals((prev) =>
-      prev.map((p) =>
-        p.id === proposalId ? { ...p, complexityLevel: value } : p
-      )
+      prev.map((p) => (p.id === proposalId ? { ...p, complexityLevel: value } : p))
     );
   };
 
   const handleChangeNuance = (proposalId: string, value: number) => {
     setProposals((prev) =>
-      prev.map((p) =>
-        p.id === proposalId ? { ...p, nuanceLevel: value } : p
-      )
+      prev.map((p) => (p.id === proposalId ? { ...p, nuanceLevel: value } : p))
     );
   };
 
@@ -527,10 +502,10 @@ const ProposalsPage: React.FC = () => {
     <div style={{ padding: "1.5rem" }}>
       <h1 style={{ marginBottom: "0.5rem" }}>Lesvoorstellen</h1>
       <p style={{ marginBottom: "1rem", maxWidth: "900px" }}>
-        Kies één lesvoorstel, stel eventueel taalniveau en nuance bij en
-        genereer daarna het lesmateriaal. In de middelste kolom zie je de
-        bronnen bij het gekozen voorstel. De geel gemarkeerde bronnen met ster
-        worden als meest richtinggevend gezien.
+        Kies één lesvoorstel, stel eventueel taalniveau en nuance bij en genereer
+        daarna het lesmateriaal. In de middelste kolom zie je de bronnen bij het
+        gekozen voorstel. De geel gemarkeerde bronnen met ster worden als meest
+        richtinggevend gezien.
       </p>
 
       {error && (
@@ -548,11 +523,7 @@ const ProposalsPage: React.FC = () => {
         </div>
       )}
 
-      {isLoading && (
-        <div style={{ marginBottom: "0.75rem" }}>
-          Lesvoorstellen laden…
-        </div>
-      )}
+      {isLoading && <div style={{ marginBottom: "0.75rem" }}>Lesvoorstellen laden…</div>}
 
       <div
         style={{
@@ -562,7 +533,6 @@ const ProposalsPage: React.FC = () => {
           gap: "1rem",
         }}
       >
-        {/* Kolom 1 – Lesvoorstellen */}
         <div>
           <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>
             1. Kies een lesvoorstel
@@ -626,28 +596,17 @@ const ProposalsPage: React.FC = () => {
                 )}
 
                 {proposal.context && (
-                  <p
-                    style={{
-                      fontSize: "0.85rem",
-                      marginBottom: "0.25rem",
-                    }}
-                  >
+                  <p style={{ fontSize: "0.85rem", marginBottom: "0.25rem" }}>
                     Context: {proposal.context}
                   </p>
                 )}
 
                 {proposal.lesopbrengst && (
-                  <p
-                    style={{
-                      fontSize: "0.85rem",
-                      marginBottom: "0.4rem",
-                    }}
-                  >
+                  <p style={{ fontSize: "0.85rem", marginBottom: "0.4rem" }}>
                     <strong>Lesopbrengst:</strong> {proposal.lesopbrengst}
                   </p>
                 )}
 
-                {/* Refinement-instellingen (alleen schuifjes) */}
                 <div
                   style={{
                     marginTop: "0.5rem",
@@ -679,10 +638,7 @@ const ProposalsPage: React.FC = () => {
                         max={5}
                         value={proposal.complexityLevel}
                         onChange={(e) =>
-                          handleChangeComplexity(
-                            proposal.id,
-                            Number(e.target.value)
-                          )
+                          handleChangeComplexity(proposal.id, Number(e.target.value))
                         }
                       />
                       <span style={{ fontSize: "0.75rem" }}>
@@ -705,10 +661,7 @@ const ProposalsPage: React.FC = () => {
                         max={5}
                         value={proposal.nuanceLevel}
                         onChange={(e) =>
-                          handleChangeNuance(
-                            proposal.id,
-                            Number(e.target.value)
-                          )
+                          handleChangeNuance(proposal.id, Number(e.target.value))
                         }
                       />
                       <span style={{ fontSize: "0.75rem" }}>
@@ -763,7 +716,6 @@ const ProposalsPage: React.FC = () => {
           })}
         </div>
 
-        {/* Kolom 2 – Bronnen bij geselecteerd voorstel */}
         <div>
           <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>
             2. Bronnen bij het gekozen voorstel
@@ -789,11 +741,7 @@ const ProposalsPage: React.FC = () => {
               const preview = makePreviewText(s);
               const imgSrc = getImageSrc(s);
 
-              const bg = !isActive
-                ? "#f3f3f3"
-                : isCore
-                ? "#fff8d5"
-                : "#ffffff";
+              const bg = !isActive ? "#f3f3f3" : isCore ? "#fff8d5" : "#ffffff";
               const border = isCore ? "#f0c96b" : "#dddddd";
 
               return (
@@ -831,21 +779,10 @@ const ProposalsPage: React.FC = () => {
                       <img
                         src={imgSrc}
                         alt={s.title || "bronafbeelding"}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                        }}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
                       />
                     ) : (
-                      <span
-                        style={{
-                          fontSize: "0.85rem",
-                          fontWeight: 600,
-                        }}
-                      >
-                        T
-                      </span>
+                      <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>T</span>
                     )}
                   </div>
 
@@ -905,12 +842,7 @@ const ProposalsPage: React.FC = () => {
                         onClick={(e) => e.stopPropagation()}
                       >
                         {isCore && (
-                          <span
-                            style={{
-                              fontSize: "0.8rem",
-                              color: "#b38700",
-                            }}
-                          >
+                          <span style={{ fontSize: "0.8rem", color: "#b38700" }}>
                             ★
                           </span>
                         )}
@@ -941,7 +873,6 @@ const ProposalsPage: React.FC = () => {
             })}
         </div>
 
-        {/* Kolom 3 – Bron-detail */}
         <div>
           <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>
             3. Detailweergave bron
@@ -979,11 +910,7 @@ const ProposalsPage: React.FC = () => {
                     <img
                       src={imgSrc}
                       alt={selectedSource.title || "bronafbeelding"}
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                      }}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     />
                   </div>
                 );
@@ -1000,13 +927,7 @@ const ProposalsPage: React.FC = () => {
               </h3>
 
               {selectedSource.provider && (
-                <div
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "#555",
-                    marginBottom: "0.25rem",
-                  }}
-                >
+                <div style={{ fontSize: "0.75rem", color: "#555", marginBottom: "0.25rem" }}>
                   {selectedSource.provider}
                 </div>
               )}

@@ -1,176 +1,164 @@
-/**
- * STEP 1 – DOCENTMATERIAAL (v7 – 9 dec 2025)
- * ------------------------------------------------------------------
- * Deze prompt genereert uitsluitend docentmateriaal volgens MASTERPROMPT v7:
- *
- *  - Structuur: WAT – HOE – WAAROM + DEELVRAGEN + BRONKOPPELING + LESPLANNING
- *  - GEEN broninhoud, geen samenvattingen van bronnen
- *  - Verwijzen naar bronnen ALLEEN als "Bron 1", "Bron 2", ...
- *  - Nummering = volgorde van aangeleverde LIGHT sources
- *  - Intern ID (bijv. cito-540) kan in de backend worden gebruikt,
- *    maar komt NIET voor in het zichtbare docentstuk.
- *
- *  - GEEN leerlingmateriaal
- *  - GEEN opdrachten
- *  - GEEN antwoordmodel
- *  - GEEN fullText/content
- *
- * Output = zuiver JSON met top-level:
- * {
- *   "step": "step1",
- *   "data": {
- *     "chainSignature": "<MASTER_SIGNATURE>",
- *     "docent": { ... }
- *   }
- * }
- */
+"use strict";
 
-function buildStep1Prompt({ concept = {}, sources = [], masterSignature }) {
-  const lightSourcesList = sources
-    .map((s, i) => {
-      const nr = i + 1;
-      return `Bron ${nr}: { nummer: ${nr}, id: "${s.id}", provider: "${s.provider || ""}", type: "${s.type || ""}", title: "${s.title || ""}" }`;
-    })
-    .join("\n");
+const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
+
+function safeStr(x) {
+  return typeof x === "string" ? x.trim() : "";
+}
+
+function extractDeelvragen(concept) {
+  const dv = concept && Array.isArray(concept.deelvragen) ? concept.deelvragen : [];
+  const out = [];
+  for (const item of dv) {
+    if (typeof item === "string" && item.trim()) out.push(item.trim());
+    else if (item && typeof item === "object" && typeof item.vraag === "string" && item.vraag.trim())
+      out.push(item.vraag.trim());
+  }
+  return out.slice(0, 4);
+}
+
+function buildSourcesBlock(sources) {
+  const lines = [];
+  for (let i = 0; i < sources.length; i++) {
+    const s = sources[i] || {};
+    const title = safeStr(s.title) || safeStr(s.description) || "Naamloze bron";
+    const provider = safeStr(s.provider) || "-";
+    const type = safeStr(s.type) || "-";
+    lines.push(`${i + 1}. [${provider} | ${type} | ${safeStr(s.id) || "-"}] ${title}`);
+  }
+  return lines.join("\n");
+}
+
+function buildStep1Prompt(body) {
+  const concept = body && body.concept ? body.concept : {};
+  const sources = Array.isArray(body && body.sources) ? body.sources : [];
+
+  const expected = safeStr(concept.masterSignature) || MASTER_SIGNATURE;
+  const hoofdvraag = safeStr(concept.hoofdvraag);
+  const hook = safeStr(concept.hook);
+  const title = safeStr(concept.title);
+  const deelvragen = extractDeelvragen(concept);
+
+  const dv1 = deelvragen[0] || "Deelvraag 1 (formuleer passend bij de hoofdvraag)";
+  const dv2 = deelvragen[1] || "Deelvraag 2 (formuleer passend bij de hoofdvraag)";
+  const dv3 = deelvragen[2] || "Deelvraag 3 (formuleer passend bij de hoofdvraag)";
+  const dv4 = deelvragen[3] || "Deelvraag 4 (formuleer passend bij de hoofdvraag)";
+
+  const N = sources.length;
 
   return `
-MASTER_SIGNATURE: ${masterSignature}
-DOEL: Genereer STEP 1 (Docentmateriaal) volgens MASTERPROMPT v7.
+CHAIN_SIGNATURE: ${expected}
 
-===============================================================
-INVOER
-===============================================================
+Je bent een ervaren docent geschiedenis (NL VO). Anti-presentisme: formuleer verklaringen vanuit het verleden zelf, zonder moreel oordeel vanuit het heden.
 
-CONCEPT:
-- Hoofdvraag: ${concept.hoofdvraag || ""}
-- Hook: ${concept.hook || ""}
-- Context: ${concept.context || ""}
-- Tijdvak: ${concept.tv || ""} (${concept.tvLabel || ""})
-- Kenmerkend Aspect: ${concept.ka || ""} (${concept.kaLabel || ""})
+JE OUTPUT MOET PURE JSON ZIJN
+- Geen markdown
+- Geen \`\`\` fences
+- Geen extra tekst
 
-LIGHT SOURCES (in vaste volgorde, dit bepaalt de bronnummering):
-${lightSourcesList}
+Je krijgt ${N} bronnen. Geldige bronverwijzingen zijn gehele getallen 1 t/m ${N}.
+ELKE deelvraag/antwoord MUST minstens 1 geldige bronverwijzing hebben (dus nooit [] en nooit 0 of >${N}).
 
-===============================================================
-REGELS – ABSOLUUT VERPLICHT
-===============================================================
+CONCEPT
+- Titel: ${title || "-"}
+- Hook: ${hook || "-"}
+- Hoofdvraag: ${hoofdvraag}
 
-1) Genereer ALLEEN docentmateriaal voor STEP 1.
-2) De volledige output MOET één JSON-object zijn met exact dit patroon:
-   {
-     "step": "step1",
-     "data": {
-       "chainSignature": "${masterSignature}",
-       "docent": { ... }
-     }
-   }
-3) Binnen "data.docent" MOET de structuur zijn:
-   - wat: string                  // korte beschrijving van de les als geheel
-   - hoe: string                  // globale beschrijving van de aanpak / werkvormen
-   - waarom: string               // didactische onderbouwing / leerdoelen
-   - deelvragen: array van strings
-   - bronverwijzingenPerDeelvraag: array van objecten:
-       {
-         "deelvraag": string,
-         "bronnen": [int, int, ...]   // verwijzing naar Bron 1, Bron 2, ...
-       }
-   - lesfasen: array van objecten (lesplanning), elk met:
-       {
-         "fase": string,       // bv. "Start", "Kern 1", "Kern 2", "Afsluiting"
-         "tijd": string,       // bv. "10 min"
-         "doel": string,       // wat leerlingen in deze fase bereiken
-         "activiteit": string, // wat er concreet gebeurt
-         "werkvorm": string    // bv. "klassengesprek", "duo-opdracht", "groepswerk"
-       }
-4) Verwijs naar bronnen UITSLUITEND als "Bron X" (X = nummer op basis van volgorde).
-   - Noem GEEN CITO-nummers, GEEN Kleio-IDs, GEEN interne identifiers in het zichtbare stuk.
-5) NOOIT broninhoud genereren.
-   - Geen samenvattingen
-   - Geen citaten
-   - Geen parafrases
-   - Geen fullText of content
-6) GEEN leerlingmateriaal, GEEN opdrachten, GEEN antwoordmodel.
-7) Output = zuiver JSON (geen Markdown, geen codeblok-markering en geen extra tekst buiten het JSON-object).
+DEELVRAGEN (exact deze teksten gebruiken)
+1) ${dv1}
+2) ${dv2}
+3) ${dv3}
+4) ${dv4}
 
-===============================================================
-VOORBEELD VAN DE JSON-OUTPUT (SCHETS)
-===============================================================
+BRONNEN (genummerd 1..${N})
+${buildSourcesBlock(sources)}
 
+VEREIST JSON-SCHEMA (exact deze keys; strings invullen; arrays op lengte-eisen)
 {
   "step": "step1",
   "data": {
-    "chainSignature": "${masterSignature}",
+    "chainSignature": "${expected}",
     "docent": {
-      "wat": "In deze les onderzoeken leerlingen hoe beide blokken in de Koude Oorlog zichzelf en de vijand neerzetten.",
-      "hoe": "De docent start met een klassengesprek, daarna werken leerlingen in groepjes met bronnen en sluiten af met een korte klassikale terugblik.",
-      "waarom": "Leerlingen leren historisch te redeneren over beeldvorming en propaganda tijdens de Koude Oorlog.",
+      "wat": "…",
+      "hoe": "…",
+      "waarom": "…",
       "deelvragen": [
-        "Hoe presenteerden beide blokken zichzelf als verdedigers van vrede en veiligheid?",
-        "Welke rol speelde propaganda in het beeld van de vijand?",
-        "Hoe merkten gewone mensen in Europa iets van de Koude Oorlog?"
+        "${dv1}",
+        "${dv2}",
+        "${dv3}",
+        "${dv4}"
+      ],
+      "hoofdvraagAntwoord": {
+        "vraag": "${hoofdvraag}",
+        "antwoord": "…",
+        "gebruikteBronNummers": [1]
+      },
+      "deelantwoorden": [
+        {
+          "vraag": "${dv1}",
+          "antwoord": "…",
+          "gebruikteBronNummers": [1]
+        },
+        {
+          "vraag": "${dv2}",
+          "antwoord": "…",
+          "gebruikteBronNummers": [2]
+        },
+        {
+          "vraag": "${dv3}",
+          "antwoord": "…",
+          "gebruikteBronNummers": [3]
+        },
+        {
+          "vraag": "${dv4}",
+          "antwoord": "…",
+          "gebruikteBronNummers": [4]
+        }
       ],
       "bronverwijzingenPerDeelvraag": [
-        {
-          "deelvraag": "Hoe presenteerden beide blokken zichzelf als verdedigers van vrede en veiligheid?",
-          "bronnen": [1, 2, 3]
-        },
-        {
-          "deelvraag": "Welke rol speelde propaganda in het beeld van de vijand?",
-          "bronnen": [4, 5, 6]
-        },
-        {
-          "deelvraag": "Hoe merkten gewone mensen in Europa iets van de Koude Oorlog?",
-          "bronnen": [7, 8, 9, 10]
-        }
+        { "deelvraag": "${dv1}", "bronnen": [1] },
+        { "deelvraag": "${dv2}", "bronnen": [2] },
+        { "deelvraag": "${dv3}", "bronnen": [3] },
+        { "deelvraag": "${dv4}", "bronnen": [4] }
       ],
       "lesfasen": [
         {
-          "fase": "Start",
+          "fase": "Instructie",
           "tijd": "10 min",
-          "doel": "Aansluiten bij voorkennis en lesvraag introduceren.",
-          "activiteit": "Korte klassikale bespreking van een prikkelende bron of stelling.",
-          "werkvorm": "klassengesprek"
+          "doel": "…",
+          "activiteit": "…",
+          "werkvorm": "…"
         },
         {
-          "fase": "Kern 1",
-          "tijd": "20 min",
-          "doel": "Leerlingen laten werken met bronnen rond deelvraag 1 en 2.",
-          "activiteit": "Leerlingen analyseren in groepjes een set bronnen en beantwoorden deelvragen.",
-          "werkvorm": "groepsopdracht"
+          "fase": "Verwerking",
+          "tijd": "30 min",
+          "doel": "…",
+          "activiteit": "…",
+          "werkvorm": "…"
         },
         {
-          "fase": "Kern 2",
-          "tijd": "15 min",
-          "doel": "Resultaten delen en verband leggen met de hoofvraag.",
-          "activiteit": "Groepen presenteren hun bevindingen, docent vult aan waar nodig.",
-          "werkvorm": "klassikale terugkoppeling"
-        },
-        {
-          "fase": "Afsluiting",
+          "fase": "Evaluatie/reflectie",
           "tijd": "10 min",
-          "doel": "Les afronden en leerlingen kort laten reflecteren.",
-          "activiteit": "Individuele korte schrijftaak of exit ticket over wat zij nu anders zien.",
-          "werkvorm": "individuele opdracht"
+          "doel": "…",
+          "activiteit": "…",
+          "werkvorm": "…"
         }
       ]
     }
   }
 }
 
-Toelichting:
-- "bronnen" is een array met integers die verwijzen naar de bronnummering:
-  - Bron 1 = eerste item in LIGHT sources
-  - Bron 2 = tweede item
-  - Bron 3 = derde item
-  - enz.
+HARD RULES (anders is het fout):
+- gebruikteBronNummers/bronnen: minimaal 1 integer binnen 1..${N}
+- deelantwoorden[i].vraag en bronverwijzingenPerDeelvraag[i].deelvraag moeten EXACT gelijk zijn aan docent.deelvragen[i]
+- lesfasen tijden exact: 10,30,10 (totaal 50) met "min"
+- chainSignature exact "${expected}"
 
-===============================================================
-MAAK NU STEP 1
-===============================================================
-
-Geef uitsluitend het JSON-object terug zoals hierboven beschreven.
-  `;
+Geef nu alleen de JSON-output volgens schema.
+`.trim();
 }
 
-module.exports = { buildStep1Prompt };
+module.exports = {
+  buildStep1Prompt,
+};
 

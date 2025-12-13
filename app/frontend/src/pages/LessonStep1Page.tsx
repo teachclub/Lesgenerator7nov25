@@ -1,56 +1,121 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import type { Location } from "history";
-import { TvKaOption } from "../data/tvKaPresets";
+import LessonNav from "../components/LessonNav";
 
-type LessonProposal = {
-  id?: string | number;
-  title?: string;
+type LessonConcept = {
   hoofdvraag?: string;
   hook?: string;
   context?: string;
-  description?: string;
-  [key: string]: unknown;
+  tv?: string;
+  tvLabel?: string;
+  ka?: string;
+  kaLabel?: string;
+  lesopbrengst?: string;
+  complexityLevel?: number;
+  nuanceLevel?: number;
+  masterSignature?: string;
 };
 
-type LocationState = {
-  proposal?: LessonProposal;
-  selectedTvKa?: TvKaOption | null;
+type Source = {
+  id: string | number;
+  provider?: string;
+  type?: string;
+  title?: string;
+  description?: string;
+  fullText?: string;
+  content?: string;
+  url?: string | null;
+  imageUrl?: string | null;
+};
+
+type TvKaInfo = {
+  tv?: string;
+  tvLabel?: string;
+  ka?: string;
+  kaLabel?: string;
 };
 
 type Step1Response = {
-  // Houd het bewust flexibel: MP6 kan veel velden teruggeven.
-  concept?: {
-    hoofdvraag?: string;
-    hook?: string;
-    context?: string;
-    tv?: number | string;
-    tvLabel?: string;
-    ka?: string;
-    kaLabel?: string;
-    [key: string]: unknown;
+  step?: string;
+  data?: {
+    chainSignature?: string;
+    docent?: any;
   };
-  // Vaak komen hier ook docent-/leerlingversies/projectdelen in terug:
-  docentVersie?: unknown;
-  leerlingVersie?: unknown;
-  bronnen?: unknown;
-  [key: string]: unknown;
+  error?: string;
+  message?: string;
 };
 
-const LessonStep1Page: React.FC = () => {
+export default function LessonStep1Page() {
+  const location = useLocation();
   const navigate = useNavigate();
-  const location = useLocation() as Location & { state?: LocationState };
 
-  const proposal = location.state?.proposal;
-  const selectedTvKa = location.state?.selectedTvKa ?? null;
+  const state = (location.state || {}) as {
+    tvKa?: TvKaInfo;
+    concept?: LessonConcept;
+    sources?: Source[];
+    step1?: Step1Response;
+    step2?: any;
+    step3?: any;
+    step4?: any;
+  };
 
-  const [loading, setLoading] = useState(false);
+  const tvKa = state.tvKa || {};
+  const concept = state.concept;
+  const sources = state.sources || [];
+
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">(
+    state.step1 ? "done" : "idle"
+  );
   const [error, setError] = useState<string | null>(null);
-  const [step1Data, setStep1Data] = useState<Step1Response | null>(null);
+  const [step1, setStep1] = useState<Step1Response | null>(
+    state.step1 || null
+  );
 
-  if (!proposal || !selectedTvKa) {
+  const canRun = !!concept?.hoofdvraag && sources.length > 0;
+
+  const docent = step1?.data?.docent || null;
+
+  const deelvragen: string[] = useMemo(() => {
+    const dv = docent?.deelvragen;
+    return Array.isArray(dv) ? dv : [];
+  }, [docent]);
+
+  const runStep1 = async () => {
+    if (!canRun) return;
+    setStatus("loading");
+    setError(null);
+
+    try {
+      const res = await fetch("/api/generate-lesson-v2/step1", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tvKa, concept, sources }),
+      });
+
+      const json = (await res.json()) as Step1Response;
+
+      if (!res.ok || json.error) {
+        throw new Error(
+          json.message || json.error || `Backend-fout step1 (${res.status})`
+        );
+      }
+
+      setStep1(json);
+      setStatus("done");
+
+      navigate("/lesson/step1", {
+        replace: true,
+        state: { ...state, step1: json },
+      });
+    } catch (e: any) {
+      setStatus("error");
+      setError(e?.message || "Onbekende fout bij Step 1");
+    }
+  };
+
+  if (!concept || sources.length === 0) {
     return (
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "1.5rem" }}>
+      <div style={{ padding: "1.5rem", maxWidth: 980, margin: "0 auto" }}>
         <h1>Lesgenerator – Stap 1</h1>
         <p>
           Er is geen voorstel of tijdvak/Kenmerkend Aspect meegegeven. Ga terug
@@ -59,12 +124,7 @@ const LessonStep1Page: React.FC = () => {
         <button
           type="button"
           onClick={() => navigate("/proposals")}
-          style={{
-            padding: "0.5rem 1rem",
-            borderRadius: 4,
-            border: "none",
-            cursor: "pointer",
-          }}
+          style={{ padding: "0.6rem 0.9rem", borderRadius: "0.6rem" }}
         >
           ← Terug naar lesvoorstellen
         </button>
@@ -72,212 +132,199 @@ const LessonStep1Page: React.FC = () => {
     );
   }
 
-  const handleGenerateStep1 = async (): Promise<void> => {
-    setError(null);
-    setLoading(true);
-    setStep1Data(null);
-
-    try {
-      const body = {
-        concept: {
-          // Basis uit gekozen proposal:
-          // (MP6 gebruikt dit als startpunt voor hoofdvraag/hook/context.)
-          ...proposal,
-          // En expliciet het tv/ka-blok erbij:
-          tv: selectedTvKa.tv,
-          tvLabel: selectedTvKa.tvLabel,
-          ka: selectedTvKa.ka,
-          kaLabel: selectedTvKa.kaLabel,
-        },
-        // Extra veld (optioneel) als backend dat prettig vindt:
-        tvKa: {
-          tv: selectedTvKa.tv,
-          tvLabel: selectedTvKa.tvLabel,
-          ka: selectedTvKa.ka,
-          kaLabel: selectedTvKa.kaLabel,
-        },
-      };
-
-      const response = await fetch("/api/generate-lesson-v2/step1", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(
-          `Serverfout (${response.status}): ${text || response.statusText}`
-        );
-      }
-
-      const data = (await response.json()) as Step1Response;
-      setStep1Data(data);
-    } catch (err) {
-      console.error(err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Er ging iets mis bij het genereren van stap 1."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoToStep2 = (): void => {
-    if (!step1Data) return;
-
-    navigate("/lesson/step2", {
-      state: {
-        step1Data,
-        proposal,
-        selectedTvKa,
-      },
-    });
-  };
-
   return (
-    <div style={{ maxWidth: 1000, margin: "0 auto", padding: "1.5rem" }}>
-      <h1 style={{ fontSize: "1.75rem", marginBottom: "1rem" }}>
-        Lessie / LesGO – Stap 1 (Masterprompt v6)
-      </h1>
-
-      {/* Contextblok: gekozen tv/ka + voorstel */}
-      <section
+    <div style={{ padding: "1.5rem", maxWidth: 980, margin: "0 auto" }}>
+      <button
+        type="button"
+        onClick={() => navigate(-1)}
         style={{
-          border: "1px solid #ddd",
-          borderRadius: 8,
-          padding: "1rem",
-          marginBottom: "1rem",
+          marginBottom: "0.75rem",
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
         }}
       >
-        <h2 style={{ fontSize: "1.25rem", marginBottom: "0.5rem" }}>
-          Gekozen tijdvak & kenmerkend aspect
-        </h2>
-        <p style={{ margin: 0 }}>
-          <strong>Tijdvak:</strong> {selectedTvKa.tvLabel}
-          <br />
-          <strong>KA:</strong> {selectedTvKa.kaLabel}
-        </p>
-      </section>
+        ← Terug
+      </button>
 
-      <section
-        style={{
-          border: "1px solid #ddd",
-          borderRadius: 8,
-          padding: "1rem",
-          marginBottom: "1rem",
-        }}
-      >
-        <h2 style={{ fontSize: "1.25rem", marginBottom: "0.5rem" }}>
-          Gekozen lesvoorstel
-        </h2>
-        <p style={{ margin: "0 0 0.25rem 0" }}>
-          <strong>Titel:</strong> {proposal.title || "Zonder titel"}
+      <LessonNav
+        current="step1"
+        canGoStep2={!!state.step1}
+        canGoStep3={false}
+        canGoStep4={false}
+      />
+
+      <div style={{ marginBottom: "1rem" }}>
+        <h1 style={{ margin: 0 }}>Lesgenerator – Step 1</h1>
+        <p style={{ marginTop: "0.5rem", fontWeight: 700 }}>
+          Hoofdvraag: {concept.hoofdvraag}
         </p>
-        {proposal.hoofdvraag && (
-          <p style={{ margin: "0 0 0.25rem 0" }}>
-            <strong>Hoofdvraag (voorstel):</strong> {proposal.hoofdvraag}
+        {(tvKa.tvLabel || tvKa.kaLabel) && (
+          <p style={{ fontSize: "0.9rem", color: "#555" }}>
+            {tvKa.tvLabel || ""}
+            {tvKa.tvLabel && tvKa.kaLabel ? " · " : ""}
+            {tvKa.kaLabel || ""}
           </p>
         )}
-        {proposal.hook && (
-          <p style={{ margin: "0 0 0.25rem 0" }}>
-            <strong>Hook:</strong> {proposal.hook}
-          </p>
-        )}
-        {proposal.description && (
-          <p style={{ margin: "0 0 0.25rem 0" }}>{proposal.description}</p>
-        )}
-      </section>
+        <p style={{ fontSize: "0.85rem", color: "#555" }}>
+          Bronnen: <strong>{sources.length}</strong>
+        </p>
+      </div>
 
-      {/* Actieknoppen */}
-      <div style={{ marginBottom: "1rem", display: "flex", gap: "0.5rem" }}>
+      <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
         <button
           type="button"
-          onClick={handleGenerateStep1}
-          disabled={loading}
+          onClick={runStep1}
+          disabled={!canRun || status === "loading"}
           style={{
-            padding: "0.6rem 1.2rem",
-            borderRadius: 4,
-            border: "none",
-            cursor: "pointer",
-            fontWeight: 600,
-            opacity: loading ? 0.7 : 1,
+            padding: "0.6rem 0.9rem",
+            borderRadius: "0.6rem",
+            border: "1px solid #d1d5db",
+            cursor: !canRun || status === "loading" ? "not-allowed" : "pointer",
+            opacity: !canRun ? 0.5 : 1,
           }}
         >
-          {loading ? "Bezig met genereren..." : "Genereer Stap 1-les"}
+          {status === "loading" ? "Bezig…" : "Genereer Step 1"}
         </button>
 
         <button
           type="button"
-          onClick={handleGoToStep2}
-          disabled={!step1Data}
+          onClick={() =>
+            navigate("/lesson/step2", { state: { ...state, step1 } })
+          }
+          disabled={!step1}
           style={{
-            padding: "0.6rem 1.2rem",
-            borderRadius: 4,
-            border: "none",
-            cursor: "pointer",
-            fontWeight: 600,
-            opacity: step1Data ? 1 : 0.5,
+            padding: "0.6rem 0.9rem",
+            borderRadius: "0.6rem",
+            border: "1px solid #d1d5db",
+            cursor: step1 ? "pointer" : "not-allowed",
+            opacity: step1 ? 1 : 0.45,
           }}
         >
-          Ga verder naar Stap 2 →
+          Naar Step 2 →
         </button>
       </div>
 
-      {/* Foutmelding */}
       {error && (
         <div
           style={{
-            marginBottom: "1rem",
+            marginTop: "0.75rem",
+            color: "#a10000",
+            background: "#ffe5e5",
             padding: "0.75rem",
-            borderRadius: 4,
-            backgroundColor: "#ffe6e6",
-            color: "#a00",
+            borderRadius: "0.6rem",
           }}
         >
           {error}
         </div>
       )}
 
-      {/* Debug-weergave van Step1-output (voor ontwikkelfase) */}
-      {step1Data && (
-        <section
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: 8,
-            padding: "1rem",
-            marginTop: "1rem",
-          }}
-        >
-          <h2 style={{ fontSize: "1.25rem", marginBottom: "0.5rem" }}>
-            Output Stap 1 (ruwe weergave)
-          </h2>
-          <p style={{ fontSize: "0.9rem", color: "#555" }}>
-            In deze migratiefase tonen we de ruwe JSON-output van Masterprompt
-            v6 zodat we kunnen controleren of TV/KA en structuur goed
-            doorkomen.
-          </p>
-          <pre
-            style={{
-              maxHeight: 400,
-              overflow: "auto",
-              background: "#f7f7f7",
-              padding: "0.75rem",
-              borderRadius: 4,
-              fontSize: "0.85rem",
-            }}
-          >
-            {JSON.stringify(step1Data, null, 2)}
-          </pre>
-        </section>
+      {docent && (
+        <div style={{ marginTop: "1.25rem" }}>
+          <h2 style={{ fontSize: "1.1rem" }}>WAT</h2>
+          <p>{docent.wat}</p>
+
+          <h2 style={{ fontSize: "1.1rem", marginTop: "1rem" }}>HOE</h2>
+          <p>{docent.hoe}</p>
+
+          <h2 style={{ fontSize: "1.1rem", marginTop: "1rem" }}>WAAROM</h2>
+          <p>{docent.waarom}</p>
+
+          {Array.isArray(deelvragen) && deelvragen.length === 4 && (
+            <>
+              <h2 style={{ fontSize: "1.1rem", marginTop: "1rem" }}>
+                Deelvragen
+              </h2>
+              <ol>
+                {deelvragen.map((dv, i) => (
+                  <li key={i} style={{ marginBottom: "0.35rem" }}>
+                    {dv}
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+
+          {docent.hoofdvraagAntwoord && (
+            <>
+              <h2 style={{ fontSize: "1.1rem", marginTop: "1rem" }}>
+                Globaal hoofdantwoord
+              </h2>
+              <div
+                style={{
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "0.75rem",
+                  padding: "0.75rem",
+                }}
+              >
+                <p style={{ margin: 0, fontWeight: 700 }}>
+                  {docent.hoofdvraagAntwoord.vraag}
+                </p>
+                <p style={{ marginTop: "0.4rem" }}>
+                  {docent.hoofdvraagAntwoord.antwoord}
+                </p>
+                <p style={{ marginTop: "0.4rem", fontSize: "0.9rem" }}>
+                  Bronnen:{" "}
+                  {(docent.hoofdvraagAntwoord.gebruikteBronNummers || []).join(
+                    ", "
+                  ) || "—"}
+                </p>
+              </div>
+            </>
+          )}
+
+          {Array.isArray(docent.deelantwoorden) && docent.deelantwoorden.length > 0 && (
+            <>
+              <h2 style={{ fontSize: "1.1rem", marginTop: "1rem" }}>
+                Globale deelantwoorden
+              </h2>
+              {docent.deelantwoorden.map((a: any, i: number) => (
+                <div
+                  key={i}
+                  style={{
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "0.75rem",
+                    padding: "0.75rem",
+                    marginBottom: "0.75rem",
+                  }}
+                >
+                  <p style={{ margin: 0, fontWeight: 700 }}>{a.vraag}</p>
+                  <p style={{ marginTop: "0.4rem" }}>{a.antwoord}</p>
+                  <p style={{ marginTop: "0.4rem", fontSize: "0.9rem" }}>
+                    Bronnen: {(a.gebruikteBronNummers || []).join(", ") || "—"}
+                  </p>
+                </div>
+              ))}
+            </>
+          )}
+
+          {Array.isArray(docent.lesfasen) && docent.lesfasen.length > 0 && (
+            <>
+              <h2 style={{ fontSize: "1.1rem", marginTop: "1rem" }}>
+                Lesfasen
+              </h2>
+              <ul>
+                {docent.lesfasen.map((f: any, i: number) => (
+                  <li key={i} style={{ marginBottom: "0.5rem" }}>
+                    <strong>{f.fase}</strong>
+                    {f.tijd ? ` – ${f.tijd}` : ""}
+                    {f.doel ? <div>Doel: {f.doel}</div> : null}
+                    {f.activiteit ? <div>Activiteit: {f.activiteit}</div> : null}
+                    {f.werkvorm ? <div>Werkvorm: {f.werkvorm}</div> : null}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+
+      {status === "idle" && (
+        <div style={{ marginTop: "1rem", color: "#555", fontSize: "0.9rem" }}>
+          Klik op “Genereer Step 1” om te starten.
+        </div>
       )}
     </div>
   );
-};
-
-export default LessonStep1Page;
+}
 

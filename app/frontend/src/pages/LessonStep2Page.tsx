@@ -1,367 +1,214 @@
-// frontend/src/pages/LessonStep2Page.tsx
-
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import LessonNav from "../components/LessonNav";
+import Step2View from "./lessonV2/Step2View";
 
 type LessonConcept = {
   hoofdvraag?: string;
-  deelvragen?: {
-    vraag: string;
-    dimenSie?: string; // oude typo mogelijk
-    dimensie?: string;
-    subdimensie?: string;
-  }[];
+  hook?: string;
+  context?: string;
+  tv?: string;
+  tvLabel?: string;
+  ka?: string;
+  kaLabel?: string;
+  lesopbrengst?: string;
+  masterSignature?: string;
 };
 
 type Source = {
   id: string | number;
-  // overige velden zijn niet nodig voor de UI in stap 2
+  provider?: string;
+  type?: string;
+  title?: string;
+  description?: string;
+  fullText?: string;
+  content?: string;
+  url?: string | null;
+  imageUrl?: string | null;
 };
 
-type TvKa = {
-  tv?: number | string;
+type TvKaInfo = {
+  tv?: string;
   tvLabel?: string;
-  ka?: number | string;
+  ka?: string;
   kaLabel?: string;
 };
 
-type Step2Bronvraag = {
-  sourceId: string | number;
-  vraag: string;
-  deelvraagIndex: number;
-  dimenSie?: string; // tolerance voor eventuele oude sleutel
-  dimensie?: string;
-  subdimensie?: string;
+type Step1Response = {
+  step?: string;
+  data?: {
+    chainSignature?: string;
+    docent?: any;
+  };
 };
 
-type Step2InvultabelRij = {
-  label: string;
-  uitleg: string;
-  deelvraagIndex: number;
+type Step2ApiResponse = {
+  step?: string;
+  data?: {
+    chainSignature?: string;
+    leerling?: any;
+  };
+  error?: string;
+  message?: string;
 };
 
-type Step2Invultabel = {
-  kolommen: string[];
-  rijen: Step2InvultabelRij[];
-};
-
-type Step2ReflectieVraag = {
-  vraag: string;
-  aandachtspuntVoorDocent?: string;
-};
-
-type Step2Reflectie = {
-  vragen: Step2ReflectieVraag[];
-};
-
-type Step2Data = {
-  chainSignature: string;
-  hoofdvraag: string;
-  inleiding: string;
-  bronvragen: Step2Bronvraag[];
-  invultabel: Step2Invultabel;
-  reflectie: Step2Reflectie;
-};
-
-type Step2Response = {
-  step: string;
-  data: Step2Data;
-};
-
-type LocationState = {
-  concept?: LessonConcept;
-  sources?: Source[];
-  tvKa?: TvKa;
-};
-
-const LessonStep2Page: React.FC = () => {
-  const navigate = useNavigate();
+export default function LessonStep2Page() {
   const location = useLocation();
-  const state = (location.state || {}) as LocationState;
+  const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [step2Data, setStep2Data] = useState<Step2Data | null>(null);
+  const state = (location.state || {}) as {
+    tvKa?: TvKaInfo;
+    concept?: LessonConcept;
+    sources?: Source[];
+    step1?: Step1Response;
+    step2?: Step2ApiResponse;
+  };
 
-  const concept = state.concept || {};
-  const sources = Array.isArray(state.sources) ? state.sources : [];
   const tvKa = state.tvKa || {};
+  const concept = state.concept;
+  const sources = state.sources || [];
+  const step1 = state.step1 || null;
 
-  // Veiligheidscheck: zonder concept + sources heeft deze pagina geen zin
-  useEffect(() => {
-    if (!concept || !concept.hoofdvraag || sources.length === 0) {
-      // Terug naar stap 1
-      // (of naar home; kies wat bij jouw flow past)
-      navigate("/lesson/step1", { replace: true });
-    }
-  }, [concept, sources, navigate]);
+  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">(
+    state.step2 ? "done" : "idle"
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [step2, setStep2] = useState<Step2ApiResponse | null>(state.step2 || null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const leerlingData = step2?.data?.leerling || null;
 
-    const fetchStep2 = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const deelvragen = useMemo(() => {
+    const dv = step1?.data?.docent?.deelvragen;
+    return Array.isArray(dv) ? dv : [];
+  }, [step1]);
 
-        const res = await fetch("/api/generate-lesson-v2/step2", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            concept,
-            sources,
-            tvKa,
-          }),
-        });
+  const canRun = !!concept?.hoofdvraag && sources.length > 0 && deelvragen.length === 4;
 
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(
-            `Backend-fout bij step2 (${res.status}): ${text.slice(0, 500)}`
-          );
-        }
+  const runStep2 = async () => {
+    if (!canRun) return;
 
-        const json = (await res.json()) as Step2Response;
+    setStatus("loading");
+    setError(null);
 
-        if (!cancelled) {
-          if (!json.data) {
-            throw new Error("Ongeldige step2-response: data ontbreekt");
-          }
-          setStep2Data(json.data);
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          console.error("[LessonStep2Page] ERROR", err);
-          setError(err?.message || "Onbekende fout bij laden van stap 2");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+    try {
+      const res = await fetch("/api/generate-lesson-v2/step2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tvKa,
+          concept,
+          sources,
+          step1,
+        }),
+      });
+
+      const text = await res.text();
+      const json = JSON.parse(text) as Step2ApiResponse;
+
+      if (!res.ok || json.error) {
+        throw new Error(
+          json.message || json.error || `Backend-fout step2 (${res.status})`
+        );
       }
-    };
 
-    fetchStep2();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [concept, sources, tvKa]);
-
-  // Groepeer bronvragen per sourceId
-  const vragenPerBronId = useMemo(() => {
-    const map = new Map<string, Step2Bronvraag[]>();
-
-    if (!step2Data?.bronvragen) return map;
-
-    for (const vraag of step2Data.bronvragen) {
-      const key = String(vraag.sourceId);
-      if (!map.has(key)) {
-        map.set(key, []);
+      if (!json.data || !json.data.leerling) {
+        throw new Error("Ongeldige step2-response: data.leerling ontbreekt");
       }
-      map.get(key)!.push(vraag);
+
+      setStep2(json);
+      setStatus("done");
+
+      navigate("/lesson/step2", {
+        replace: true,
+        state: { ...state, step2: json },
+      });
+    } catch (e: any) {
+      setStatus("error");
+      setError(e?.message || "Onbekende fout bij Step 2");
     }
-
-    return map;
-  }, [step2Data]);
-
-  const bronnenMetVragen = useMemo(() => {
-    return Array.from(vragenPerBronId.entries()).map(([sourceId, vragen]) => ({
-      sourceId,
-      vragen,
-    }));
-  }, [vragenPerBronId]);
-
-  const handleBackToStep1 = () => {
-    navigate("/lesson/step1", {
-      state: {
-        concept,
-        sources,
-        tvKa,
-      },
-    });
   };
 
-  const handleNextToStep3 = () => {
-    navigate("/lesson/step3", {
-      state: {
-        concept,
-        sources,
-        tvKa,
-        step2: step2Data,
-      },
-    });
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
-      <header className="space-y-2">
+  if (!concept || sources.length === 0) {
+    return (
+      <div style={{ padding: "1.5rem", maxWidth: 980, margin: "0 auto" }}>
+        <h1>Lesgenerator – Step 2</h1>
+        <p>Er missen concept of bronnen. Ga terug naar de lesvoorstellen.</p>
         <button
           type="button"
-          onClick={handleBackToStep1}
-          className="text-sm underline"
+          onClick={() => navigate("/proposals")}
+          style={{ padding: "0.6rem 0.9rem", borderRadius: "0.6rem" }}
         >
-          ← Terug naar stap 1
+          ← Terug naar lesvoorstellen
         </button>
+      </div>
+    );
+  }
 
-        <h1 className="text-2xl font-bold">
-          Stap 2 – Leerlingopdracht (bronvragen & invultabel)
-        </h1>
+  return (
+    <div style={{ padding: "1.5rem", maxWidth: 1100, margin: "0 auto" }}>
+      <button
+        type="button"
+        onClick={() => navigate(-1)}
+        style={{
+          marginBottom: "0.75rem",
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+        }}
+      >
+        ← Terug
+      </button>
 
-        {(tvKa.tvLabel || tvKa.kaLabel) && (
-          <p className="text-sm text-gray-600">
-            {tvKa.tvLabel && <span>{tvKa.tvLabel}</span>}
-            {tvKa.tvLabel && tvKa.kaLabel && <span> · </span>}
-            {tvKa.kaLabel && <span>{tvKa.kaLabel}</span>}
-          </p>
-        )}
-      </header>
+      <LessonNav
+        current="step2"
+        canGoStep2={!!step1}
+        canGoStep3={false}
+        canGoStep4={false}
+      />
 
-      {loading && (
-        <div className="p-4 rounded-xl border text-sm">
-          Stap 2 wordt gegenereerd op basis van de hoofdvraag, deelvragen en
-          bronnen…
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+        <h1 style={{ margin: 0 }}>Lesgenerator – Step 2</h1>
+        <button
+          type="button"
+          onClick={runStep2}
+          disabled={!canRun || status === "loading"}
+          style={{
+            marginLeft: "0.75rem",
+            padding: "0.6rem 0.9rem",
+            borderRadius: "0.6rem",
+            border: "1px solid #d1d5db",
+            cursor: !canRun || status === "loading" ? "not-allowed" : "pointer",
+            opacity: !canRun ? 0.5 : 1,
+          }}
+        >
+          {status === "loading" ? "Bezig…" : "Genereer Step 2"}
+        </button>
+      </div>
+
+      {!canRun && (
+        <div style={{ marginTop: "0.75rem", color: "#555" }}>
+          Step 2 kan nog niet draaien: ga eerst naar Step 1 en genereer Step 1.
         </div>
       )}
 
       {error && (
-        <div className="p-4 rounded-xl border border-red-400 bg-red-50 text-sm text-red-800">
-          Er ging iets mis bij het ophalen van stap 2:
-          <br />
-          <code className="text-xs break-words">{error}</code>
+        <div
+          style={{
+            marginTop: "0.75rem",
+            color: "#a10000",
+            background: "#ffe5e5",
+            padding: "0.75rem",
+            borderRadius: "0.6rem",
+          }}
+        >
+          {error}
         </div>
       )}
 
-      {step2Data && !loading && !error && (
-        <main className="space-y-8">
-          {/* Hoofdvraag + inleiding */}
-          <section className="space-y-3">
-            <h2 className="text-xl font-semibold">Hoofdvraag voor leerlingen</h2>
-            <p className="font-medium">{step2Data.hoofdvraag}</p>
-
-            <h3 className="text-lg font-semibold mt-4">Inleiding (leerlingtekst)</h3>
-            <p className="whitespace-pre-line">{step2Data.inleiding}</p>
-          </section>
-
-          {/* Bronvragen – alleen Bron X + vragen, geen broninhoud */}
-          <section className="space-y-3">
-            <h2 className="text-xl font-semibold">Bronvragen</h2>
-
-            {bronnenMetVragen.length === 0 && (
-              <p className="text-sm text-gray-600">
-                Er zijn nog geen bronvragen gegenereerd voor deze les.
-              </p>
-            )}
-
-            <div className="space-y-4">
-              {bronnenMetVragen.map(({ sourceId, vragen }) => (
-                <div
-                  key={sourceId}
-                  className="border rounded-xl p-3 md:p-4 space-y-2"
-                >
-                  <h3 className="font-semibold">
-                    Bron {sourceId}
-                  </h3>
-                  <ul className="list-disc list-inside space-y-1 text-sm">
-                    {vragen.map((v, idx) => (
-                      <li key={idx}>{v.vraag}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Invultabel – alleen structuur, zodat je ziet wat leerlingen doen */}
-          <section className="space-y-3">
-            <h2 className="text-xl font-semibold">Invultabel (structuur)</h2>
-
-            <p className="text-sm text-gray-700">
-              Leerlingen vullen deze tabel in tijdens de les. Hier zie je alleen
-              de structuur (kolommen en groepsindeling).
-            </p>
-
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm border border-gray-200 rounded-xl overflow-hidden">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="px-3 py-2 border-b text-left">Groep</th>
-                    <th className="px-3 py-2 border-b text-left">Uitleg</th>
-                    {step2Data.invultabel.kolommen.map((kol, idx) => (
-                      <th key={idx} className="px-3 py-2 border-b text-left">
-                        {kol}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {step2Data.invultabel.rijen.map((rij, idx) => (
-                    <tr key={idx} className="align-top">
-                      <td className="px-3 py-2 border-b font-medium">
-                        {rij.label}
-                      </td>
-                      <td className="px-3 py-2 border-b">{rij.uitleg}</td>
-                      {step2Data.invultabel.kolommen.map((_, colIdx) => (
-                        <td
-                          key={colIdx}
-                          className="px-3 py-2 border-b text-gray-400 italic"
-                        >
-                          (door leerlingen in te vullen)
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* Reflectievragen */}
-          <section className="space-y-3">
-            <h2 className="text-xl font-semibold">Reflectievragen</h2>
-
-            <ul className="space-y-3">
-              {step2Data.reflectie.vragen.map((rv, idx) => (
-                <li
-                  key={idx}
-                  className="border rounded-xl p-3 md:p-4 text-sm space-y-1"
-                >
-                  <p className="font-medium">{rv.vraag}</p>
-                  {rv.aandachtspuntVoorDocent && (
-                    <p className="text-xs text-gray-600">
-                      <span className="font-semibold">Tip voor docent: </span>
-                      {rv.aandachtspuntVoorDocent}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          {/* Navigatie onderaan */}
-          <footer className="flex justify-between items-center pt-4 border-t mt-4">
-            <button
-              type="button"
-              onClick={handleBackToStep1}
-              className="text-sm underline"
-            >
-              ← Terug naar stap 1
-            </button>
-            <button
-              type="button"
-              onClick={handleNextToStep3}
-              className="px-4 py-2 rounded-xl border text-sm font-medium"
-            >
-              Naar stap 3 (bronnenblad) →
-            </button>
-          </footer>
-        </main>
-      )}
+      <div style={{ marginTop: "1rem" }}>
+        <Step2View status={status} error={error} leerlingData={leerlingData} />
+      </div>
     </div>
   );
-};
-
-export default LessonStep2Page;
+}
 

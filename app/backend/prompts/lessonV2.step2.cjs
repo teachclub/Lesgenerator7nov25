@@ -18,22 +18,13 @@
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
 const { buildBaseStep2Prompt } = require("./lessonV2.base.cjs");
 
-/**
- * Bouwt de prompt voor STEP 2 door de centrale base-builder aan te sturen.
- *
- * @param {object} payload
- *   Verwacht o.a.:
- *   - concept: { hoofdvraag, deelvragen, ... }
- *   - sources: LIGHT sources (id, title, provider, type, snippet/tekst)
- *   - tvKa: { tv, tvLabel, ka, kaLabel }
- *
- * @returns {string} prompt-tekst voor Gemini
- */
 function buildStep2Prompt(payload = {}) {
   const safePayload = {
     ...payload,
     step: "step2",
-    masterSignature: MASTER_SIGNATURE,
+    masterSignature:
+      (typeof payload.masterSignature === "string" && payload.masterSignature.trim()) ||
+      MASTER_SIGNATURE,
   };
 
   return buildBaseStep2Prompt(safePayload);
