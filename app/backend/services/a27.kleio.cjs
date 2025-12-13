@@ -23,7 +23,7 @@ const fetchDetail = async (url) => {
   try {
     const { data } = await axios.get(url, {
       headers: { "User-Agent": "Mozilla/5.0" },
-      timeout: 12000,
+      timeout: 12000
     });
 
     const $ = cheerio.load(data);
@@ -43,9 +43,11 @@ const fetchDetail = async (url) => {
 
     if (!isValidImage(img)) img = null;
 
-    return { text: text.replace(/\s+/g, " ").substring(0, 600), image: img };
-  } catch (e) {
-    console.error("[Kleio] detail error:", e && (e.message || e));
+    return {
+      text: text.replace(/\s+/g, " ").substring(0, 600),
+      image: img
+    };
+  } catch {
     return { text: null, image: null };
   }
 };
@@ -61,7 +63,7 @@ const searchSingleTerm = async (term) => {
   try {
     const { data } = await axios.get(url, {
       headers: { "User-Agent": "Mozilla/5.0" },
-      timeout: 12000,
+      timeout: 12000
     });
 
     const $ = cheerio.load(data);
@@ -92,13 +94,12 @@ const searchSingleTerm = async (term) => {
 
     console.log(`[Kleio] TERM "${t}" hits=${items.length}`);
     return items;
-  } catch (e) {
-    console.error("[Kleio] search error:", e && (e.message || e));
+  } catch {
     return [];
   }
 };
 
-const searchKleio = async ({ query, filters = {} }) => {
+const searchKleio = async ({ query, filters }) => {
   if (filters.kleio === false) return [];
 
   let terms = [];
@@ -123,12 +124,11 @@ const searchKleio = async ({ query, filters = {} }) => {
   console.log(`[Kleio] Multiquery terms=${terms.length}`);
 
   const perTerm = await Promise.all(terms.map(searchSingleTerm));
-
   const merged = [];
   const seen = new Set();
 
   perTerm.flat().forEach((item) => {
-    if (item?.link && !seen.has(item.link)) {
+    if (!seen.has(item.link)) {
       seen.add(item.link);
       merged.push(item);
     }
@@ -147,12 +147,16 @@ const searchKleio = async ({ query, filters = {} }) => {
         fullText: d.text,
         url: item.link,
         imageUrl: d.image || (isValidImage(item.thumb) ? item.thumb : null),
-        type: d.image ? "IMAGE" : "TEXT",
+        type: d.image ? "IMAGE" : "TEXT"
       };
     })
   );
 
-  return enriched;
+  return enriched.filter((it) => {
+    if (filters.images === false && it.type === "IMAGE") return false;
+    if (filters.text === false && it.type === "TEXT") return false;
+    return true;
+  });
 };
 
 module.exports = { searchKleio };

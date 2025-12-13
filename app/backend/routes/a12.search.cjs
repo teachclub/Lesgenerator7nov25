@@ -9,7 +9,6 @@ try {
   console.log("[A12] cito loaded");
 } catch (e) {
   console.error("[A12] cito require failed:", e && (e.stack || e.message || e));
-  citoService = null;
 }
 
 try {
@@ -47,9 +46,10 @@ function normalizeRequestBody(body) {
   const cap = Math.max(1, Math.min(80, maxN));
 
   const providerRaw = (body.provider || "").toString().toLowerCase().trim();
+
   if (providerRaw === "cito") {
-    filters.kleio = false;
     filters.cito = true;
+    filters.kleio = false;
   } else if (providerRaw === "kleio") {
     filters.cito = false;
     filters.kleio = true;
