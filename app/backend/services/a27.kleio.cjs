@@ -1,23 +1,16 @@
 "use strict";
 
-/**
- * a27.kleio.cjs — v4.1
- * - PresetZoeker query[] blijft baas (KA_MAPPING alleen fallback)
- * - Fix: Elementor title selector (elementor-post__title)
- * - Fix: timeouts + logging (zodat Cloud Run issues zichtbaar worden)
- */
-
 const axios = require("axios");
 const cheerio = require("cheerio");
-const { KA_MAPPING } = require("./a22.ka-mapping.cjs");
 
-const AXIOS_HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.8",
-  Referer: "https://www.vgnkleio.nl/",
-};
+let KA_MAPPING = {};
+try {
+  const m = require("./a22.ka-mapping.cjs");
+  KA_MAPPING = m && m.KA_MAPPING ? m.KA_MAPPING : {};
+} catch (e) {
+  console.error("[Kleio] KA_MAPPING kon niet laden:", e && (e.stack || e.message || e));
+  KA_MAPPING = {};
+}
 
 const isValidImage = (src) => {
   if (!src) return false;
@@ -26,24 +19,11 @@ const isValidImage = (src) => {
   return true;
 };
 
-function logAxios(prefix, err) {
-  const status = err?.response?.status;
-  const url = err?.config?.url;
-  const msg = err?.message || "unknown";
-  const sample =
-    typeof err?.response?.data === "string"
-      ? err.response.data.replace(/\s+/g, " ").slice(0, 180)
-      : "";
-  console.error(`${prefix} status=${status || "-"} url=${url || "-"} msg=${msg} sample=${sample}`);
-}
-
 const fetchDetail = async (url) => {
   try {
     const { data } = await axios.get(url, {
-      headers: AXIOS_HEADERS,
+      headers: { "User-Agent": "Mozilla/5.0" },
       timeout: 12000,
-      maxRedirects: 5,
-      validateStatus: (s) => s >= 200 && s < 400,
     });
 
     const $ = cheerio.load(data);
@@ -68,7 +48,7 @@ const fetchDetail = async (url) => {
       image: img,
     };
   } catch (e) {
-    logAxios("[Kleio] detail", e);
+    console.error("[Kleio] detail error:", e && (e.message || e));
     return { text: null, image: null };
   }
 };
@@ -83,10 +63,8 @@ const searchSingleTerm = async (term) => {
 
   try {
     const { data } = await axios.get(url, {
-      headers: AXIOS_HEADERS,
+      headers: { "User-Agent": "Mozilla/5.0" },
       timeout: 12000,
-      maxRedirects: 5,
-      validateStatus: (s) => s >= 200 && s < 400,
     });
 
     const $ = cheerio.load(data);
@@ -110,8 +88,7 @@ const searchSingleTerm = async (term) => {
         $el.find(".entry-title a").first().attr("href") ||
         $el.find("a").first().attr("href");
 
-      const thumb =
-        $el.find("img").first().attr("src") || null;
+      const thumb = $el.find("img").first().attr("src");
 
       if (title && link) items.push({ title, link, thumb });
     });
@@ -119,7 +96,7 @@ const searchSingleTerm = async (term) => {
     console.log(`[Kleio] TERM "${t}" hits=${items.length}`);
     return items;
   } catch (e) {
-    logAxios("[Kleio] search", e);
+    console.error("[Kleio] search error:", e && (e.message || e));
     return [];
   }
 };
