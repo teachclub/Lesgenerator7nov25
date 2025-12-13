@@ -73,7 +73,9 @@ export default function LessonStep2Page() {
     state.step2 ? "done" : "idle"
   );
   const [error, setError] = useState<string | null>(null);
-  const [step2, setStep2] = useState<Step2ApiResponse | null>(state.step2 || null);
+  const [step2, setStep2] = useState<Step2ApiResponse | null>(
+    state.step2 || null
+  );
 
   const leerlingData = step2?.data?.leerling || null;
 
@@ -82,7 +84,11 @@ export default function LessonStep2Page() {
     return Array.isArray(dv) ? dv : [];
   }, [step1]);
 
-  const canRun = !!concept?.hoofdvraag && sources.length > 0 && deelvragen.length === 4;
+  const canRun =
+    !!concept?.hoofdvraag &&
+    sources.length > 0 &&
+    Array.isArray(deelvragen) &&
+    deelvragen.length === 4;
 
   const runStep2 = async () => {
     if (!canRun) return;
@@ -98,6 +104,7 @@ export default function LessonStep2Page() {
           tvKa,
           concept,
           sources,
+          deelvragen, // <-- FIX: backend verwacht dit top-level
           step1,
         }),
       });
@@ -187,7 +194,8 @@ export default function LessonStep2Page() {
 
       {!canRun && (
         <div style={{ marginTop: "0.75rem", color: "#555" }}>
-          Step 2 kan nog niet draaien: ga eerst naar Step 1 en genereer Step 1.
+          Step 2 kan nog niet draaien: genereer eerst Step 1 zodat de 4 deelvragen
+          beschikbaar zijn.
         </div>
       )}
 
