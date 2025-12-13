@@ -1,23 +1,24 @@
 "use strict";
 
 /**
- * a27.kleio.cjs — v4 (8 dec 2025)
- *
- * Belangrijkste wijziging:
- *  - Als search() een query[] meegeeft (PresetZoeker), dan:
- *      → exact die termen gebruiken
- *      → KA_MAPPING NIET toepassen
- *  - Alleen als query[] leeg is EN filters.ka aanwezig is:
- *      → KA_MAPPING gebruiken als fallback
- *
- *  Dus: PresetZoeker is de baas.
+ * a27.kleio.cjs — v4.1
+ * - PresetZoeker query[] blijft baas (KA_MAPPING alleen fallback)
+ * - Fix: Elementor title selector (elementor-post__title)
+ * - Fix: timeouts + logging (zodat Cloud Run issues zichtbaar worden)
  */
 
 const axios = require("axios");
 const cheerio = require("cheerio");
 const { KA_MAPPING } = require("./a22.ka-mapping.cjs");
 
-// Klein filter voor geldige afbeeldingen
+const AXIOS_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.8",
+  Referer: "https://www.vgnkleio.nl/",
+};
+
 const isValidImage = (src) => {
   if (!src) return false;
   const s = src.toLowerCase();
@@ -25,12 +26,24 @@ const isValidImage = (src) => {
   return true;
 };
 
-// Detail scrape
+function logAxios(prefix, err) {
+  const status = err?.response?.status;
+  const url = err?.config?.url;
+  const msg = err?.message || "unknown";
+  const sample =
+    typeof err?.response?.data === "string"
+      ? err.response.data.replace(/\s+/g, " ").slice(0, 180)
+      : "";
+  console.error(`${prefix} status=${status || "-"} url=${url || "-"} msg=${msg} sample=${sample}`);
+}
+
 const fetchDetail = async (url) => {
   try {
     const { data } = await axios.get(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      timeout: 4000
+      headers: AXIOS_HEADERS,
+      timeout: 12000,
+      maxRedirects: 5,
+      validateStatus: (s) => s >= 200 && s < 400,
     });
 
     const $ = cheerio.load(data);
@@ -52,59 +65,74 @@ const fetchDetail = async (url) => {
 
     return {
       text: text.replace(/\s+/g, " ").substring(0, 600),
-      image: img
+      image: img,
     };
-  } catch {
+  } catch (e) {
+    logAxios("[Kleio] detail", e);
     return { text: null, image: null };
   }
 };
 
-// Zoek één term
 const searchSingleTerm = async (term) => {
   if (!term || !String(term).trim()) return [];
   const t = String(term).trim();
 
-  console.log(`[Kleio] 🔍 TERM: "${t}"`);
+  console.log(`[Kleio] TERM "${t}"`);
 
   const url = `https://www.vgnkleio.nl/?s=${encodeURIComponent(t)}`;
 
   try {
     const { data } = await axios.get(url, {
-      headers: { "User-Agent": "Mozilla/5.0" }
+      headers: AXIOS_HEADERS,
+      timeout: 12000,
+      maxRedirects: 5,
+      validateStatus: (s) => s >= 200 && s < 400,
     });
+
     const $ = cheerio.load(data);
     const items = [];
 
     $("article").each((i, el) => {
-      if (items.length >= 5) return;
+      if (items.length >= 8) return;
+
+      const $el = $(el);
 
       const title =
-        $(el).find("h2 a").text().trim() ||
-        $(el).find(".entry-title a").text().trim();
-      const link = $(el).find("a").attr("href");
-      const thumb = $(el).find("img").attr("src");
+        $el.find(".elementor-post__title a").first().text().trim() ||
+        $el.find("h3 a").first().text().trim() ||
+        $el.find("h2 a").first().text().trim() ||
+        $el.find(".entry-title a").first().text().trim();
+
+      const link =
+        $el.find(".elementor-post__title a").first().attr("href") ||
+        $el.find("h3 a").first().attr("href") ||
+        $el.find("h2 a").first().attr("href") ||
+        $el.find(".entry-title a").first().attr("href") ||
+        $el.find("a").first().attr("href");
+
+      const thumb =
+        $el.find("img").first().attr("src") || null;
 
       if (title && link) items.push({ title, link, thumb });
     });
 
+    console.log(`[Kleio] TERM "${t}" hits=${items.length}`);
     return items;
-  } catch {
+  } catch (e) {
+    logAxios("[Kleio] search", e);
     return [];
   }
 };
 
-// Hoofdzoekfunctie
-const searchKleio = async ({ query, filters }) => {
+const searchKleio = async ({ query, filters = {} }) => {
   if (filters.kleio === false) return [];
 
   let terms = [];
 
-  // 1. Als front-end een array geeft → direct gebruiken
   if (Array.isArray(query) && query.length > 0) {
     terms = query.map((x) => String(x).trim()).filter(Boolean);
   }
 
-  // 2. Als er geen terms zijn maar KA is wel gegeven → KA_MAPPING fallback
   if (terms.length === 0 && filters.ka) {
     const key = String(filters.ka).toLowerCase().startsWith("ka")
       ? String(filters.ka).toLowerCase()
@@ -112,32 +140,28 @@ const searchKleio = async ({ query, filters }) => {
 
     if (KA_MAPPING[key]) {
       terms = [...KA_MAPPING[key]];
-      console.log(`[Kleio] 🎯 Gebruik KA_MAPPING fallback voor ${key}`);
+      console.log(`[Kleio] Gebruik KA_MAPPING fallback voor ${key}`);
     }
   }
 
-  // 3. Als nog steeds leeg → geen Kleio-zoekopdracht
-  if (terms.length === 0) {
-    return [];
-  }
+  if (terms.length === 0) return [];
 
-  console.log(`[Kleio] 🚀 Multiquery met ${terms.length} termen…`);
+  console.log(`[Kleio] Multiquery terms=${terms.length}`);
 
-  // Parallel
   const perTerm = await Promise.all(terms.map(searchSingleTerm));
+
   const merged = [];
   const seen = new Set();
 
   perTerm.flat().forEach((item) => {
-    if (!seen.has(item.link)) {
+    if (item?.link && !seen.has(item.link)) {
       seen.add(item.link);
       merged.push(item);
     }
   });
 
-  console.log(`[Kleio] 🎯 ${merged.length} unieke hits. Verrijken…`);
+  console.log(`[Kleio] unieke hits=${merged.length} verrijken…`);
 
-  // Verrijken
   const enriched = await Promise.all(
     merged.map(async (item, i) => {
       const d = await fetchDetail(item.link);
@@ -149,12 +173,11 @@ const searchKleio = async ({ query, filters }) => {
         fullText: d.text,
         url: item.link,
         imageUrl: d.image || (isValidImage(item.thumb) ? item.thumb : null),
-        type: d.image ? "IMAGE" : "TEXT"
+        type: d.image ? "IMAGE" : "TEXT",
       };
     })
   );
 
-  // Filter op type
   return enriched.filter((it) => {
     if (filters.images === false && it.type === "IMAGE") return false;
     if (filters.text === false && it.type === "TEXT") return false;
