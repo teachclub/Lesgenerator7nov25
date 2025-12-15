@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "prompt-to-lesson-ck1"
-  }
+    "default": "prompt-to-lesson-ck1",
+    "test": "kleio9nov-578e4"
+  },
+  "targets": {},
+  "etags": {}
 }

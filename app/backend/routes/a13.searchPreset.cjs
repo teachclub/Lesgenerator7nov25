@@ -11,9 +11,7 @@ try {
   kaTrefwoorden = {};
 }
 
-const DEFAULT_PRESETS = [
-  { id: "all", label: "Vrij zoeken (geen KA-filter)", terms: [] },
-];
+const DEFAULT_PRESETS = [{ id: "all", label: "Vrij zoeken (geen KA-filter)", terms: [] }];
 
 function shuffle(arr) {
   const a = Array.isArray(arr) ? [...arr] : [];
@@ -30,8 +28,9 @@ function pickUnique(arr, count) {
   for (const v of arr) {
     const s = typeof v === "string" ? v.trim() : "";
     if (!s) continue;
-    if (seen.has(s.toLowerCase())) continue;
-    seen.add(s.toLowerCase());
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
     out.push(s);
     if (out.length >= count) break;
   }
@@ -46,7 +45,9 @@ function looksLikeName(term) {
 }
 
 function smartRandomTerms(allTerms, count = 6) {
-  const list = Array.isArray(allTerms) ? allTerms.map((t) => String(t).trim()).filter(Boolean) : [];
+  const list = Array.isArray(allTerms)
+    ? allTerms.map((t) => String(t).trim()).filter(Boolean)
+    : [];
   if (!list.length) return [];
 
   const names = [];
@@ -63,10 +64,7 @@ function smartRandomTerms(allTerms, count = 6) {
   const wantName = nmShuf.length ? 1 : 0;
   const wantKw = Math.max(0, count - wantName);
 
-  let picked = [
-    ...pickUnique(kwShuf, wantKw),
-    ...pickUnique(nmShuf, wantName),
-  ];
+  let picked = [...pickUnique(kwShuf, wantKw), ...pickUnique(nmShuf, wantName)];
 
   if (picked.length < count) {
     const rest = shuffle(list.filter((t) => !picked.some((p) => p.toLowerCase() === t.toLowerCase())));
@@ -76,27 +74,40 @@ function smartRandomTerms(allTerms, count = 6) {
   return picked.slice(0, count);
 }
 
+function normalizeKaToken(x) {
+  const s = x == null ? "" : String(x).trim();
+  if (!s) return null;
+
+  const m = s.match(/^(?:KA\s*)?(\d{1,2})$/i);
+  if (m) return m[1];
+
+  const m2 = s.match(/KA\s*(\d{1,2})/i);
+  if (m2) return m2[1];
+
+  return null;
+}
+
 function parseKaFromBody(body) {
-  const kaRaw = body?.ka ?? null;
-  if (kaRaw != null && String(kaRaw).trim()) return String(kaRaw).trim();
+  const fromKa = normalizeKaToken(body?.ka);
+  if (fromKa) return fromKa;
 
   const q = body?.query;
   if (typeof q === "string") {
-    const m = q.match(/KA\s?(\d+)/i);
-    if (m) return String(m[1]).trim();
+    const fromQ = normalizeKaToken(q);
+    if (fromQ) return fromQ;
   }
   return null;
 }
 
-function buildKaPreset(kaStr) {
-  const key = `KA${String(kaStr).trim()}`;
+function buildKaPreset(kaDigits) {
+  const key = `KA${String(kaDigits).trim()}`;
   const all = kaTrefwoorden[key];
   if (!Array.isArray(all) || all.length === 0) return null;
 
   const terms = smartRandomTerms(all, 6);
 
   return {
-    id: `ka${String(kaStr).trim()}`,
+    id: `ka${String(kaDigits).trim()}`,
     label: key,
     terms,
   };
@@ -106,9 +117,9 @@ router.post("/search-preset", (req, res) => {
   try {
     console.log("[a13.searchPreset] HIT", req.body);
 
-    const kaStr = parseKaFromBody(req.body || {});
-    if (kaStr) {
-      const preset = buildKaPreset(kaStr);
+    const kaDigits = parseKaFromBody(req.body || {});
+    if (kaDigits) {
+      const preset = buildKaPreset(kaDigits);
       if (!preset) return res.json({ ok: true, presets: [] });
       return res.json({ ok: true, presets: [preset] });
     }
@@ -116,10 +127,7 @@ router.post("/search-preset", (req, res) => {
     return res.json({ ok: true, presets: DEFAULT_PRESETS });
   } catch (err) {
     console.error("[a13.searchPreset] ERROR", err);
-    return res.status(500).json({
-      ok: false,
-      error: "Interne fout in search-preset",
-    });
+    return res.status(500).json({ ok: false, error: "Interne fout in search-preset" });
   }
 });
 

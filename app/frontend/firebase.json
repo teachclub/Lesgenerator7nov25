@@ -1,10 +1,14 @@
 {
   "hosting": {
-    "public": ".",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
+    "public": "dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "run": { "serviceId": "lessie2000-backend", "region": "europe-west4" }
+      },
+      { "source": "**", "destination": "/index.html" }
     ]
   }
 }
+

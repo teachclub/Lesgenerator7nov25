@@ -5,11 +5,11 @@
   "targets": {
     "kleio9nov-578e4": {
       "hosting": {
-        "prod": [
-          "kleio9nov-578e4"
-        ],
         "test": [
           "kleio9nov-578e4-test"
+        ],
+        "live": [
+          "kleio9nov-578e4"
         ]
       }
     }

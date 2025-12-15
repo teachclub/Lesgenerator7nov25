@@ -64,6 +64,7 @@ const PresetZoekerPage: FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedDetailSource, setSelectedDetailSource] = useState<Source | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const [filters, setFilters] = useState<SearchFilters>({
     images: true,
@@ -92,8 +93,11 @@ const PresetZoekerPage: FC = () => {
   };
 
   const handleTvKaSelect = (selection: { tv?: string; ka?: string; kaTitel?: string }) => {
-    setFilters((prev) => ({ ...prev, tv: selection.tv, ka: selection.ka }));
-    if (selection.ka) setSearchQuery(`KA${selection.ka}`);
+    const kaRaw = selection.ka ? String(selection.ka).trim() : "";
+    const kaCanon = kaRaw ? `KA${kaRaw.replace(/^KA/i, "")}` : undefined;
+
+    setFilters((prev) => ({ ...prev, tv: selection.tv, ka: kaCanon }));
+    if (kaCanon) setSearchQuery(kaCanon);
   };
 
   const insertOperator = (op: string) => {
@@ -153,7 +157,7 @@ const PresetZoekerPage: FC = () => {
 
       if (terms.length === 0) {
         if (hasUserQuery) terms = [searchQuery!.trim()];
-        else if (filters.ka) terms = [`KA${filters.ka}`];
+        else if (filters.ka) terms = [filters.ka];
       }
 
       if (terms.length === 0) {
@@ -193,11 +197,41 @@ const PresetZoekerPage: FC = () => {
 
     if (url.includes("profile/picture")) return undefined;
 
-    const isCito = source.provider === "Cito" || (typeof source.id === "string" && source.id.startsWith("cito"));
+    const isCito =
+      source.provider === "Cito" || (typeof source.id === "string" && source.id.startsWith("cito"));
     const isKleio = source.provider === "Kleio" || url.includes("kleio") || url.includes("vgn");
 
     if (isCito || isKleio) return `${API_BASE}/image-proxy?url=${encodeURIComponent(url)}`;
     return url;
+  };
+
+  const handleSelectSource = async (s: Source) => {
+    setSelectedDetailSource(s);
+
+    const provider = String((s as any).provider || "");
+    const url = (s as any).url ? String((s as any).url) : "";
+    if (provider !== "Kleio" || !url.includes("vgnkleio.nl/bronnen/")) return;
+
+    setDetailLoading(true);
+    try {
+      const resp = await fetch(`${API_BASE}/source-detail`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const j = await resp.json().catch(() => ({} as any));
+
+      if (resp.ok && j && j.ok && typeof j.fullText === "string" && j.fullText.trim().length > 0) {
+        setSelectedDetailSource((prev) => {
+          if (!prev || (prev as any).id !== (s as any).id) return prev;
+          return { ...(prev as any), fullText: j.fullText, title: j.title || (prev as any).title } as any;
+        });
+      }
+    } catch (e) {
+      console.warn("[PresetZoeker] source-detail faalde", e);
+    } finally {
+      setDetailLoading(false);
+    }
   };
 
   const handleGoToProposals = () => {
@@ -241,12 +275,8 @@ const PresetZoekerPage: FC = () => {
               <div className="prose prose-sm max-w-none text-gray-800">
                 <ReactMarkdown
                   components={{
-                    h2: (props) => (
-                      <h2 className="text-base font-bold mt-5 mb-2 leading-snug" {...props} />
-                    ),
-                    h3: (props) => (
-                      <h3 className="text-sm font-bold mt-4 mb-2 leading-snug" {...props} />
-                    ),
+                    h2: (props) => <h2 className="text-base font-bold mt-5 mb-2 leading-snug" {...props} />,
+                    h3: (props) => <h3 className="text-sm font-bold mt-4 mb-2 leading-snug" {...props} />,
                     strong: (props) => <strong className="font-bold" {...props} />,
                     ol: (props) => <ol className="list-decimal list-outside pl-5 space-y-2" {...props} />,
                     ul: (props) => <ul className="list-disc list-outside pl-5 space-y-2" {...props} />,
@@ -271,9 +301,7 @@ const PresetZoekerPage: FC = () => {
 
             <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
               <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Zoekopdracht</label>
-              <div className="text-xs text-gray-600 mb-2">
-                Optioneel: verfijn met woorden of operators (AND/OR/NOT).
-              </div>
+              <div className="text-xs text-gray-600 mb-2">Optioneel: verfijn met woorden of operators (AND/OR/NOT).</div>
 
               <input
                 ref={searchInputRef}
@@ -340,8 +368,7 @@ const PresetZoekerPage: FC = () => {
                 <span className="font-semibold">KA:</span> {filters.ka ?? <span className="text-gray-400">–</span>}
               </div>
               <div>
-                <span className="font-semibold">Query:</span>{" "}
-                {searchQuery ? searchQuery : <span className="text-gray-400">–</span>}
+                <span className="font-semibold">Query:</span> {searchQuery ? searchQuery : <span className="text-gray-400">–</span>}
               </div>
               <div className="mt-1">
                 <span className="font-semibold">Terms → /api/search:</span>
@@ -416,7 +443,7 @@ const PresetZoekerPage: FC = () => {
                 <p>Zoeken in Kleio &amp; Cito...</p>
               </div>
             ) : (
-              <SelectionPanel onSelectSource={(s: any) => setSelectedDetailSource(s)} selectedId={selectedDetailSource?.id} />
+              <SelectionPanel onSelectSource={(s: any) => handleSelectSource(s)} selectedId={selectedDetailSource?.id} />
             )}
           </div>
 
@@ -426,6 +453,7 @@ const PresetZoekerPage: FC = () => {
                 <div className="mb-6 border-b pb-4">
                   <span className="text-xs font-bold text-indigo-600 uppercase tracking-wide mb-1 block">
                     {selectedDetailSource.type} • {selectedDetailSource.provider}
+                    {detailLoading ? " • laden…" : ""}
                   </span>
                   <h1 className="text-2xl font-bold text-gray-900 leading-tight">{selectedDetailSource.title}</h1>
                 </div>

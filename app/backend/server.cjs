@@ -57,10 +57,6 @@ function healthPayload() {
   };
 }
 
-/**
- * Extra health endpoints (Cloud Run/monitoring-friendly)
- * Laat bestaande GET / (a01.health) intact.
- */
 app.get("/health", (req, res) => res.json(healthPayload()));
 app.get("/api/health", (req, res) => res.json(healthPayload()));
 
@@ -73,6 +69,7 @@ app.use("/api", require("./routes/a13.searchPreset.cjs"));
 app.use("/api", require("./routes/a22.thesaurus.cjs"));
 app.use("/api", require("./routes/a35.proposals-v2.cjs"));
 app.use("/api", require("./routes/lessonV2.refineConcept.cjs"));
+app.use("/api", require("./routes/a14.sourceDetail.cjs"));
 
 app.use("/api", require("./routes/a15.imageProxy.cjs")());
 
