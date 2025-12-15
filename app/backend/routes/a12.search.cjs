@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
 
+const { filterSources } = require("../services/sourceFilter.cjs");
+
 let citoService = null;
 let kleioService = null;
 
@@ -103,14 +105,31 @@ router.post("/search", async (req, res) => {
     const hasAnyQuery = queryString.length > 0;
     const hasKa = Array.isArray(filters.ka) ? filters.ka.length > 0 : !!filters.ka;
     if (!hasAnyQuery && !hasKa) {
-      return res.json({ sources: [], meta: { count: 0 } });
+      return res.json({ sources: [], meta: { count: 0, droppedKleioEmpty: 0, droppedKleioNoise: 0 } });
     }
+
+    const filtered = filterSources(allResults, { minTextLen: 80 });
+    console.log(
+      "[A12] droppedKleioEmpty:",
+      filtered.droppedKleioEmpty,
+      "droppedKleioNoise:",
+      filtered.droppedKleioNoise
+    );
+
+    allResults = filtered.sources;
 
     if (allResults.length > cap) {
       allResults = shuffleArray(allResults).slice(0, cap);
     }
 
-    res.json({ sources: allResults, meta: { count: allResults.length } });
+    res.json({
+      sources: allResults,
+      meta: {
+        count: allResults.length,
+        droppedKleioEmpty: filtered.droppedKleioEmpty,
+        droppedKleioNoise: filtered.droppedKleioNoise,
+      },
+    });
   } catch (error) {
     console.error("[A12] Fout:", error && (error.stack || error.message || error));
     res.status(500).json({ error: "Error" });

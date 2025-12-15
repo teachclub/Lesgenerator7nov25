@@ -3,51 +3,65 @@
 const express = require("express");
 
 module.exports = function healthRouterFactory() {
-const r = express.Router();
+  const r = express.Router();
 
-const serviceName = process.env.SERVICE_NAME || "Lessie2000-backend";
+  function healthPayload() {
+    const kService = process.env.K_SERVICE || null;
+    const kRevision = process.env.K_REVISION || null;
+    const kConfig = process.env.K_CONFIGURATION || null;
 
-const routes = [
-"GET /",
-"GET /health",
-"GET /api/health",
-"GET /api/chips/ping",
-"POST /api/chips",
-"POST /api/search",
-"POST /api/search-preset",
-"POST /api/proposals-v2",
-"POST /api/refine-concept",
-"GET /api/image-proxy?url=...",
-"POST /api/step1",
-"POST /api/step2",
-"POST /api/step3",
-"POST /api/step4"
-];
+    const gcpProject =
+      process.env.GOOGLE_CLOUD_PROJECT ||
+      process.env.GCLOUD_PROJECT ||
+      process.env.GCP_PROJECT ||
+      null;
 
-r.get("/", (req, res) => {
-res.json({
-ok: true,
-service: serviceName,
-timestamp: new Date().toISOString(),
-routes
-});
-});
+    const serviceName =
+      process.env.SERVICE_NAME ||
+      (kService ? String(kService) : "") ||
+      "Lessie2000-backend";
 
-r.get("/health", (req, res) => {
-res.json({
-ok: true,
-service: serviceName,
-timestamp: new Date().toISOString()
-});
-});
+    return {
+      ok: true,
+      service: serviceName,
+      timestamp: new Date().toISOString(),
+      nodeEnv: process.env.NODE_ENV || null,
+      kService,
+      kRevision,
+      kConfiguration: kConfig,
+      gcpProject,
+    };
+  }
 
-r.get("/api/health", (req, res) => {
-res.json({
-ok: true,
-service: serviceName,
-timestamp: new Date().toISOString()
-});
-});
+  const routes = [
+    "GET /",
+    "GET /health",
+    "GET /api/health",
+    "GET /api/chips/ping",
+    "POST /api/chips",
+    "POST /api/search",
+    "POST /api/search-preset",
+    "POST /api/proposals-v2",
+    "POST /api/refine-concept",
+    "GET /api/image-proxy?url=...",
+    "POST /api/generate-lesson-v2/step1",
+    "POST /api/generate-lesson-v2/step2",
+    "POST /api/generate-lesson-v2/step3",
+    "POST /api/generate-lesson-v2/step4",
+  ];
 
-return r;
+  r.get("/", (req, res) => {
+    res.json({ ...healthPayload(), routes });
+  });
+
+  r.get("/health", (req, res) => {
+    res.json(healthPayload());
+  });
+
+  r.get("/api/health", (req, res) => {
+    res.json(healthPayload());
+  });
+
+  return r;
 };
+

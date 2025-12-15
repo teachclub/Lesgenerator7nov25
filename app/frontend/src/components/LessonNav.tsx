@@ -1,18 +1,20 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-type StepKey = "step1" | "step2" | "step3" | "step4";
+type StepKey = "step1" | "step2" | "step3" | "step4" | "step5";
 
 export default function LessonNav({
   current,
   canGoStep2,
   canGoStep3,
   canGoStep4,
+  canGoStep5,
 }: {
   current: StepKey;
   canGoStep2?: boolean;
   canGoStep3?: boolean;
   canGoStep4?: boolean;
+  canGoStep5?: boolean;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -25,6 +27,7 @@ export default function LessonNav({
   const step2Ok = !!canGoStep2 || hasStep2;
   const step3Ok = !!canGoStep3 || hasStep2;
   const step4Ok = !!canGoStep4 || hasStep2;
+  const step5Ok = !!canGoStep5 || hasStep2;
 
   const go = (path: string, enabled: boolean) => {
     if (!enabled) return;
@@ -90,6 +93,15 @@ export default function LessonNav({
         title={!step4Ok ? "Step 4 kan pas na Step 2 (Step 4 = Step 2 + antwoorden)." : ""}
       >
         Step 4
+      </button>
+
+      <button
+        type="button"
+        onClick={() => go("/lesson/step5", step5Ok)}
+        style={btnStyle(current === "step5", step5Ok)}
+        title={!step5Ok ? "Step 5 kan pas na Step 2 (printset werkt dan goed)." : ""}
+      >
+        Step 5 (Print)
       </button>
     </div>
   );

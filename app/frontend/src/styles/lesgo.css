@@ -4,8 +4,7 @@
   min-height: 100vh;
   background: #f3f4f6;
   color: #111827;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .lesgo-generator-layout {
@@ -108,8 +107,7 @@
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, box-shadow 0.15s ease,
-    transform 0.05s ease;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
 }
 
 .lesgo-button.primary {
@@ -167,7 +165,6 @@
 /* === LesGO-output: algemene tekst === */
 
 #lesgo-output {
-  /* dit id is de hook voor html2pdf */
 }
 
 .lesgo-output {
@@ -274,7 +271,7 @@
   font-style: italic;
 }
 
-/* === Docent- en leerlingblokken (optioneel als je ze later in Markdown gaat labelen) === */
+/* === Docent- en leerlingblokken (optioneel) === */
 
 .lesgo-output .docent-blok {
   background: #fef9c3;
@@ -294,7 +291,18 @@
 
 /* === Print/PDF tweaks === */
 
+/* Default: A4 landscape, zodat tabellen niet net buiten A4 vallen */
+@page {
+  size: A4 landscape;
+  margin: 10mm;
+}
+
 @media print {
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
   .lesgo-generator-page {
     background: #ffffff;
   }
@@ -307,21 +315,81 @@
   }
 
   .lesgo-main {
-    max-height: none;
-    box-shadow: none;
-    padding: 0;
+    max-height: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
   }
 
   .lesgo-output-wrapper {
-    border: none;
-    padding: 0;
-    box-shadow: none;
+    border: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
   }
 
   .lesgo-output {
-    box-shadow: none;
-    border-radius: 0;
-    padding: 0;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  /* tabellen altijd binnen pagina */
+  table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+  }
+
+  th,
+  td {
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+  }
+
+  /* kleinere typografie in print (net wat lucht / minder overloop) */
+  .lesgo-output {
+    font-size: 0.9rem !important;
+    line-height: 1.45 !important;
+  }
+
+  .lesgo-output h1 {
+    font-size: 1.5rem !important;
+  }
+
+  .lesgo-output h2 {
+    font-size: 1.2rem !important;
+  }
+
+  .lesgo-output h3 {
+    font-size: 1.05rem !important;
+  }
+
+  /* bronblokken zo min mogelijk splitsen over pagina’s */
+  .lesgo-output-wrapper,
+  .lesgo-output,
+  .lesgo-output p,
+  .lesgo-output ul,
+  .lesgo-output ol,
+  .lesgo-output table {
+    break-inside: auto;
+  }
+
+  /* generieke "card" bescherming (voor Step3/Step5 bronkaarten) */
+  .lesson-card,
+  .lesson-section,
+  .lesson-box,
+  .source-card,
+  .bron-card {
+    break-inside: avoid-page !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* afbeeldingen niet idioot groot in print */
+  img {
+    max-height: 140mm !important;
+    object-fit: contain !important;
   }
 }
 

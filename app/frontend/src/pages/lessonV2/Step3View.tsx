@@ -105,7 +105,11 @@ export default function Step3View({ status, error, step3 }: Props) {
               url.toLowerCase().includes("kleio");
 
             return (
-              <div key={`${nummer}-${String(b?.id ?? idx)}`} style={{ border: "1px solid #e5e7eb", borderRadius: "0.75rem", padding: "0.8rem" }}>
+              <div
+                key={`${nummer}-${String(b?.id ?? idx)}`}
+                className="print-source"
+                style={{ border: "1px solid #e5e7eb", borderRadius: "0.75rem", padding: "0.8rem" }}
+              >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
                   <div style={{ fontWeight: 800 }}>
                     Bron {nummer}
@@ -129,9 +133,15 @@ export default function Step3View({ status, error, step3 }: Props) {
                 {imageUrl ? (
                   <div style={{ marginTop: "0.6rem" }}>
                     <img
+                      className="print-source-img"
                       src={proxiedImageSrc(imageUrl)}
                       alt={titel ? titel : `Bron ${nummer}`}
-                      style={{ maxWidth: "100%", borderRadius: "0.6rem", border: "1px solid #eee" }}
+                      style={{
+                        maxWidth: "100%",
+                        borderRadius: "0.6rem",
+                        border: "1px solid #eee",
+                        display: "block",
+                      }}
                       onError={(e) => {
                         const el = e.currentTarget as HTMLImageElement;
                         el.style.display = "none";

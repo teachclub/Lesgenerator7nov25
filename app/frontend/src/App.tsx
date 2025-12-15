@@ -7,6 +7,7 @@ import LessonStep1Page from "./pages/LessonStep1Page";
 import LessonStep2Page from "./pages/LessonStep2Page";
 import LessonStep3Page from "./pages/LessonStep3Page";
 import LessonStep4Page from "./pages/LessonStep4Page";
+import LessonStep5Page from "./pages/LessonStep5Page";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/lesson/step2" element={<LessonStep2Page />} />
         <Route path="/lesson/step3" element={<LessonStep3Page />} />
         <Route path="/lesson/step4" element={<LessonStep4Page />} />
+        <Route path="/lesson/step5" element={<LessonStep5Page />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

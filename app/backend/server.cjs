@@ -29,10 +29,31 @@ app.use((req, res, next) => {
 });
 
 function healthPayload() {
+  const kService = process.env.K_SERVICE || null;
+  const kRevision = process.env.K_REVISION || null;
+  const kConfig = process.env.K_CONFIGURATION || null;
+
+  const gcpProject =
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GCLOUD_PROJECT ||
+    process.env.GCP_PROJECT ||
+    null;
+
+  const serviceName =
+    process.env.SERVICE_NAME ||
+    (kService ? String(kService) : "") ||
+    "Lessie2000-backend";
+
   return {
     ok: true,
-    service: "Lessie2000-backend",
+    service: serviceName,
     timestamp: new Date().toISOString(),
+    nodeEnv: process.env.NODE_ENV || null,
+    port: Number(PORT) || PORT,
+    kService,
+    kRevision,
+    kConfiguration: kConfig,
+    gcpProject,
   };
 }
 

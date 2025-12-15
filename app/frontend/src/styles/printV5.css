@@ -1,0 +1,306 @@
+.p-wrap {
+  color: #111827;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.p-toolbar {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-end;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.p-toolbar-title {
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.p-toolbar-sub {
+  margin-top: 2px;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.p-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.p-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: #111827;
+  user-select: none;
+}
+
+.p-btn {
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #111827;
+  background: #111827;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.p-doc {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+  padding: 14px;
+}
+
+.p-page {
+  padding: 2px 2px 14px;
+}
+
+.p-pagebreak {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 2px dashed #e5e7eb;
+}
+
+.p-h1 {
+  margin: 0 0 10px 0;
+  font-size: 1.45rem;
+  font-weight: 900;
+  border-bottom: 3px solid #111827;
+  padding-bottom: 6px;
+}
+
+.p-h2 {
+  margin: 14px 0 6px 0;
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.p-meta {
+  margin: 0 0 10px 0;
+}
+
+.p-bold {
+  font-weight: 800;
+}
+
+.p-muted {
+  color: #555;
+  font-size: 0.92rem;
+}
+
+.p-prelike {
+  white-space: pre-wrap;
+  line-height: 1.35;
+  font-size: 0.97rem;
+}
+
+.p-pre {
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+}
+
+.p-box {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.p-box.p-small {
+  padding: 8px 10px;
+}
+
+.p-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.p-ol {
+  margin: 0;
+  padding-left: 1.4rem;
+}
+
+.p-ul {
+  margin: 6px 0 0 0;
+  padding-left: 1.15rem;
+}
+
+.p-q {
+  list-style: none;
+  padding-left: 0;
+  margin: 8px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.p-qitem {
+  padding-bottom: 6px;
+}
+
+.p-qtext {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  white-space: pre-wrap;
+}
+
+.p-qnum {
+  font-weight: 900;
+  min-width: 2.2rem;
+}
+
+.p-write {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.p-line {
+  border-bottom: 1px solid #111827;
+  height: 18px;
+}
+
+.p-tablewrap {
+  overflow: hidden;
+}
+
+.p-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.p-table th,
+.p-table td {
+  border: 1px solid #d1d5db;
+  padding: 8px 8px;
+  vertical-align: top;
+}
+
+.p-table th {
+  background: #f3f4f6;
+  font-weight: 900;
+}
+
+.p-cell-label {
+  font-weight: 900;
+  white-space: pre-wrap;
+  min-width: 120px;
+}
+
+.p-cell {
+  white-space: pre-wrap;
+}
+
+.p-table-big td {
+  min-height: 22mm;
+  height: 22mm;
+}
+
+.p-cell-write {
+  min-height: 22mm;
+  height: 22mm;
+}
+
+.p-choices {
+  margin-top: 12px;
+}
+
+.p-choices-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  margin-top: 8px;
+}
+
+.p-choices-block {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.p-source {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.p-source-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.p-link {
+  font-size: 0.86rem;
+  color: #374151;
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+
+.p-imgwrap {
+  margin: 8px 0 8px 0;
+}
+
+.p-img {
+  max-width: 100%;
+  max-height: 135mm;
+  object-fit: contain;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  display: block;
+}
+
+.p-avoid-split {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .p-doc {
+    border: none;
+    padding: 0;
+  }
+
+  .p-pagebreak {
+    border-top: none;
+    margin-top: 0;
+    padding-top: 0;
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .p-choices-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

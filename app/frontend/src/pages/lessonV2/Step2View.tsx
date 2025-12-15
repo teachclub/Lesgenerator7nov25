@@ -154,6 +154,26 @@ function RenderBlock({ value }: { value: any }) {
   return <p style={{ margin: 0 }}>{toText(value)}</p>;
 }
 
+function AnswerLines({ lines = 3 }: { lines?: number }) {
+  return (
+    <div className="print-only answer-lines">
+      {Array.from({ length: lines }).map((_, i) => (
+        <div key={i} className="answer-line" />
+      ))}
+    </div>
+  );
+}
+
+function CellLines({ lines = 3 }: { lines?: number }) {
+  return (
+    <div className="print-only cell-lines">
+      {Array.from({ length: lines }).map((_, i) => (
+        <div key={i} className="cell-line" />
+      ))}
+    </div>
+  );
+}
+
 type BronVragenGroup = {
   bronNummer: number;
   vragen: string[];
@@ -232,8 +252,8 @@ function renderInvulTabel(invultabel: any, defaultRows: string[]) {
   }
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+    <div className="print-invultabel-wrap" style={{ overflowX: "auto" }}>
+      <table className="print-table print-invultabel" style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
             {kolommen.map((k: string, i: number) => (
@@ -244,6 +264,7 @@ function renderInvulTabel(invultabel: any, defaultRows: string[]) {
                   borderBottom: "1px solid #e5e7eb",
                   padding: "0.5rem",
                   fontSize: "0.95rem",
+                  whiteSpace: "normal",
                 }}
               >
                 {k}
@@ -267,6 +288,7 @@ function renderInvulTabel(invultabel: any, defaultRows: string[]) {
                   }}
                 >
                   {ci === 0 ? r : ""}
+                  {ci !== 0 ? <CellLines lines={3} /> : null}
                 </td>
               ))}
             </tr>
@@ -405,15 +427,18 @@ export default function Step2View({ status, error, leerlingData }: Props) {
                       listStyle: "none",
                       display: "flex",
                       flexDirection: "column",
-                      gap: "0.25rem",
+                      gap: "0.35rem",
                     }}
                   >
                     {g.vragen.map((q) => (
                       <li key={`${g.bronNummer}-${q.n}`}>
-                        <span style={{ fontWeight: 800, marginRight: "0.4rem" }}>
-                          {q.n}.
-                        </span>
-                        <span style={{ whiteSpace: "pre-wrap" }}>{q.text}</span>
+                        <div>
+                          <span style={{ fontWeight: 800, marginRight: "0.4rem" }}>
+                            {q.n}.
+                          </span>
+                          <span style={{ whiteSpace: "pre-wrap" }}>{q.text}</span>
+                        </div>
+                        <AnswerLines lines={3} />
                       </li>
                     ))}
                   </ol>
@@ -425,61 +450,66 @@ export default function Step2View({ status, error, leerlingData }: Props) {
       </Box>
 
       {invultabelVal ? (
-        <Box title={invultabelVal?.titel || "Invultabel (meerkeuze)"}>
-          {invultabelVal?.instructie ? (
-            <div style={{ marginBottom: "0.75rem" }}>
-              <RenderBlock value={invultabelVal.instructie} />
-            </div>
-          ) : null}
-
-          {renderInvulTabel(invultabelVal, defaultRowsFromBronnen)}
-
-          <div style={{ marginTop: "0.9rem" }}>
-            <div style={{ fontWeight: 800, marginBottom: "0.35rem" }}>
-              Keuzes om te gebruiken (per categorie)
-            </div>
-
-            {Object.keys(keuzesPerKolom).length === 0 ? (
-              <div style={{ color: "#555" }}>
-                Geen keuzes gevonden in Step 2 data (keuzes/opties ontbreken).
+        <div className="print-break-before">
+          <Box title={invultabelVal?.titel || "Invultabel (meerkeuze)"}>
+            {invultabelVal?.instructie ? (
+              <div style={{ marginBottom: "0.75rem" }}>
+                <RenderBlock value={invultabelVal.instructie} />
               </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {Object.entries(keuzesPerKolom).map(([cat, opties]) => (
-                  <div key={cat}>
-                    <div style={{ fontWeight: 800, marginBottom: "0.35rem" }}>
-                      {cat}
-                    </div>
-                    <div>
-                      {opties.map((o, i) => (
-                        <Chip key={`${cat}-${i}`} text={o} />
-                      ))}
-                    </div>
-                  </div>
-                ))}
+            ) : null}
+
+            {renderInvulTabel(invultabelVal, defaultRowsFromBronnen)}
+
+            <div style={{ marginTop: "0.9rem" }}>
+              <div style={{ fontWeight: 800, marginBottom: "0.35rem" }}>
+                Keuzes om te gebruiken (per categorie)
               </div>
-            )}
-          </div>
-        </Box>
+
+              {Object.keys(keuzesPerKolom).length === 0 ? (
+                <div style={{ color: "#555" }}>
+                  Geen keuzes gevonden in Step 2 data (keuzes/opties ontbreken).
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  {Object.entries(keuzesPerKolom).map(([cat, opties]) => (
+                    <div key={cat}>
+                      <div style={{ fontWeight: 800, marginBottom: "0.35rem" }}>
+                        {cat}
+                      </div>
+                      <div>
+                        {opties.map((o, i) => (
+                          <Chip key={`${cat}-${i}`} text={o} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Box>
+        </div>
       ) : null}
 
       {(reflectieInstructie || reflectieVragen.length > 0) && (
-        <Box title="Reflectie">
-          {reflectieInstructie ? (
-            <div style={{ marginBottom: "0.6rem" }}>
-              <RenderBlock value={reflectieInstructie} />
-            </div>
-          ) : null}
-          {reflectieVragen.length > 0 ? (
-            <ol style={{ margin: 0, paddingLeft: "1.4rem" }}>
-              {reflectieVragen.map((r, i) => (
-                <li key={i} style={{ marginBottom: "0.25rem", whiteSpace: "pre-wrap" }}>
-                  {r}
-                </li>
-              ))}
-            </ol>
-          ) : null}
-        </Box>
+        <div className="print-break-before">
+          <Box title="Reflectie">
+            {reflectieInstructie ? (
+              <div style={{ marginBottom: "0.6rem" }}>
+                <RenderBlock value={reflectieInstructie} />
+              </div>
+            ) : null}
+            {reflectieVragen.length > 0 ? (
+              <ol style={{ margin: 0, paddingLeft: "1.4rem" }}>
+                {reflectieVragen.map((r, i) => (
+                  <li key={i} style={{ marginBottom: "0.5rem", whiteSpace: "pre-wrap" }}>
+                    {r}
+                    <AnswerLines lines={3} />
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+          </Box>
+        </div>
       )}
     </div>
   );

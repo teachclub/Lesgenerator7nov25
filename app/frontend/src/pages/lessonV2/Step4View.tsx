@@ -183,84 +183,102 @@ export default function Step4View({
       )}
 
       {tabelRijen.length > 0 && (
-        <div style={{ border: "1px solid #e5e7eb", borderRadius: "0.75rem", padding: "0.9rem" }}>
-          <h2 style={{ margin: 0, marginBottom: "0.6rem", fontSize: "1rem" }}>
-            Samenwerkingstabel (ingevuld)
-          </h2>
+        <div className="print-break-before">
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: "0.75rem", padding: "0.9rem" }}>
+            <h2 style={{ margin: 0, marginBottom: "0.6rem", fontSize: "1rem" }}>
+              Samenwerkingstabel (ingevuld)
+            </h2>
 
-          <div style={{ overflowX: "auto" }}>
-            <table
-              style={{
-                borderCollapse: "collapse",
-                width: "100%",
-                minWidth: "900px",
-                fontSize: "0.85rem",
-              }}
-            >
-              <thead>
-                <tr>
-                  {["Bron", "Wie spreekt", "Observatie", "Interpretatie", "Dimensie", "Subdimensie"].map((k) => (
-                    <th key={k} style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: "0.5rem" }}>
-                      {k}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {tabelRijen.map((r, idx) => (
-                  <tr key={idx}>
-                    <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", fontWeight: 700 }}>
-                      {r.bron || `Bron ${idx + 1}`}
-                    </td>
-                    <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
-                      {r.wieSpreekt || ""}
-                    </td>
-                    <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
-                      {r.observatie || ""}
-                    </td>
-                    <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
-                      {r.interpretatie || ""}
-                    </td>
-                    <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
-                      {r.dimensie || ""}
-                    </td>
-                    <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
-                      {r.subdimensie || ""}
-                    </td>
+            <div style={{ overflowX: "auto" }}>
+              <table
+                className="print-table print-answers-table"
+                style={{
+                  borderCollapse: "collapse",
+                  width: "100%",
+                  fontSize: "0.85rem",
+                }}
+              >
+                <thead>
+                  <tr>
+                    {["Bron", "Wie spreekt", "Observatie", "Interpretatie", "Dimensie", "Subdimensie"].map((k) => (
+                      <th
+                        key={k}
+                        style={{
+                          textAlign: "left",
+                          borderBottom: "1px solid #e5e7eb",
+                          padding: "0.5rem",
+                          whiteSpace: "normal",
+                        }}
+                      >
+                        {k}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {tabelRijen.map((r, idx) => (
+                    <tr key={idx}>
+                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", fontWeight: 700 }}>
+                        {r.bron || `Bron ${idx + 1}`}
+                      </td>
+                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
+                        {r.wieSpreekt || ""}
+                      </td>
+                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
+                        {r.observatie || ""}
+                      </td>
+                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
+                        {r.interpretatie || ""}
+                      </td>
+                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
+                        {r.dimensie || ""}
+                      </td>
+                      <td style={{ borderBottom: "1px solid #f0f0f0", padding: "0.5rem", whiteSpace: "pre-wrap" }}>
+                        {r.subdimensie || ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="print-only" style={{ marginTop: "0.6rem", color: "#555", fontSize: "0.85rem" }}>
+              Als de tabel doorloopt: dat is oké. Hij mag over meerdere pagina’s gaan.
+            </div>
           </div>
         </div>
       )}
 
       {(leerlingData.reflectie?.instructie || reflectieAntwoorden.length > 0) && (
-        <div style={{ border: "1px solid #e5e7eb", borderRadius: "0.75rem", padding: "0.9rem" }}>
-          <h2 style={{ margin: 0, marginBottom: "0.6rem", fontSize: "1rem" }}>Reflectie (met antwoorden)</h2>
+        <div className="print-break-before">
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: "0.75rem", padding: "0.9rem" }}>
+            <h2 style={{ margin: 0, marginBottom: "0.6rem", fontSize: "1rem" }}>
+              Reflectie (met antwoorden)
+            </h2>
 
-          {leerlingData.reflectie?.instructie && (
-            <div style={{ marginBottom: "0.6rem" }}>
-              <RenderLines text={leerlingData.reflectie.instructie} />
-            </div>
-          )}
+            {leerlingData.reflectie?.instructie && (
+              <div style={{ marginBottom: "0.6rem" }}>
+                <RenderLines text={leerlingData.reflectie.instructie} />
+              </div>
+            )}
 
-          {reflectieAntwoorden.length > 0 ? (
-            <ol style={{ margin: 0, paddingLeft: "1.4rem" }}>
-              {reflectieAntwoorden.map((a) => (
-                <li key={a.nummer} style={{ marginBottom: "0.8rem" }}>
-                  {a.vraag ? (
-                    <div style={{ fontWeight: 700, whiteSpace: "pre-wrap" }}>
-                      {a.nummer}. {a.vraag}
-                    </div>
-                  ) : null}
-                  <div style={{ marginTop: "0.2rem", whiteSpace: "pre-wrap" }}>{a.antwoord}</div>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <div style={{ color: "#555" }}>Geen reflectie-antwoorden gevonden.</div>
-          )}
+            {reflectieAntwoorden.length > 0 ? (
+              <ol style={{ margin: 0, paddingLeft: "1.4rem" }}>
+                {reflectieAntwoorden.map((a) => (
+                  <li key={a.nummer} style={{ marginBottom: "0.8rem" }}>
+                    {a.vraag ? (
+                      <div style={{ fontWeight: 700, whiteSpace: "pre-wrap" }}>
+                        {a.nummer}. {a.vraag}
+                      </div>
+                    ) : null}
+                    <div style={{ marginTop: "0.2rem", whiteSpace: "pre-wrap" }}>{a.antwoord}</div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div style={{ color: "#555" }}>Geen reflectie-antwoorden gevonden.</div>
+            )}
+          </div>
         </div>
       )}
     </div>

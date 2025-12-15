@@ -1,21 +1,9 @@
 "use strict";
 
-// backend/routes/a35.proposals-v2.cjs
-// LesGO v2 – proposals-laag (AI-gedreven, v7)
-//
-// - Krijgt max. ~40 bronnen + tv/ka
-// - Bouwt een proposals-prompt (lessonV2.proposals)
-// - Roept Gemini aan via runGeminiAndParse
-// - Valideert chainSignature + concept.masterSignature
-// - Stuurt proposals terug naar de frontend
-//
-// Routes (via server.cjs → app.use("/api", ...)):
-//   POST /api/proposals-v2
-//   POST /api/propose-lessons-v2   (alias)
-
 const express = require("express");
 const router = express.Router();
 
+const { filterSources } = require("../services/sourceFilter.cjs");
 const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
 const {
   buildProposalsPrompt,
@@ -23,9 +11,6 @@ const {
 } = require("../prompts/lessonV2.proposals.cjs");
 const { runGeminiAndParse } = require("../services/gemini.cjs");
 
-/**
- * Normaliseer bronnen zodat we altijd een id hebben.
- */
 function normalizeSources(sources = []) {
   return sources.map((src, index) => {
     return {
@@ -35,26 +20,12 @@ function normalizeSources(sources = []) {
   });
 }
 
-/**
- * Helper om een subset van ids te pakken.
- */
 function pickIds(allIds, max) {
   if (!Array.isArray(allIds) || allIds.length === 0) return [];
   const safeMax = Math.max(0, Math.min(max, allIds.length));
   return allIds.slice(0, safeMax);
 }
 
-/**
- * Dummy fallback – v6/v7-conform:
- * - deelvragen[]
- * - leeropbrengsten[]
- * - primarySourceIds[]
- * - contextLabel, targetAudience, tv, ka
- *
- * LET OP:
- * - Inhoud is generiek en alleen bedoeld als noodgreep als Gemini faalt.
- * - Niet gebruiken als echte didactische basis; puur om de UI niet te laten crashen.
- */
 function buildDummyProposals(allSources, { tv, ka }) {
   const ids = (allSources || []).map((s, idx) => s.id ?? idx + 1);
 
@@ -72,7 +43,7 @@ function buildDummyProposals(allSources, { tv, ka }) {
   const lo = (beschrijving, idx) => ({
     beschrijving,
     deelvraagIndex: typeof idx === "number" ? idx : null,
-    id: undefined, // wordt later in validateProposalsResponse ingevuld
+    id: undefined,
   });
 
   return {
@@ -268,20 +239,25 @@ function buildDummyProposals(allSources, { tv, ka }) {
   };
 }
 
-/**
- * Gedeelde handler voor beide endpoints.
- */
 async function handleProposalsRequest(req, res) {
   const { tv, ka, conceptHint = "", sources = [] } = req.body || {};
-  const allSources = normalizeSources(sources);
+
+  const filteredIn = filterSources(sources, { minTextLen: 80 });
+  const allSources = normalizeSources(filteredIn.sources);
 
   console.log("[A35/DEBUG v2] proposals – start");
   console.log("  tv:", tv);
   console.log("  ka:", ka);
-  console.log("  #sources:", allSources.length);
+  console.log("  #sources(in):", Array.isArray(sources) ? sources.length : 0);
+  console.log(
+    "  droppedKleioEmpty:",
+    filteredIn.droppedKleioEmpty,
+    "droppedKleioNoise:",
+    filteredIn.droppedKleioNoise
+  );
+  console.log("  #sources(used):", allSources.length);
 
   try {
-    // 1. Prompt bouwen
     const prompt = buildProposalsPrompt({
       tv,
       ka,
@@ -289,7 +265,6 @@ async function handleProposalsRequest(req, res) {
       allSources,
     });
 
-    // 2. Gemini aanroepen via dezelfde service als step1–2
     const json = await runGeminiAndParse({
       prompt,
       label: "lessonV2_proposals",
@@ -300,16 +275,16 @@ async function handleProposalsRequest(req, res) {
       },
     });
 
-    // 3. Structuur + signature valideren
     const validated = validateProposalsResponse(json, MASTER_SIGNATURE);
 
-    // 4. Resultaat teruggeven aan frontend
     return res.json({
       allSources,
       proposals: validated.proposals,
       meta: {
         countAll: allSources.length,
         countProposals: validated.proposals.length,
+        droppedKleioEmpty: filteredIn.droppedKleioEmpty,
+        droppedKleioNoise: filteredIn.droppedKleioNoise,
         masterSignature: MASTER_SIGNATURE,
         from: "gemini",
         isDummy: false,
@@ -329,6 +304,8 @@ async function handleProposalsRequest(req, res) {
       meta: {
         countAll: allSources.length,
         countProposals: dummy.proposals.length,
+        droppedKleioEmpty: filteredIn.droppedKleioEmpty,
+        droppedKleioNoise: filteredIn.droppedKleioNoise,
         masterSignature: MASTER_SIGNATURE,
         from: "dummy-fallback",
         isDummy: true,
@@ -338,11 +315,6 @@ async function handleProposalsRequest(req, res) {
   }
 }
 
-/**
- * Routes:
- *  - /api/proposals-v2
- *  - /api/propose-lessons-v2  (alias)
- */
 router.post("/proposals-v2", handleProposalsRequest);
 router.post("/propose-lessons-v2", handleProposalsRequest);
 
