@@ -1,47 +1,21 @@
 {
   "hosting": [
     {
-      "target": "test",
+      "site": "kleio9nov-578e4",
       "public": "app/frontend/dist",
-      "ignore": [
-        "firebase.json",
-        "**/.*",
-        "**/node_modules/**"
-      ],
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
-        {
-          "source": "/api/**",
-          "run": {
-            "serviceId": "kleio-backend-test",
-            "region": "europe-west4"
-          }
-        },
-        {
-          "source": "**",
-          "destination": "/index.html"
-        }
+        { "source": "/api/**", "run": { "serviceId": "lessie2000-backend", "region": "europe-west4" } },
+        { "source": "**", "destination": "/index.html" }
       ]
     },
     {
-      "target": "live",
+      "site": "kleio9nov-578e4-test",
       "public": "app/frontend/dist",
-      "ignore": [
-        "firebase.json",
-        "**/.*",
-        "**/node_modules/**"
-      ],
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
-        {
-          "source": "/api/**",
-          "run": {
-            "serviceId": "kleio-backend",
-            "region": "europe-west4"
-          }
-        },
-        {
-          "source": "**",
-          "destination": "/index.html"
-        }
+        { "source": "/api/**", "run": { "serviceId": "lessie2000-backend", "region": "europe-west4" } },
+        { "source": "**", "destination": "/index.html" }
       ]
     }
   ]

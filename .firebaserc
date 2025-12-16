@@ -1,6 +1,7 @@
 {
   "projects": {
-    "default": "kleio9nov-578e4"
+    "default": "kleio9nov-578e4",
+    "live": "kleio9nov-578e4"
   },
   "targets": {
     "kleio9nov-578e4": {

@@ -1,3 +1,5 @@
+"use strict";
+
 // backend/prompts/lessonV2.base.cjs
 // MASTERPROMPT v7.1 – centrale didactische logica voor Lessie / LesGO v2
 
@@ -75,9 +77,7 @@ Per casus koppel je 4 deelvragen aan 4 (sub)dimensies. Elke deelvraag:
 4. Leerlingentaal
 - Schrijf helder, concreet en in begrijpelijke zinnen.
 - Vermijd academisch jargon; als een vakbegrip nodig is, leg het kort uit.
-- Houd rekening met de bovenbouw (3 havo/vwo t/m 5/6 vwo):
-  - kernbegrippen mogen, maar in duidelijke zinnen;
-  - geen extreem lange zinnen met veel bijzinnen.
+- Houd rekening met 3 havo (15 jaar): korte zinnen. Toegankelijk.
 
 5. JSON-output
 - Je antwoord MOET strikt geldig JSON zijn.
@@ -141,10 +141,7 @@ RICHTLIJNEN VOOR DE DRIE PROPOSALS
 3. Context
 - Korte situering in tijd en ruimte (2–4 zinnen).
 - Geen nieuw onderzoek verzinnen: werk binnen wat redelijk is voor dit tv/ka.
-- Focus op:
-  - wanneer speelt dit zich af?
-  - waar?
-  - welke groepen of actoren zijn belangrijk?
+- Focus op: wanneer, waar, wie.
 
 4. Lesopbrengst / leerdoel
 - Formuleer in leerlingentaal, bijvoorbeeld:
@@ -154,21 +151,17 @@ RICHTLIJNEN VOOR DE DRIE PROPOSALS
 - Houd het concreet en haalbaar voor één les.
 
 5. Bronnenkeuze (bronIds)
-- Je krijgt een lijst met beschikbare bronnen (met id, type, beschrijving).
 - Kies per proposal een passende subset:
   - minimaal 4 bronnen;
   - maximaal 10 bronnen;
-  - zorg voor variatie in type als die aanwezig is (tekst, beeld, kaart, etc.).
+  - zorg voor variatie in type als die aanwezig is.
 - Gebruik ALLEEN bronIds die in de input voorkomen.
 - Verzin geen nieuwe bronnen.
 
 VERSCHILLEN TUSSEN DE DRIE PROPOSALS
-
-- Proposal 1: focus op één duidelijke kernvraag die gemakkelijk te begrijpen is.
-- Proposal 2: focus op een meer complexe of genuanceerde invalshoek
-  (bijvoorbeeld één andere dimensie of een extra spanningsveld).
-- Proposal 3: maak ruimte voor controverse of discussie (bijvoorbeeld
-  tegenstrijdige belangen, botsende perspectieven).
+- Proposal 1: één duidelijke kernvraag, makkelijk te begrijpen.
+- Proposal 2: meer nuance/complexiteit (andere dimensie of spanningsveld).
+- Proposal 3: ruimte voor discussie (botsende belangen/perspectieven).
 
 STRUCTUUR VAN DE JSON-OUTPUT
 
@@ -243,80 +236,30 @@ ${preamble}
 
 TAK: VERFIJN HOOFDVRAAG EN LESOPBRENGST (REFINE)
 
-Je krijgt een bestaand lesconcept met:
-- hoofdvraag,
-- hook (intro),
-- context,
-- lesopbrengst / leerdoel,
-- tijdvak en kenmerkend aspect.
-
-Je moet GEEN nieuw onderwerp verzinnen, maar:
-- de formulering aanpassen op basis van:
-  - een schuifje voor TAAL/COMPLEXITEIT (complexityLevel 1–5),
-  - een schuifje voor NUANCE (nuanceLevel 1–5),
-  - eventueel een extra instructie van de docent.
-
 TIJDVAK EN KENMERKEND ASPECT
-
 ${tvKaInfo}
 
 ORIGINEEL CONCEPT
-
 ${originalInfo}
 
 SCHUIFJE 1 – TAAL/COMPLEXITEIT (complexityLevel: ${complexityLevel})
-
-- 1–2:
-  - maak taal eenvoudiger;
-  - kortere zinnen, minder bijzinnen;
-  - hoofdvraag compacter en met minder deelaspecten.
-- 3:
-  - houd het oorspronkelijke niveau ongeveer gelijk.
-- 4–5:
-  - maak de hoofdvraag rijker en complexer:
-    - iets langere zinnen;
-    - meer deelaspecten of invalshoeken in de vraag;
-    - iets abstracter taalgebruik, maar nog begrijpelijk voor bovenbouwleerlingen.
+- 1–2: eenvoudiger, korter, minder deelaspecten.
+- 3: ongeveer gelijk.
+- 4–5: rijker en complexer, maar nog begrijpelijk voor leerlingen.
 
 SCHUIFJE 2 – NUANCE (nuanceLevel: ${nuanceLevel})
-
-- 1–2:
-  - formuleer ongunanceerder en steller:
-    - duidelijke stelling, minder "misschien", "voor een deel";
-    - geschikt om discussie uit te lokken.
-- 3:
-  - behoud de huidige nuance.
-- 4–5:
-  - formuleer genuanceerder:
-    - gebruik formuleringen als:
-      - "in hoeverre",
-      - "voor een deel",
-      - "volgens sommige historici",
-      - "vanuit verschillende groepen".
+- 1–2: steller, minder nuance.
+- 3: behoud.
+- 4–5: genuanceerder ("in hoeverre", "voor een deel", "vanuit groepen").
 
 EXTRA INSTRUCTIE VAN DE DOCENT
-
 "${extraInstruction}"
 
 WAT JE MOET DOEN
-
-- Hoofdvraag:
-  - herschrijf in lijn met complexityLevel en nuanceLevel;
-  - behoud onderwerp, tijdvak en kenmerkend aspect;
-  - blijf presentistisch geformuleerd, maar zonder "met de kennis van nu".
-- Hook:
-  - mag je compacter of helderder maken, zolang de lesopening hetzelfde thema houdt.
-- Context:
-  - mag je herschrijven voor duidelijkheid en samenhang;
-  - verzin geen nieuwe feitelijke inhoud buiten wat logisch is voor dit tv/ka.
-- Lesopbrengst:
-  - formuleer als concreet leerdoel in leerlingentaal:
-    - bijvoorbeeld: "Aan het eind van de les kun je uitleggen waarom ...";
-  - pas taalniveau aan bij complexityLevel.
+- Hoofdvraag, hook, context en lesopbrengst herschrijven binnen onderwerp/tv/ka.
+- Geen nieuwe feitelijke inhoud verzinnen.
 
 STRUCTUUR VAN DE JSON-OUTPUT
-
-Geef precies één JSON-object terug met deze structuur:
 
 {
   "concept": {
@@ -332,7 +275,7 @@ Geef precies één JSON-object terug met deze structuur:
   "meta": {
     "complexityLevel": ${complexityLevel},
     "nuanceLevel": ${nuanceLevel},
-    "uitleg": "korte uitleg in maximaal twee zinnen over wat je veranderd hebt"
+    "uitleg": "maximaal twee zinnen"
   }
 }
   `;
@@ -355,15 +298,12 @@ ${preamble}
 TAK: MAAK DOCENTMATERIAAL (STEP1)
 
 TIJDVAK EN KENMERKEND ASPECT
-
 ${tvKaInfo}
 
 GEKOZEN LESCONCEPT
-
 ${conceptInfo}
 
 GESELECTEERDE BRONNEN (ALLEEN DE GEFILTERDE!)
-
 ${sourcesInfo}
 
 BELANGRIJK:
@@ -371,30 +311,21 @@ BELANGRIJK:
 - Verwijs naar bronnen via bronnummers (1, 2, 3, ...), niet via URL.
 
 WAT – HOE – WAAROM
-
-- wat:
-  - in 3–6 zinnen: wat gaan leerlingen in deze les doen rond de hoofdvraag?
-- hoe:
-  - korte beschrijving van de opbouw.
-- waarom:
-  - koppel aan historisch redeneren, dimensies/subdimensies, anti-presentisme en lesopbrengst.
+- wat: in 3–6 zinnen: wat doen leerlingen rond de hoofdvraag?
+- hoe: korte beschrijving van de opbouw.
+- waarom: koppel aan historisch redeneren, dimensies, anti-presentisme, lesopbrengst.
 
 DEELVRAGEN
-
 - Maak precies 4 deelvragen, elk gekoppeld aan één hoofddimensie.
 
 BRONVERWIJZINGEN PER DEELVRAAG
-
 - Voor elke deelvraag geef je bronverwijzingen met id en relevatie.
 - Gebruik alleen bronIds die in de input voorkomen.
 
 LESFASEN
-
 - Deel de les op in fasen met fase/tijd/doel/activiteit/werkvorm.
 
 STRUCTUUR VAN DE JSON-OUTPUT
-
-Geef precies één JSON-object terug met deze structuur:
 
 {
   "data": {
@@ -412,10 +343,7 @@ Geef precies één JSON-object terug met deze structuur:
       ],
       "bronverwijzingenPerDeelvraag": [
         [
-          {
-            "id": "bron-id",
-            "relevatie": "string"
-          }
+          { "id": "bron-id", "relevatie": "string" }
         ]
       ],
       "lesfasen": [
@@ -451,20 +379,62 @@ ${preamble}
 TAK: MAAK LEERLINGMATERIAAL (STEP2)
 
 TIJDVAK EN KENMERKEND ASPECT
-
 ${tvKaInfo}
 
 GEKOZEN LESCONCEPT
-
 ${conceptInfo}
 
 DEELVRAGEN (UIT STEP1)
-
 ${deelvragenInfo}
 
 GESELECTEERDE BRONNEN (ALLEEN DE GEFILTERDE!)
-
 ${sourcesInfo}
+
+BELANGRIJK VOOR STEP2
+- Doelgroep: 3 havo (15 jaar). Korte zinnen. Toegankelijke woorden.
+- Geen moeilijke woorden zonder korte uitleg.
+- Alles moet leerlingen helpen de bronnen te begrijpen en te gebruiken.
+
+VASTE ONDERDELEN DIE JE MOET MAKEN
+
+A) Anti-presentisme intro (kort)
+- 2–4 zinnen: "zet je bril van nu af" + "kijk in de wereld van toen".
+
+B) Startopdracht
+- 1 korte beschrijving + 3–6 stappen.
+
+C) Historisch kader (NIEUW, verplicht)
+- Maak één alinea van maximaal 150 woorden.
+- Leerlingtaal, korte zinnen.
+- 3 onderdelen:
+  1) mini-schets van het kenmerkende aspect (wat is dit in gewone woorden?)
+  2) 3–5 kernbegrippen of personen (noem ze en leg ze heel kort uit)
+  3) brugzin naar de hoofdvraag en de deelvragen ("Hiermee ga je straks...")
+
+D) Bronnenblad (nummering)
+- Maak bronNummering in dezelfde volgorde als de input sources.
+- url moet null blijven.
+
+E) Bronvragen
+- Voor elke bron precies 3 vragen:
+  1) observatie (wat staat er letterlijk?)
+  2) interpretatie (wat betekent dit? wat is het standpunt/bedoeling?)
+  3) koppeling (wat zegt dit over een deelvraag/hoofdvraag?)
+- Schrijf vragen kort en concreet.
+
+F) Samenwerkingstabel
+- Instructie: kort, praktisch.
+- Kolommen (vaste set).
+- Rijen: minstens "Bron 1" t/m "Bron N".
+- Meerkeuze-opties:
+  - wieSpreektOpties: 8–14 bruikbare opties (bijv. "regering", "soldaat", "burger", "krant", "politicus", "activist", "koloniale bestuurder", "ooggetuige").
+  - dimensieOpties: precies de 5 dimensies uit de preamble (in leerlingtaal).
+  - subdimensieOpties: 8–16 korte soorten verklaringen (bijv. "angst", "macht", "geld/handel", "propaganda", "racisme", "religie", "veiligheid", "status", "idealen", "wraak").
+
+G) Reflectievragen
+- Geef precies 5 reflectievragen.
+- Ze helpen leerlingen kiezen welke dimensie het meest verklaart.
+- Vragen zijn in leerlingtaal en zetten aan tot onderbouwen met bronnen.
 
 STRUCTUUR VAN DE JSON-OUTPUT
 
@@ -480,6 +450,7 @@ Geef precies één JSON-object terug met deze structuur:
         "beschrijving": "string",
         "stappen": ["..."]
       },
+      "historischKader": "string",
       "bronnenblad": {
         "instructie": "string",
         "bronNummering": [
@@ -521,67 +492,22 @@ Geef precies één JSON-object terug met deze structuur:
           "subdimensieOpties": ["string"]
         }
       },
-      "reflectie": {
-        "instructie": "string",
-        "vragen": ["1. ...", "2. ...", "3. ..."]
-      }
+      "reflectieVragen": [
+        "string",
+        "string",
+        "string",
+        "string",
+        "string"
+      ]
     }
   }
 }
-  `;
-}
 
-/**
- * BASE – STEP4 (ANTWOORDMODEL)
- */
-function buildBaseStep4Prompt({ concept, tvKa, deelvragen, sources, masterSignature }) {
-  const sig = resolveChainSignature({ concept, masterSignature });
-  const preamble = buildBasePreamble(sig);
-
-  const tvKaInfo = JSON.stringify(tvKa || {}, null, 2);
-  const conceptInfo = JSON.stringify(concept || {}, null, 2);
-  const deelvragenInfo = JSON.stringify(deelvragen || [], null, 2);
-  const sourcesInfo = JSON.stringify(sources || [], null, 2);
-
-  return `
-${preamble}
-
-TAK: MAAK ANTWOORDMODEL (STEP4)
-
-TIJDVAK EN KENMERKEND ASPECT
-
-${tvKaInfo}
-
-GEKOZEN LESCONCEPT
-
-${conceptInfo}
-
-DEELVRAGEN
-
-${deelvragenInfo}
-
-GESELECTEERDE BRONNEN
-
-${sourcesInfo}
-
-STRUCTUUR VAN DE JSON-OUTPUT
-
-Geef precies één JSON-object terug met deze structuur:
-
-{
-  "deelvragen": [
-    {
-      "vraag": "string",
-      "antwoord": "string",
-      "gebruikteBronNummers": [1, 2]
-    }
-  ],
-  "hoofdvraag": {
-    "vraag": "string",
-    "antwoord": "string",
-    "gebruikteBronNummers": [1, 2, 3]
-  }
-}
+EISEN
+- "historischKader" is maximaal 150 woorden.
+- Maak bronNummering en bronvragen voor ALLE bronnen uit sources.
+- Houd alles in leerlingtaal (3 havo).
+- Geen markdown, geen extra tekst buiten JSON.
   `;
 }
 
@@ -593,6 +519,5 @@ module.exports = {
   buildBaseRefineConceptPrompt,
   buildBaseStep1Prompt,
   buildBaseStep2Prompt,
-  buildBaseStep4Prompt,
 };
 
