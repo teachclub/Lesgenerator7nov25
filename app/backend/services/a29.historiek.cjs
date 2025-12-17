@@ -81,13 +81,26 @@ function medianYear(years) {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
-// true=in-range (label), false=out(drop), null=noYear(keep)
 function tvDecisionByMedian(years, range) {
   if (!range) return true;
   const mid = medianYear(years);
   if (!Number.isFinite(mid)) return null;
   const [a, b] = range;
   return mid >= a && mid <= b;
+}
+
+function tvGuessFromYears(years) {
+  const mid = medianYear(years);
+  if (!Number.isFinite(mid)) return null;
+
+  if (mid >= 1500 && mid <= 1600) return 5;
+  if (mid > 1600 && mid <= 1700) return 6;
+  if (mid > 1700 && mid <= 1800) return 7;
+  if (mid > 1800 && mid <= 1900) return 8;
+  if (mid > 1900 && mid <= 1950) return 9;
+  if (mid > 1950 && mid <= 2000) return 10;
+
+  return null;
 }
 
 function parseCsv(text) {
@@ -173,6 +186,113 @@ function loadCsv(relPath) {
   return parseCsv(raw);
 }
 
+const GENERIC_STOP = new Set(
+  [
+    "duitsland",
+    "nederland",
+    "belgie",
+    "frankrijk",
+    "engeland",
+    "spanje",
+    "italie",
+    "oostenrijk",
+    "zwitserland",
+    "rusland",
+    "oekraine",
+    "polen",
+    "tsjechie",
+    "hongarije",
+    "roemenie",
+    "bulgarije",
+    "servie",
+    "kroatie",
+    "griekenland",
+    "turkije",
+    "china",
+    "japan",
+    "india",
+    "amerika",
+    "verenigde staten",
+    "vs",
+    "europa",
+    "azië",
+    "afrika",
+    "amsterdam",
+    "rotterdam",
+    "utrecht",
+    "den haag",
+    "rome",
+    "parijs",
+    "berlijn",
+    "londen",
+    "wenen",
+    "moskou",
+    "oorlog",
+    "vrede",
+    "staat",
+    "rijk",
+    "keizer",
+    "koning",
+    "paus",
+    "kerk",
+    "katholiek",
+    "protestant",
+    "islam",
+    "christendom",
+    "jodendom",
+    "religie",
+    "regering",
+    "volk",
+    "land",
+    "stad",
+    "dorp",
+    "jaar",
+    "eeuw",
+    "tijd",
+  ].map((s) => normKey(s))
+);
+
+function isGenericTerm(t) {
+  const k = normKey(t);
+  if (!k) return false;
+  if (GENERIC_STOP.has(k)) return true;
+  if (k.length <= 3) return true;
+  return false;
+}
+
+function tokenizeForDf(s) {
+  const t = normKey(s);
+  if (!t) return [];
+  return t
+    .split(/[^a-z0-9\u00c0-\u024f]+/g)
+    .map(squashWs)
+    .filter(Boolean)
+    .filter((w) => w.length >= 4);
+}
+
+function maxDfRatioForTerm(dfMap, N, term) {
+  const t = normKey(term);
+  if (!t || !dfMap || !N) return 0;
+  const parts = t.split(/\s+/).filter(Boolean);
+  if (!parts.length) return 0;
+
+  let maxDf = 0;
+  for (const p of parts) {
+    if (p.length < 4) continue;
+    const df = dfMap.get(p) || 0;
+    if (df > maxDf) maxDf = df;
+  }
+  return maxDf / N;
+}
+
+function dfWeight(dfRatio, term) {
+  if (isGenericTerm(term)) return 0.2;
+  if (dfRatio > 0.15) return 0.0;
+  if (dfRatio > 0.08) return 0.1;
+  if (dfRatio > 0.03) return 0.3;
+  return 1.0;
+}
+
 function expandFromKaTrefwoorden(term, n = 6) {
   const t = normKey(term);
   if (!t) return [];
@@ -239,20 +359,27 @@ function splitTop3(s) {
   return t.split(/\s*[|,]\s*/g).map(squashWs).filter(Boolean);
 }
 
-function matchAnyTerm(hay, terms) {
+function matchAnyTermWeighted(hay, terms, dfMap, N) {
   const h = normKey(hay);
   if (!h) return { score: 0, hits: [] };
+
   let score = 0;
   const hits = [];
+
   for (const term of terms) {
     const k = normKey(term);
     if (!k) continue;
-    if (h.includes(k)) {
-      const w = k.length >= 12 ? 4 : k.length >= 8 ? 3 : k.length >= 5 ? 2 : 1;
-      score += w;
-      hits.push(term);
-    }
+    if (!h.includes(k)) continue;
+
+    const base = k.length >= 12 ? 4 : k.length >= 8 ? 3 : k.length >= 5 ? 2 : 1;
+    const dfRatio = maxDfRatioForTerm(dfMap, N, k);
+    const w = dfWeight(dfRatio, k);
+
+    const add = Math.round(base * w * 10) / 10;
+    if (add > 0) score += add;
+    hits.push(term);
   }
+
   return { score, hits: uniqueKeepOrder(hits) };
 }
 
@@ -269,7 +396,6 @@ function personUrlLooksConsistent(title, url) {
   return u.includes(sn);
 }
 
-// Extra guard: “persoon” maar inhoud lijkt object/gebouw/kerk én geen jaartallen → drop.
 function personLooksLikeObject(type, wikiSummary, years) {
   if (type !== "persoon") return false;
   const hasYears = Array.isArray(years) && years.length > 0;
@@ -278,7 +404,6 @@ function personLooksLikeObject(type, wikiSummary, years) {
   const t = normKey(wikiSummary || "");
   if (!t) return true;
 
-  // sterke signalen voor object/gebouw i.p.v. persoon
   const bad = [
     "kerk",
     "kathedraal",
@@ -304,11 +429,10 @@ function personLooksLikeObject(type, wikiSummary, years) {
     "bedrijf",
   ];
 
-  let hits = 0;
-  for (const w of bad) if (t.includes(w)) hits++;
-
-  // 1 hit is al verdacht; 2+ is zeker fout.
-  return hits >= 1;
+  for (const w of bad) {
+    if (t.includes(w)) return true;
+  }
+  return false;
 }
 
 const PERSONEN = loadCsv("historiek_personen_omzet_final.csv");
@@ -350,13 +474,8 @@ function buildItem(row) {
     .map((x) => Number(x))
     .filter((y) => Number.isFinite(y) && y >= 0 && y <= 2100);
 
-  if (type === "persoon" && !personUrlLooksConsistent(title, url)) {
-    return null;
-  }
-
-  if (personLooksLikeObject(type, wikiSummary, years)) {
-    return null;
-  }
+  if (type === "persoon" && !personUrlLooksConsistent(title, url)) return null;
+  if (personLooksLikeObject(type, wikiSummary, years)) return null;
 
   return {
     type,
@@ -373,14 +492,27 @@ function buildItem(row) {
 
 const INDEX = [...PERSONEN, ...BEGRIPPEN].map(buildItem).filter(Boolean);
 
+const DF = new Map();
+const N_DOCS = INDEX.length || 1;
+
+for (const it of INDEX) {
+  const hay = [it.title, it.wikiSummary, it.matchedTerms].filter(Boolean).join(" ");
+  const toks = new Set(tokenizeForDf(hay));
+  for (const tok of toks) DF.set(tok, (DF.get(tok) || 0) + 1);
+}
+
 function buildSeedTerms(queryArr, filters) {
   let seedTerms = [];
   const q = Array.isArray(queryArr) ? queryArr.map(squashWs).filter(Boolean) : [];
 
   if (q.length === 1 && !filters?.ka) {
     const base = q[0];
-    const extra6 = expandFromKaTrefwoorden(base, 6);
-    seedTerms = uniqueKeepOrder([base, ...extra6]);
+    if (isGenericTerm(base)) {
+      seedTerms = uniqueKeepOrder([base]);
+    } else {
+      const extra6 = expandFromKaTrefwoorden(base, 6);
+      seedTerms = uniqueKeepOrder([base, ...extra6]);
+    }
   } else if (q.length > 0) {
     seedTerms = uniqueKeepOrder(q);
   }
@@ -388,6 +520,10 @@ function buildSeedTerms(queryArr, filters) {
   if (seedTerms.length === 0 && filters?.ka) {
     const key = asKaKey(filters.ka);
     if (key && KA_MAPPING[key]) seedTerms = uniqueKeepOrder(KA_MAPPING[key]);
+  }
+
+  if (seedTerms.length === 1 && isGenericTerm(seedTerms[0]) && !filters?.ka) {
+    return seedTerms;
   }
 
   seedTerms = uniqueKeepOrder(seedTerms.flatMap(normalizeAndExpandTerm));
@@ -424,6 +560,30 @@ function isConfirmedForKa(it, kaSet) {
   return false;
 }
 
+function termMatchesItem(rt, it, hayNorm) {
+  const t = normKey(rt);
+  if (!t) return false;
+
+  if (/^\d{4}$/.test(t)) {
+    const y = Number(t);
+    if (!Number.isInteger(y)) return false;
+
+    const yrs = Array.isArray(it.years) ? it.years.filter(Number.isFinite) : [];
+    if (yrs.length) {
+      const min = Math.min(...yrs);
+      const max = Math.max(...yrs);
+      if (y >= min && y <= max) return true;
+
+      const mid = medianYear(yrs);
+      if (Number.isFinite(mid) && Math.abs(mid - y) <= 3) return true;
+    }
+
+    return hayNorm.includes(t);
+  }
+
+  return hayNorm.includes(t);
+}
+
 async function searchHistoriek({ query, filters }) {
   if (filters?.historiek === false) return [];
 
@@ -449,7 +609,7 @@ async function searchHistoriek({ query, filters }) {
     if (requiredTerms.length >= 2) {
       let okAll = true;
       for (const rt of requiredTerms) {
-        if (!hayNorm.includes(rt)) {
+        if (!termMatchesItem(rt, it, hayNorm)) {
           okAll = false;
           break;
         }
@@ -457,7 +617,7 @@ async function searchHistoriek({ query, filters }) {
       if (!okAll) continue;
     }
 
-    const { score, hits } = matchAnyTerm(hay, seedTerms);
+    const { score, hits } = matchAnyTermWeighted(hay, seedTerms, DF, N_DOCS);
 
     if (!kaSet.size) {
       if (score <= 0) continue;
@@ -493,6 +653,18 @@ async function searchHistoriek({ query, filters }) {
 
   const out = [];
   for (const s of scored.slice(0, 200)) {
+    let tv = s.labelTv && s.tvNum ? String(s.tvNum) : undefined;
+    let tvLabel = s.labelTv && s.tvNum ? `Tijdvak ${s.tvNum}` : undefined;
+
+    if (!tvLabel) {
+      const yrs = Array.isArray(s.it.years) ? s.it.years.filter(Number.isFinite) : [];
+      const guess = tvGuessFromYears(yrs);
+      if (guess) {
+        tv = String(guess);
+        tvLabel = `Tijdvak ${guess}`;
+      }
+    }
+
     out.push({
       id: `historiek-${s.it.url}`,
       provider: "Historiek",
@@ -502,8 +674,8 @@ async function searchHistoriek({ query, filters }) {
       url: s.it.url,
       imageUrl: null,
       type: "TEXT",
-      tv: s.labelTv && s.tvNum ? String(s.tvNum) : undefined,
-      tvLabel: s.labelTv && s.tvNum ? `Tijdvak ${s.tvNum}` : undefined,
+      tv,
+      tvLabel,
       historiekType: s.it.type,
       kaBest: s.it.kaBest || undefined,
       kaTop3: s.it.kaTop3 && s.it.kaTop3.length ? s.it.kaTop3 : undefined,
