@@ -5,6 +5,7 @@ const { filterSources } = require("../services/sourceFilter.cjs");
 
 let citoService = null;
 let kleioService = null;
+let historiekService = null;
 
 try {
   citoService = require("../services/a28.cito.cjs");
@@ -19,6 +20,14 @@ try {
 } catch (e) {
   console.error("[A12] kleio require failed:", e && (e.stack || e.message || e));
   kleioService = null;
+}
+
+try {
+  historiekService = require("../services/a29.historiek.cjs");
+  console.log("[A12] historiek loaded");
+} catch (e) {
+  console.error("[A12] historiek require failed:", e && (e.stack || e.message || e));
+  historiekService = null;
 }
 
 function shuffleArray(array) {
@@ -52,12 +61,19 @@ function normalizeRequestBody(body) {
   if (providerRaw === "cito") {
     filters.cito = true;
     filters.kleio = false;
+    filters.historiek = false;
   } else if (providerRaw === "kleio") {
     filters.cito = false;
     filters.kleio = true;
+    filters.historiek = false;
+  } else if (providerRaw === "historiek") {
+    filters.cito = false;
+    filters.kleio = false;
+    filters.historiek = true;
   } else if (providerRaw === "europeana") {
     filters.cito = false;
     filters.kleio = false;
+    filters.historiek = false;
   }
 
   return { termsArray, filters, cap, providerRaw };
@@ -70,6 +86,9 @@ router.post("/search", async (req, res) => {
 
     if (providerRaw === "kleio" && !kleioService) {
       console.error("[A12] provider=kleio gevraagd maar kleioService is null");
+    }
+    if (providerRaw === "historiek" && !historiekService) {
+      console.error("[A12] provider=historiek gevraagd maar historiekService is null");
     }
 
     let allResults = [];
@@ -94,6 +113,19 @@ router.post("/search", async (req, res) => {
             if (Array.isArray(r)) allResults.push(...r);
           })
           .catch((e) => console.error("[A12] Kleio error:", e && (e.stack || e.message || e)))
+      );
+    }
+
+    if (filters?.historiek !== false && historiekService) {
+      promises.push(
+        historiekService
+          .searchHistoriek({ query: termsArray, filters })
+          .then((r) => {
+            if (Array.isArray(r)) allResults.push(...r);
+          })
+          .catch((e) =>
+            console.error("[A12] Historiek error:", e && (e.stack || e.message || e))
+          )
       );
     }
 

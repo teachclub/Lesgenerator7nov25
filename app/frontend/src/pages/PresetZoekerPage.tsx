@@ -150,12 +150,8 @@ const PresetZoekerPage: FC = () => {
           if (terms.length === 0 && Array.isArray(presetData.terms)) {
             terms = presetData.terms.map((t) => String(t).trim()).filter((t) => t.length > 0);
           }
-        } else {
-          console.warn("[PresetZoeker] search-preset niet bruikbaar:", presetRes.status);
         }
-      } catch (presetErr) {
-        console.warn("[PresetZoeker] search-preset faalde, fallback", presetErr);
-      }
+      } catch {}
 
       if (terms.length === 0) {
         if (hasUserQuery) terms = [searchQuery!.trim()];
@@ -184,8 +180,7 @@ const PresetZoekerPage: FC = () => {
 
       const searchData = await searchRes.json();
       setSources(searchData.sources || []);
-    } catch (err: unknown) {
-      console.error("[PresetZoeker] fout bij zoeken", err);
+    } catch {
       setError("Er ging iets mis bij het zoeken. Controleer of /api/search beschikbaar is.");
       setLastUsedTerms([]);
     } finally {
@@ -229,8 +224,7 @@ const PresetZoekerPage: FC = () => {
           return { ...(prev as any), fullText: j.fullText, title: j.title || (prev as any).title } as any;
         });
       }
-    } catch (e) {
-      console.warn("[PresetZoeker] source-detail faalde", e);
+    } catch {
     } finally {
       setDetailLoading(false);
     }
@@ -384,16 +378,6 @@ const PresetZoekerPage: FC = () => {
                   </ul>
                 )}
               </div>
-              <div className="mt-1">
-                <span className="font-semibold">Providers:</span>{" "}
-                {[
-                  filters.kleio ? "Kleio" : null,
-                  filters.cito ? "Cito" : null,
-                  filters.historiek ? "Historiek" : null,
-                ]
-                  .filter(Boolean)
-                  .join(", ") || <span className="text-gray-400">–</span>}
-              </div>
             </div>
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
@@ -460,7 +444,7 @@ const PresetZoekerPage: FC = () => {
             {loading ? (
               <div className="flex flex-col items-center justify-center h-64 text-gray-400 animate-pulse">
                 <span className="text-4xl mb-2">📡</span>
-                <p>Zoeken in Kleio, Cito &amp; Historiek...</p>
+                <p>Zoeken in Kleio &amp; Cito &amp; Historiek...</p>
               </div>
             ) : (
               <SelectionPanel onSelectSource={(s: any) => handleSelectSource(s)} selectedId={selectedDetailSource?.id} />
