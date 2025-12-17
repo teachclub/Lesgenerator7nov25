@@ -17,6 +17,7 @@ interface SearchFilters {
   text: boolean;
   kleio: boolean;
   cito: boolean;
+  historiek: boolean;
   tv?: string;
   ka?: string;
 }
@@ -71,6 +72,7 @@ const PresetZoekerPage: FC = () => {
     text: true,
     kleio: true,
     cito: true,
+    historiek: true,
   });
 
   const [lastUsedTerms, setLastUsedTerms] = useState<string[]>([]);
@@ -382,6 +384,16 @@ const PresetZoekerPage: FC = () => {
                   </ul>
                 )}
               </div>
+              <div className="mt-1">
+                <span className="font-semibold">Providers:</span>{" "}
+                {[
+                  filters.kleio ? "Kleio" : null,
+                  filters.cito ? "Cito" : null,
+                  filters.historiek ? "Historiek" : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ") || <span className="text-gray-400">–</span>}
+              </div>
             </div>
 
             <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
@@ -426,6 +438,14 @@ const PresetZoekerPage: FC = () => {
                     />
                     Cito
                   </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <input
+                      type="checkbox"
+                      checked={filters.historiek}
+                      onChange={(e) => setFilters({ ...filters, historiek: e.target.checked })}
+                    />
+                    Historiek
+                  </label>
                 </div>
               </div>
             </div>
@@ -440,7 +460,7 @@ const PresetZoekerPage: FC = () => {
             {loading ? (
               <div className="flex flex-col items-center justify-center h-64 text-gray-400 animate-pulse">
                 <span className="text-4xl mb-2">📡</span>
-                <p>Zoeken in Kleio &amp; Cito...</p>
+                <p>Zoeken in Kleio, Cito &amp; Historiek...</p>
               </div>
             ) : (
               <SelectionPanel onSelectSource={(s: any) => handleSelectSource(s)} selectedId={selectedDetailSource?.id} />
