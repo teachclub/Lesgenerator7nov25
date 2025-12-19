@@ -1,0 +1,304 @@
+.ql {
+  padding: 16px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.ql-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ql-header h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.ql-header p {
+  margin: 6px 0 0 0;
+  opacity: 0.75;
+  font-size: 13px;
+}
+
+.ql-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ql-link {
+  font-size: 13px;
+  text-decoration: none;
+  opacity: 0.8;
+}
+
+.ql-grid {
+  display: grid;
+  grid-template-columns: 360px 1fr 440px;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .ql-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ql-col {
+  min-width: 0;
+}
+
+.ql-card {
+  background: white;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  margin-bottom: 12px;
+}
+
+.ql-card h2 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  opacity: 0.75;
+}
+
+.ql-label {
+  display: block;
+  margin: 10px 0 6px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ql-muted {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.ql-select,
+.ql-textarea,
+.ql-file {
+  width: 100%;
+  border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.ql-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.ql-textarea-small {
+  min-height: 72px;
+}
+
+.ql-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.ql-sliders {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.ql-slider-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.ql-divider {
+  height: 1px;
+  background: rgba(0,0,0,0.08);
+  margin: 12px 0;
+}
+
+.ql-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ql-chip {
+  border: 1px solid rgba(0,0,0,0.18);
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ql-chip-on {
+  border-color: rgba(0,0,0,0.35);
+  background: rgba(0,0,0,0.04);
+}
+
+.ql-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.ql-btn {
+  border: 1px solid rgba(0,0,0,0.18);
+  background: #111;
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ql-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ql-btn-light {
+  background: #fff;
+  color: #111;
+}
+
+.ql-chiprow {
+  display: grid;
+  gap: 10px;
+}
+
+.ql-bigchip {
+  border: 1px solid rgba(0,0,0,0.18);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  background: #fff;
+}
+
+.ql-bigchip-on {
+  border-color: rgba(0,0,0,0.35);
+  background: rgba(0,0,0,0.04);
+}
+
+.ql-x,
+.ql-x2 {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.ql-picked {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.03);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.ql-deelvraag {
+  border: 1px solid rgba(0,0,0,0.10);
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+
+.ql-deelvraag-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ql-subdimensie {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.ql-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ql-warn {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b36b00;
+}
+
+.ql-bronblok {
+  border-top: 1px solid rgba(0,0,0,0.08);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.ql-bronblok-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.ql-bronnen {
+  display: grid;
+  gap: 8px;
+}
+
+.ql-bron {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 8px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 10px;
+}
+
+.ql-bron-title {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.ql-bron-desc {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.ql-voorstel {
+  margin: 10px 0 0 18px;
+  font-size: 13px;
+}
+
+.ql-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.75;
+  line-height: 1.35;
+}
+

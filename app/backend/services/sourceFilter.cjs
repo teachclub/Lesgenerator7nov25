@@ -1,8 +1,9 @@
 // services/sourceFilter.cjs
 // Drop “lege” of “ruis/boilerplate” Kleio-bronnen voordat ze ooit naar proposals/Gemini/frontend gaan.
 //
-// Doel (dec 2025): noYear-ruis (scooters/congres/avatar/bever/Biesbosch + lesidee/meta) strakker wegdrukken,
-// maar historische noYear-parels (Bonifatius/Germanen/kiesrecht/slavernij/Jacobs etc.) behouden.
+// Update (dec 2025):
+// - aparte minTextLen voor Kleio (default 800)
+// - BELANGRIJK: geen concatenatie fullText+description (die zijn vaak duplicaat), maar 1 “beste” tekst kiezen
 
 function isObj(x) {
   return x && typeof x === "object" && !Array.isArray(x);
@@ -26,14 +27,20 @@ function squashWs(s) {
   return normStr(s).replace(/\s+/g, " ").trim();
 }
 
+// Kies 1 beste payload om dubbele tekst te vermijden (Kleio: description is vaak kopie van fullText)
 function getTextPayload(src) {
   if (!isObj(src)) return "";
-  const fullText = normStr(src.fullText);
-  const content = normStr(src.content);
-  const description = normStr(src.description);
 
-  const raw = [fullText, content, description].filter(Boolean).join("\n\n");
-  return squashWs(stripHtml(raw));
+  const fullText = squashWs(stripHtml(normStr(src.fullText)));
+  if (fullText) return fullText;
+
+  const content = squashWs(stripHtml(normStr(src.content)));
+  if (content) return content;
+
+  const description = squashWs(stripHtml(normStr(src.description)));
+  if (description) return description;
+
+  return "";
 }
 
 function isKleioSource(src) {
@@ -88,8 +95,6 @@ function extractYears(text) {
   return m.map(Number).filter((y) => Number.isInteger(y) && y >= 800 && y <= 2000);
 }
 
-// Hard noYear-titelruis: dit zijn vrijwel altijd “modern/agenda/natuur/edtech/lesidee” resultaten die door tv-filter glippen
-// doordat ze géén jaartal bevatten. Deze willen we ook weg, zelfs mét thumbnail.
 function isHardNoYearTitleNoise(titleRaw) {
   const t = squashWs(titleRaw).toLowerCase();
   if (!t) return false;
@@ -112,7 +117,6 @@ function isHardNoYearTitleNoise(titleRaw) {
   return false;
 }
 
-// --- noYear score heuristiek ---
 function noYearScore(title, text) {
   const t = (squashWs(title) + " " + squashWs(text)).toLowerCase();
   let score = 0;
@@ -158,11 +162,6 @@ function noYearScore(title, text) {
   return score;
 }
 
-// Conservatieve cleanup voor noYear-rommel:
-// - Titel exact "Zoekwoorden" altijd weg
-// - noYear + hard-title-noise -> weg (ook mét image)
-// - noYear + geen image + heel korte inhoud -> weg
-// - noYear + geen image + beperkte inhoud + slechte score -> weg
 function isLowValueNoYear(src, text) {
   const titleRaw = squashWs(normStr(src.title));
   const title = titleRaw.toLowerCase();
@@ -189,6 +188,11 @@ function filterSources(sources, opts = {}) {
   const minTextLen =
     Number.isFinite(Number(opts.minTextLen)) ? Number(opts.minTextLen) : 80;
 
+  const minTextLenKleio =
+    Number.isFinite(Number(opts.minTextLenKleio)) ? Number(opts.minTextLenKleio) : 800;
+
+  const allowShortKleioWithImage = opts.allowShortKleioWithImage === true;
+
   const out = [];
   let droppedKleioEmpty = 0;
   let droppedKleioNoise = 0;
@@ -202,8 +206,6 @@ function filterSources(sources, opts = {}) {
     }
 
     const text = getTextPayload(s);
-    const okText = text.length >= minTextLen;
-    const okImg = hasImage(s);
     const noise = isLikelyNoiseText(text);
 
     if (noise) {
@@ -216,11 +218,21 @@ function filterSources(sources, opts = {}) {
       continue;
     }
 
-    if (okText || okImg) {
+    const okImg = hasImage(s);
+    const okTextKleio = text.length >= minTextLenKleio;
+
+    if (okTextKleio) {
       out.push(s);
-    } else {
-      droppedKleioEmpty++;
+      continue;
     }
+
+    if (allowShortKleioWithImage && okImg) {
+      out.push(s);
+      continue;
+    }
+
+    if (text.length >= minTextLen) droppedKleioEmpty++;
+    else droppedKleioEmpty++;
   }
 
   return { sources: out, droppedKleioEmpty, droppedKleioNoise };

@@ -17,6 +17,25 @@
         { "source": "/api/**", "run": { "serviceId": "lessie2000-backend", "region": "europe-west4" } },
         { "source": "**", "destination": "/index.html" }
       ]
+    },
+    {
+      "site": "lessielab2",
+      "public": "app/frontend/dist",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "headers": [
+        {
+          "source": "/index.html",
+          "headers": [
+            { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+            { "key": "Pragma", "value": "no-cache" },
+            { "key": "Expires", "value": "0" }
+          ]
+        }
+      ],
+      "rewrites": [
+        { "source": "/api/**", "run": { "serviceId": "lessie2000-backend", "region": "europe-west4" } },
+        { "source": "**", "destination": "/index.html" }
+      ]
     }
   ]
 }

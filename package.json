@@ -1,6 +1,7 @@
 {
   "name": "prompt-app",
   "version": "1.0.0",
+  "type": "module",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -15,6 +16,9 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "node-fetch": "^3.3.2",
     "openai": "^6.7.0"
   }
 }
+
+

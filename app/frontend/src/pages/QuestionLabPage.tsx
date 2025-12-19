@@ -1,452 +1,487 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useMemo, useState } from "react";
+import { useSearchMatch } from "../hooks/useSearchMatch";
+import { useQuestionGen } from "../hooks/useQuestionGen";
+import { log, error } from "../utils/log";
+import "./QuestionLabPage.css";
 
-import { labFetch } from "../lib/labFetch";
-import { resetEvents } from "../lib/labDebugStore";
-import LabDebugOverlay from "../components/LabDebugOverlay";
-import LabStatus from "../components/LabStatus";
+type Hoofdvraag = { id: number; vraag: string };
+type Deelvraag = { id: number; subdimensie: string; vraag: string };
 
-const LAB_VERSION = "questionlab-v5";
-
-const TIJDVAKKEN = [
-  { id: "1", label: "Jagers en boeren" },
-  { id: "2", label: "Grieken en Romeinen" },
-  { id: "3", label: "Monniken en ridders" },
-  { id: "4", label: "Steden en staten" },
-  { id: "5", label: "Ontdekkers en hervormers" },
-  { id: "6", label: "Regenten en vorsten" },
-  { id: "7", label: "Pruiken en revoluties" },
-  { id: "8", label: "Burgers en stoommachines" },
-  { id: "9", label: "Wereldoorlogen" },
-  { id: "10", label: "Televisie en computer" }
+const TVS = [
+  { tv: "1", label: "TV1" },
+  { tv: "2", label: "TV2" },
+  { tv: "3", label: "TV3" },
+  { tv: "4", label: "TV4" },
+  { tv: "5", label: "TV5" },
+  { tv: "6", label: "TV6" },
+  { tv: "7", label: "TV7" },
+  { tv: "8", label: "TV8" },
+  { tv: "9", label: "TV9" },
+  { tv: "10", label: "TV10" },
 ];
 
-const HOOFDVRAAG_TYPES = [
-  { id: "vrij", label: "Vrij (geen type)" },
-  { id: "verklarend", label: "Verklarend (waarom/hoe)" },
-  { id: "vergelijkend", label: "Vergelijkend (A vs B)" },
-  { id: "verandering", label: "Verandering/continuïteit" },
-  { id: "standpunt", label: "Standpunt/weging (afwegen)" }
-];
-
-function labelErk(n: number) {
-  if (n <= 1) return "ERK A1 (heel simpel) – korte zinnen, weinig vaktaal";
-  if (n === 2) return "ERK A2 (simpel) – basistaal, weinig abstract";
-  if (n === 3) return "ERK B1 (normaal) – havo-basis, duidelijke zinnen";
-  if (n === 4) return "ERK B2 (hoog) – preciezer, meer vaktaal";
-  return "ERK C1 (heel hoog) – rijker, abstracter, preciezer";
+function clamp(n: number, a: number, b: number) {
+  return Math.max(a, Math.min(b, n));
 }
 
-function labelNuance(n: number) {
-  if (n <= 1) return "Weinig nuance (rechttoe rechtaan)";
-  if (n === 2) return "Beetje nuance";
-  if (n === 3) return "Gemiddeld (afwegen)";
-  if (n === 4) return "Veel nuance (meerdere factoren)";
-  return "Max nuance (tegenargumenten/afweging)";
+function labelTaalniveau(v: number) {
+  if (v <= 0) return "mavo";
+  if (v === 1) return "havo";
+  return "vwo";
 }
 
-export default function QuestionLabPage() {
-  const navigate = useNavigate();
+function nuanceTo15(n: number) {
+  const x = clamp(Number(n) || 0, 0, 100);
+  if (x <= 20) return 1;
+  if (x <= 40) return 2;
+  if (x <= 60) return 3;
+  if (x <= 80) return 4;
+  return 5;
+}
 
-  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const disabled = status === "loading";
+const QuestionLabPage = () => {
+  const [vraagType, setVraagType] = useState<string>("verklarend");
+  const [richting, setRichting] = useState<string>("");
+  const [presentisme, setPresentisme] = useState<boolean>(true);
+  const [taalniveau, setTaalniveau] = useState<number>(1);
+  const [nuance, setNuance] = useState<number>(55);
 
-  const [presentisme, setPresentisme] = useState(true);
-  const [taalniveau, setTaalniveau] = useState(2); // lager default
-  const [nuance, setNuance] = useState(2); // lager default
-  const [vraagType, setVraagType] = useState<string>("vrij");
-  const [tijdvakken, setTijdvakken] = useState<string[]>([]);
+  const [tvSelected, setTvSelected] = useState<Set<string>>(new Set());
 
-  const [idee, setIdee] = useState("");
+  const [prikkelFileName, setPrikkelFileName] = useState<string>("");
+  const [prikkelText, setPrikkelText] = useState<string>("");
 
-  const [useSeed, setUseSeed] = useState(false);
-  const [seedType, setSeedType] = useState<"text" | "image">("text");
-  const [seedText, setSeedText] = useState("");
-  const [seedImageUrl, setSeedImageUrl] = useState("");
-  const [seedToelichting, setSeedToelichting] = useState("");
-  const [seedRelatieMetHoofdvraag, setSeedRelatieMetHoofdvraag] = useState("");
-  const [seedRichting, setSeedRichting] = useState("");
+  const [hoofdvraagResult, setHoofdvraagResult] = useState<Hoofdvraag[] | null>(null);
+  const [gekozenHoofdvraag, setGekozenHoofdvraag] = useState<Hoofdvraag | null>(null);
+  const [deelvragen, setDeelvragen] = useState<Deelvraag[] | null>(null);
 
-  const [hoofdvraagResult, setHoofdvraagResult] = useState<any>(null);
-  const [gekozenHoofdvraag, setGekozenHoofdvraag] = useState<string>("");
+  const [selectie, setSelectie] = useState<Record<number, Set<string>>>({});
+  const [voorstel, setVoorstel] = useState<any[] | null>(null);
+  const [loadingVoorstel, setLoadingVoorstel] = useState(false);
+  const [loadingGen, setLoadingGen] = useState(false);
 
-  function resetLab() {
-    setStatus("idle");
-    setErrorMsg(null);
+  const { fetchMatches, result: bronnenPerDeelvraag } = useSearchMatch();
+  const { genereerHoofdvraagEnDeelvragen } = useQuestionGen();
 
-    setPresentisme(true);
-    setTaalniveau(2);
-    setNuance(2);
-    setVraagType("vrij");
-    setTijdvakken([]);
+  const tvChips = useMemo(
+    () => Array.from(tvSelected).sort((a, b) => Number(a) - Number(b)),
+    [tvSelected]
+  );
 
-    setIdee("");
-
-    setUseSeed(false);
-    setSeedType("text");
-    setSeedText("");
-    setSeedImageUrl("");
-    setSeedToelichting("");
-    setSeedRelatieMetHoofdvraag("");
-    setSeedRichting("");
-
+  const resetAlles = () => {
     setHoofdvraagResult(null);
-    setGekozenHoofdvraag("");
+    setGekozenHoofdvraag(null);
+    setDeelvragen(null);
+    setSelectie({});
+    setVoorstel(null);
+  };
 
-    resetEvents();
-  }
+  const toggleTv = (tv: string) => {
+    setTvSelected((prev) => {
+      const n = new Set(prev);
+      n.has(tv) ? n.delete(tv) : n.add(tv);
+      return n;
+    });
+  };
 
-  function toggleTijdvak(tv: string) {
-    setTijdvakken((prev) => (prev.includes(tv) ? prev.filter((x) => x !== tv) : [...prev, tv]));
-  }
-
-  async function callWithTimeout(p: Promise<any>, ms = 25000) {
-    return Promise.race([
-      p,
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout (mogelijk Gemini)")), ms))
-    ]);
-  }
-
-  function buildSeedSourceOrNull() {
-    if (!useSeed) return null;
-
-    const base: any = {
-      type: seedType,
-      observatie: seedToelichting,
-      seedPrompt: seedRichting
-    };
-
-    if (seedType === "image") {
-      if (!seedImageUrl.trim()) return null;
-      base.imageUrl = seedImageUrl.trim();
-    } else {
-      if (!seedText.trim()) return null;
-      base.text = seedText.trim();
-    }
-
-    if (seedRelatieMetHoofdvraag.trim()) {
-      const rel = seedRelatieMetHoofdvraag.trim();
-      base.seedPrompt = base.seedPrompt
-        ? `${base.seedPrompt}\nRelatie met hoofdvraag: ${rel}`
-        : `Relatie met hoofdvraag: ${rel}`;
-    }
-
-    return base;
-  }
-
-  const canGenerate = useMemo(() => {
-    if (useSeed) {
-      if (seedType === "image") return !!seedImageUrl.trim();
-      return !!seedText.trim();
-    }
-    return !!idee.trim();
-  }, [useSeed, seedType, seedImageUrl, seedText, idee]);
-
-  async function genereerHoofdvragen() {
-    if (!canGenerate) {
-      setErrorMsg("Vul een richting in of kies een bron.");
-      setStatus("error");
+  const onUpload = async (file: File | null) => {
+    if (!file) {
+      setPrikkelFileName("");
+      setPrikkelText("");
       return;
     }
-
-    setStatus("loading");
-    setErrorMsg(null);
-    setHoofdvraagResult(null);
-    setGekozenHoofdvraag("");
-
+    setPrikkelFileName(file.name);
     try {
-      const seedSource = buildSeedSourceOrNull();
-
-      const res = await callWithTimeout(
-        labFetch("/api/question-gen", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            step: 1,
-            idee,
-            presentisme,
-            niveau: taalniveau,
-            nuance,
-            vraagType,
-            tijdvakken,
-            seedSource
-          })
-        })
-      );
-
-      const json = await res.json();
-      if (!json?.result?.hoofdvragen?.length) throw new Error("Geen hoofdvragen ontvangen");
-
-      setHoofdvraagResult(json.result);
-      setStatus("idle");
-    } catch (e: any) {
-      setErrorMsg(e.message);
-      setStatus("error");
+      const txt = await file.text();
+      setPrikkelText(txt.slice(0, 12000));
+    } catch (e) {
+      error("❌ Upload lezen faalde", e);
+      setPrikkelText("");
     }
-  }
+  };
 
-  function naarDeelvragenVerfijnen() {
-    if (!gekozenHoofdvraag.trim()) {
-      setErrorMsg("Selecteer eerst één hoofdvraag.");
-      setStatus("error");
-      return;
-    }
+  const buildInvoer = () => {
+    const tvLine = tvChips.length ? `Tijdvak(ken): TV${tvChips.join(", TV")}` : "Tijdvak(ken): (niet geselecteerd)";
+    const lvl = labelTaalniveau(taalniveau);
 
-    const payload = {
-      fromLab: true,
-      labVersion: LAB_VERSION,
-      stap: "deelvragen-verfijnen",
-      hoofdvraag: gekozenHoofdvraag,
-      instellingen: {
-        presentisme,
-        taalniveau,
-        nuance,
+    const presentLine = presentisme
+      ? "Presentisme-regel: hoofdvraag heeft impliciete bril-van-nu (ongeloof/afkeur/verbazing) zonder nu-vs-toen te benoemen."
+      : "Presentisme-regel: neutraal en verklarend.";
+
+    const prikkel = prikkelText?.trim()
+      ? `Prikkelende bron (geüpload, fragment):\n${prikkelText.trim()}\n`
+      : "";
+
+    return [
+      `Soort vraag: ${vraagType}`,
+      `Richting/idee: ${richting || "(leeg)"}`,
+      presentLine,
+      `Taalniveau: ${lvl}`,
+      `Nuance/afwegen (1-5): ${nuanceTo15(nuance)}`,
+      tvLine,
+      prikkel ? prikkel : "",
+      "Output: 3 hoofdvraagchips + 4 deelvragen (subdimensies).",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  };
+
+  const genereer = async () => {
+    try {
+      setLoadingGen(true);
+      setVoorstel(null);
+
+      const invoer = buildInvoer();
+
+      const payload = {
+        invoer,
         vraagType,
-        tijdvakken
-      },
-      seedSource: buildSeedSourceOrNull()
+        richting,
+        presentisme,
+        level: labelTaalniveau(taalniveau),
+        nuance: nuanceTo15(nuance),
+        tv: tvChips,
+        prikkelText,
+      };
+
+      const resultaat = await genereerHoofdvraagEnDeelvragen(payload);
+
+      const hoofd = (resultaat?.hoofdvraagSuggesties || []).slice(0, 3);
+      setHoofdvraagResult(hoofd);
+      setGekozenHoofdvraag(null);
+
+      setDeelvragen(resultaat?.deelvragen || []);
+      setSelectie({});
+
+      log("🎯 Vragen gegenereerd", { payload, resultaat });
+    } catch (err) {
+      error("❌ Generatie faalde", err);
+    } finally {
+      setLoadingGen(false);
+    }
+  };
+
+  const verwijderHoofdvraag = (id: number) => {
+    setHoofdvraagResult((prev) => (prev ? prev.filter((hv) => hv.id !== id) : prev));
+    if (gekozenHoofdvraag?.id === id) setGekozenHoofdvraag(null);
+  };
+
+  const kiesHoofdvraag = (hv: Hoofdvraag) => {
+    setGekozenHoofdvraag(hv);
+    setVoorstel(null);
+  };
+
+  const handleUpdateDeelvraag = (index: number, nieuweVraag: string) => {
+    setDeelvragen((prev) => {
+      if (!prev) return prev;
+      const updated = [...prev];
+      updated[index] = { ...updated[index], vraag: nieuweVraag };
+      return updated;
+    });
+  };
+
+  const handleVerwijderDeelvraag = (id: number) => {
+    setDeelvragen((prev) => (prev ? prev.filter((dv) => dv.id !== id) : prev));
+  };
+
+  const toggleSelectie = (dvId: number, bronId: string) => {
+    setSelectie((prev) => {
+      const nieuw = new Set(prev[dvId] || []);
+      nieuw.has(bronId) ? nieuw.delete(bronId) : nieuw.add(bronId);
+      return { ...prev, [dvId]: nieuw };
+    });
+  };
+
+  const opslaanSelectie = async (dvId: number) => {
+    const bronIds = Array.from(selectie[dvId] || []);
+    try {
+      const res = await fetch("/api/bronselectie", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deelvraagId: dvId, bronIds }),
+      });
+      const data = await res.json();
+      if (data.ok) log(`✅ Opgeslagen selectie voor deelvraag ${dvId}`, bronIds);
+      else error(`❌ Fout bij opslaan`, data);
+    } catch (err) {
+      error(`❌ Netwerkfout bij opslaan`, err);
+    }
+  };
+
+  const verstuurLesvoorstel = async () => {
+    if (!deelvragen) return;
+    const payload = {
+      hoofdvraag: gekozenHoofdvraag,
+      deelvragen,
+      selectie: Object.fromEntries(Object.entries(selectie).map(([k, v]) => [k, Array.from(v)])),
     };
-
-    navigate("/lab/sources", { state: payload });
-  }
-
-  const hvList = hoofdvraagResult?.hoofdvragen || [];
+    try {
+      setLoadingVoorstel(true);
+      const res = await fetch("/api/lesson-v2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      setVoorstel(data.voorstel);
+      log("📦 Voorstel ontvangen", data);
+    } catch (err) {
+      error("❌ Lesvoorstel ophalen faalde", err);
+    } finally {
+      setLoadingVoorstel(false);
+    }
+  };
 
   return (
-    <div className="lesgo-generator-page">
-      <div className="lesgo-generator-layout" style={{ gridTemplateColumns: "360px minmax(0, 1fr)" }}>
-        <aside className="lesgo-sidebar">
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <h1 className="lesgo-title" style={{ margin: 0 }}>Vraaggenerator (LAB)</h1>
-              <div style={{ fontSize: 12, opacity: 0.55 }}>v{LAB_VERSION}</div>
-            </div>
-            <LabStatus state={status} />
-            {errorMsg && <div className="lesgo-error" style={{ marginTop: 8 }}>{errorMsg}</div>}
-          </div>
+    <div className="ql">
+      <header className="ql-header">
+        <div>
+          <h1>QuestionLab</h1>
+          <p>3 kolommen: vraagconfig → hoofdvraagchips → bronnen & lesvoorstel.</p>
+        </div>
+        <div className="ql-header-actions">
+          <button className="ql-btn ql-btn-light" type="button" onClick={resetAlles}>
+            Reset
+          </button>
+          <a className="ql-link" href="/preset">
+            Preset-zoeker
+          </a>
+        </div>
+      </header>
 
-          <div className="lesgo-panel">
-            <h2>1) Instellingen</h2>
+      <div className="ql-grid">
+        <aside className="ql-col ql-left">
+          <section className="ql-card">
+            <h2>Instellingen</h2>
 
-            <label style={{ display: "block", marginBottom: 10 }}>
-              <input disabled={disabled} type="checkbox" checked={presentisme} onChange={(e) => setPresentisme(e.target.checked)} />{" "}
-              Anti-presentisme
+            <label className="ql-label">Wat voor soort onderzoeksvraag</label>
+            <select className="ql-select" value={vraagType} onChange={(e) => setVraagType(e.target.value)}>
+              <option value="verklarend">Verklarend (waarom/waardoor)</option>
+              <option value="vergelijkend">Vergelijkend (hoe/waarom elders anders)</option>
+              <option value="oorzaak-gevolg">Oorzaak–gevolg</option>
+              <option value="continuiteit-verandering">Continuïteit & verandering</option>
+              <option value="perspectief">Perspectief / standplaatsgebondenheid</option>
+            </select>
+
+            <label className="ql-label">Wat is je hoofdvraag / welke richting denk je aan?</label>
+            <textarea
+              className="ql-textarea"
+              value={richting}
+              onChange={(e) => setRichting(e.target.value)}
+              placeholder="Bijv. ‘Hoe kregen nazi’s zoveel steun?’"
+            />
+
+            <label className="ql-check">
+              <input type="checkbox" checked={presentisme} onChange={(e) => setPresentisme(e.target.checked)} />
+              Presentisme in hoofdvraag (impliciet)
             </label>
 
-            <div className="lesgo-field">
-              <span>Type hoofdvraag (optioneel)</span>
-              <select
-                disabled={disabled}
-                value={vraagType}
-                onChange={(e) => setVraagType(e.target.value)}
-                style={{ borderRadius: 8, border: "1px solid #d1d5db", padding: "0.45rem 0.6rem", fontSize: "0.9rem" }}
-              >
-                {HOOFDVRAAG_TYPES.map((t) => (
-                  <option key={t.id} value={t.id}>{t.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="lesgo-field">
-              <span>Taalniveau (ERK)</span>
-              <div style={{ fontSize: 12, opacity: 0.75 }}>{labelErk(taalniveau)}</div>
-              <input disabled={disabled} type="range" min={1} max={5} value={taalniveau} onChange={(e) => setTaalniveau(Number(e.target.value))} />
-            </div>
-
-            <div className="lesgo-field">
-              <span>Nuance / afwegen</span>
-              <div style={{ fontSize: 12, opacity: 0.75 }}>{labelNuance(nuance)}</div>
-              <input disabled={disabled} type="range" min={1} max={5} value={nuance} onChange={(e) => setNuance(Number(e.target.value))} />
-            </div>
-          </div>
-
-          <div className="lesgo-panel">
-            <h2>2) Tijdvakken</h2>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {TIJDVAKKEN.map((tv) => {
-                const active = tijdvakken.includes(tv.id);
-                return (
-                  <button
-                    key={tv.id}
-                    disabled={disabled}
-                    onClick={() => toggleTijdvak(tv.id)}
-                    className="lesgo-button"
-                    style={{
-                      borderRadius: 9999,
-                      padding: "0.25rem 0.7rem",
-                      fontSize: 12,
-                      borderColor: active ? "#2563eb" : "#d1d5db",
-                      background: active ? "#2563eb" : "white",
-                      color: active ? "white" : "#111827"
-                    }}
-                    type="button"
-                  >
-                    TV {tv.id}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="lesgo-panel">
-            <h2>3) Start</h2>
-
-            <div className="lesgo-field">
-              <span>Richting / hoofdvraag (tekst)</span>
-              <textarea
-                disabled={disabled}
-                value={idee}
-                onChange={(e) => setIdee(e.target.value)}
-                rows={3}
-                placeholder="Bijv. ‘Waarom kreeg Hitler in Duitsland (1932) zoveel steun?’"
-              />
-            </div>
-
-            <label style={{ display: "block", marginBottom: 8 }}>
-              <input disabled={disabled} type="checkbox" checked={useSeed} onChange={(e) => setUseSeed(e.target.checked)} />{" "}
-              Startbron toevoegen (optioneel)
-            </label>
-
-            {useSeed && (
-              <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 10, background: "#f9fafb" }}>
-                <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
-                  <label style={{ fontSize: 13 }}>
-                    <input disabled={disabled} type="radio" checked={seedType === "text"} onChange={() => setSeedType("text")} />{" "}
-                    Tekst
-                  </label>
-                  <label style={{ fontSize: 13 }}>
-                    <input disabled={disabled} type="radio" checked={seedType === "image"} onChange={() => setSeedType("image")} />{" "}
-                    Afbeelding (URL)
-                  </label>
+            <div className="ql-sliders">
+              <div className="ql-slider">
+                <div className="ql-slider-top">
+                  <span>Taalniveau</span>
+                  <strong>{labelTaalniveau(taalniveau)}</strong>
                 </div>
-
-                {seedType === "text" ? (
-                  <textarea
-                    disabled={disabled}
-                    value={seedText}
-                    onChange={(e) => setSeedText(e.target.value)}
-                    rows={4}
-                    style={{ width: "100%", borderRadius: 8, border: "1px solid #d1d5db", padding: "0.45rem 0.6rem" }}
-                    placeholder="Plak de volledige tekstbron."
-                  />
-                ) : (
-                  <input
-                    disabled={disabled}
-                    value={seedImageUrl}
-                    onChange={(e) => setSeedImageUrl(e.target.value)}
-                    style={{ width: "100%", borderRadius: 8, border: "1px solid #d1d5db", padding: "0.45rem 0.6rem" }}
-                    placeholder="Plak de afbeelding-URL."
-                  />
-                )}
-
-                <textarea
-                  disabled={disabled}
-                  value={seedToelichting}
-                  onChange={(e) => setSeedToelichting(e.target.value)}
-                  rows={2}
-                  style={{ width: "100%", marginTop: 8, borderRadius: 8, border: "1px solid #d1d5db", padding: "0.45rem 0.6rem" }}
-                  placeholder="Toelichting (context): wat is dit voor bron?"
-                />
-
-                <textarea
-                  disabled={disabled}
-                  value={seedRelatieMetHoofdvraag}
-                  onChange={(e) => setSeedRelatieMetHoofdvraag(e.target.value)}
-                  rows={2}
-                  style={{ width: "100%", marginTop: 8, borderRadius: 8, border: "1px solid #d1d5db", padding: "0.45rem 0.6rem" }}
-                  placeholder="Wat heeft deze bron met je hoofdvraag te maken?"
-                />
-
                 <input
-                  disabled={disabled}
-                  value={seedRichting}
-                  onChange={(e) => setSeedRichting(e.target.value)}
-                  style={{ width: "100%", marginTop: 8, borderRadius: 8, border: "1px solid #d1d5db", padding: "0.45rem 0.6rem" }}
-                  placeholder="Extra prompt/richting (optioneel)"
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={1}
+                  value={taalniveau}
+                  onChange={(e) => setTaalniveau(Number(e.target.value))}
                 />
               </div>
-            )}
 
-            <div className="lesgo-actions" style={{ marginTop: 12 }}>
-              <button className="lesgo-button primary" disabled={disabled} onClick={genereerHoofdvragen} type="button">
-                Genereer hoofdvragen
-              </button>
-              <button className="lesgo-button" disabled={disabled} onClick={resetLab} type="button">
-                Reset
+              <div className="ql-slider">
+                <div className="ql-slider-top">
+                  <span>Complexiteit / nuance</span>
+                  <strong>{nuanceTo15(nuance)}</strong>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={nuance}
+                  onChange={(e) => setNuance(Number(e.target.value))}
+                />
+              </div>
+            </div>
+
+            <label className="ql-label">Uploaden prikkelende bron</label>
+            <input
+              className="ql-file"
+              type="file"
+              accept=".txt,.md,.html"
+              onChange={(e) => onUpload(e.target.files?.[0] || null)}
+            />
+            {!!prikkelFileName && <div className="ql-muted">Geselecteerd: {prikkelFileName}</div>}
+
+            <div className="ql-divider" />
+
+            <label className="ql-label">Tijdvak</label>
+            <div className="ql-chips">
+              {TVS.map((t) => (
+                <button
+                  type="button"
+                  key={t.tv}
+                  className={`ql-chip ${tvSelected.has(t.tv) ? "ql-chip-on" : ""}`}
+                  onClick={() => toggleTv(t.tv)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="ql-actions">
+              <button className="ql-btn" type="button" onClick={genereer} disabled={loadingGen}>
+                {loadingGen ? "⏳ Genereren..." : "Genereer hoofdvraag + deelvragen"}
               </button>
             </div>
-          </div>
+          </section>
         </aside>
 
-        <main className="lesgo-main">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-            <h2 style={{ margin: 0 }}>Hoofdvraag</h2>
-            <div style={{ fontSize: 12, opacity: 0.6 }}>Selecteer → Volgende stap: deelvragen verfijnen</div>
-          </div>
+        <main className="ql-col ql-mid">
+          <section className="ql-card">
+            <h2>Hoofdvraag (3 chips)</h2>
 
-          {!hoofdvraagResult && (
-            <div className="lesgo-placeholder">
-              <h2>Start links</h2>
-              <div style={{ opacity: 0.7 }}>
-                Vul een richting in (of voeg een startbron toe) en klik op <strong>Genereer hoofdvragen</strong>.
-              </div>
-            </div>
-          )}
-
-          {hvList?.length > 0 && (
-            <div className="lesgo-output-wrapper" style={{ marginTop: 12 }}>
-              <h3 style={{ marginTop: 0 }}>Kies één hoofdvraag</h3>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {hvList.map((hv: any) => {
-                  const active = gekozenHoofdvraag === hv.vraag;
-                  return (
-                    <label
-                      key={hv.id}
-                      style={{
-                        border: "1px solid #e5e7eb",
-                        borderRadius: 12,
-                        padding: 12,
-                        cursor: "pointer",
-                        background: active ? "#dbeafe" : "white"
-                      }}
-                    >
-                      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                        <input
-                          disabled={disabled}
-                          type="radio"
-                          name="gekozenHoofdvraag"
-                          checked={active}
-                          onChange={() => setGekozenHoofdvraag(hv.vraag)}
-                          style={{ marginTop: 4 }}
-                        />
-                        <div style={{ lineHeight: 1.45 }}>
-                          <div style={{ fontWeight: 600 }}>{hv.vraag}</div>
-                        </div>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-
-              <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-                <button
-                  className="lesgo-button primary"
-                  disabled={disabled || !gekozenHoofdvraag}
-                  onClick={naarDeelvragenVerfijnen}
-                  type="button"
+            <div className="ql-chiprow">
+              {(hoofdvraagResult || []).map((hv) => (
+                <div
+                  key={hv.id}
+                  className={`ql-bigchip ${gekozenHoofdvraag?.id === hv.id ? "ql-bigchip-on" : ""}`}
+                  onClick={() => kiesHoofdvraag(hv)}
+                  role="button"
+                  tabIndex={0}
                 >
-                  Verder: deelvragen verfijnen
+                  <span>{hv.vraag}</span>
+                  <button
+                    className="ql-x"
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      verwijderHoofdvraag(hv.id);
+                    }}
+                    aria-label="Verwijder hoofvraag"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {!hoofdvraagResult?.length && <div className="ql-muted">Nog geen hoofdvragen (klik links op genereren).</div>}
+            </div>
+
+            {gekozenHoofdvraag && (
+              <div className="ql-picked">
+                <strong>Gekozen:</strong> {gekozenHoofdvraag.vraag}
+                <button className="ql-btn ql-btn-light" type="button" onClick={() => setGekozenHoofdvraag(null)}>
+                  Wegklikken
                 </button>
               </div>
-            </div>
-          )}
+            )}
+          </section>
 
-          <LabDebugOverlay />
+          {gekozenHoofdvraag && (
+            <section className="ql-card">
+              <h2>Deelvragen</h2>
+
+              {(deelvragen || []).map((dv, index) => (
+                <div key={dv.id} className="ql-deelvraag">
+                  <div className="ql-deelvraag-top">
+                    <div className="ql-subdimensie">{dv.subdimensie}</div>
+
+                    <button className="ql-x2" type="button" onClick={() => handleVerwijderDeelvraag(dv.id)}>
+                      ×
+                    </button>
+                  </div>
+
+                  <textarea
+                    className="ql-textarea ql-textarea-small"
+                    value={dv.vraag}
+                    onChange={(e) => handleUpdateDeelvraag(index, e.target.value)}
+                  />
+
+                  <div className="ql-toolbar">
+                    <button
+                      className="ql-btn ql-btn-light"
+                      type="button"
+                      onClick={() => fetchMatches(String(dv.id), dv.vraag, dv.subdimensie)}
+                    >
+                      🔍 Vind bronnen
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {!deelvragen?.length && <div className="ql-muted">Nog geen deelvragen.</div>}
+            </section>
+          )}
         </main>
+
+        <aside className="ql-col ql-right">
+          <section className="ql-card">
+            <h2>Bronnen & selectie</h2>
+
+            {!gekozenHoofdvraag && <div className="ql-muted">Kies eerst een hoofdvraag in het midden.</div>}
+
+            {gekozenHoofdvraag &&
+              (deelvragen || []).map((dv) => (
+                <div key={dv.id} className="ql-bronblok">
+                  <div className="ql-bronblok-top">
+                    <strong>Deelvraag {dv.id}</strong>
+                    <span className="ql-muted">{dv.subdimensie}</span>
+                  </div>
+
+                  <div className="ql-bronnen">
+                    {(bronnenPerDeelvraag[dv.id] || []).map((b, i) => (
+                      <label key={b.id} className="ql-bron">
+                        <input
+                          type="checkbox"
+                          checked={selectie[dv.id]?.has(b.id) || false}
+                          onChange={() => toggleSelectie(dv.id, b.id)}
+                        />
+                        <div>
+                          <div className="ql-bron-title">
+                            <strong>{i < 2 ? "⭐" : "▫️"} {b.title}</strong>
+                          </div>
+                          <div className="ql-bron-desc">{b.motivatie || b.kernargumenten?.[0]}</div>
+                        </div>
+                      </label>
+                    ))}
+
+                    {!bronnenPerDeelvraag[dv.id]?.length && <div className="ql-muted">Nog geen bronnen (dummy search-match geeft nog lege lijst).</div>}
+                  </div>
+
+                  <div className="ql-toolbar">
+                    <button className="ql-btn ql-btn-light" type="button" onClick={() => opslaanSelectie(dv.id)}>
+                      💾 Opslaan selectie
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </section>
+
+          <section className="ql-card">
+            <h2>Lesvoorstel</h2>
+            <button className="ql-btn" type="button" onClick={verstuurLesvoorstel} disabled={!gekozenHoofdvraag || loadingVoorstel}>
+              {loadingVoorstel ? "⏳ Bouwen..." : "📦 Bouw lesvoorstel"}
+            </button>
+
+            {voorstel && (
+              <ul className="ql-voorstel">
+                {voorstel.map((blok, i) => (
+                  <li key={i}>
+                    <strong>{blok.subdimensie}:</strong> {blok.deelvraag} → {blok.aanbeveling}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </aside>
       </div>
     </div>
   );
-}
+};
+
+export default QuestionLabPage;
 

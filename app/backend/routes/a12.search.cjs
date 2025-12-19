@@ -44,6 +44,10 @@ function asArray(x) {
   return [];
 }
 
+function isKaToken(s) {
+  return /^KA\s*\d{1,2}$/i.test(String(s || "").trim());
+}
+
 function normalizeRequestBody(body) {
   const filters = body.filters && typeof body.filters === "object" ? { ...body.filters } : {};
 
@@ -91,6 +95,8 @@ router.post("/search", async (req, res) => {
       console.error("[A12] provider=historiek gevraagd maar historiekService is null");
     }
 
+    const kaOnlyQuery = termsArray.length === 1 && isKaToken(termsArray[0]) && !!filters.ka;
+
     let allResults = [];
     const promises = [];
 
@@ -106,9 +112,10 @@ router.post("/search", async (req, res) => {
     }
 
     if (filters?.kleio !== false && kleioService) {
+      const kleioQuery = kaOnlyQuery ? [] : termsArray;
       promises.push(
         kleioService
-          .searchKleio({ query: termsArray, filters })
+          .searchKleio({ query: kleioQuery, filters })
           .then((r) => {
             if (Array.isArray(r)) allResults.push(...r);
           })
@@ -116,16 +123,15 @@ router.post("/search", async (req, res) => {
       );
     }
 
-    if (filters?.historiek !== false && historiekService) {
+    const historiekEnabled = false;
+    if (historiekEnabled && filters?.historiek !== false && historiekService) {
       promises.push(
         historiekService
           .searchHistoriek({ query: termsArray, filters })
           .then((r) => {
             if (Array.isArray(r)) allResults.push(...r);
           })
-          .catch((e) =>
-            console.error("[A12] Historiek error:", e && (e.stack || e.message || e))
-          )
+          .catch((e) => console.error("[A12] Historiek error:", e && (e.stack || e.message || e)))
       );
     }
 
@@ -140,7 +146,7 @@ router.post("/search", async (req, res) => {
       return res.json({ sources: [], meta: { count: 0, droppedKleioEmpty: 0, droppedKleioNoise: 0 } });
     }
 
-    const filtered = filterSources(allResults, { minTextLen: 80 });
+    const filtered = filterSources(allResults, { minTextLen: 80, minTextLenKleio: 1200 });
     console.log(
       "[A12] droppedKleioEmpty:",
       filtered.droppedKleioEmpty,

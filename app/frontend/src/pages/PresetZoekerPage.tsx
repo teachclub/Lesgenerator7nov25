@@ -17,7 +17,6 @@ interface SearchFilters {
   text: boolean;
   kleio: boolean;
   cito: boolean;
-  historiek: boolean;
   tv?: string;
   ka?: string;
 }
@@ -57,6 +56,18 @@ Wil je achtergrond bij historisch redeneren en ‘het vreemde verleden’? Bekij
 https://expertisecentrum-geschiedenis.nl/wp-content/uploads/VreemdeVerleden.pdf
 `;
 
+function extractTv(tvLike: unknown): string | undefined {
+  const s = typeof tvLike === "string" || typeof tvLike === "number" ? String(tvLike) : "";
+  const m = s.match(/\d+/);
+  return m ? m[0] : undefined;
+}
+
+function extractKa(kaLike: unknown): string | undefined {
+  const s = typeof kaLike === "string" || typeof kaLike === "number" ? String(kaLike) : "";
+  const m = s.match(/\d+/);
+  return m ? `KA${m[0]}` : undefined;
+}
+
 const PresetZoekerPage: FC = () => {
   const navigate = useNavigate();
   const { searchQuery, setSearchQuery } = useQueryStore();
@@ -72,7 +83,6 @@ const PresetZoekerPage: FC = () => {
     text: true,
     kleio: true,
     cito: true,
-    historiek: true,
   });
 
   const [lastUsedTerms, setLastUsedTerms] = useState<string[]>([]);
@@ -95,10 +105,10 @@ const PresetZoekerPage: FC = () => {
   };
 
   const handleTvKaSelect = (selection: { tv?: string; ka?: string; kaTitel?: string }) => {
-    const kaRaw = selection.ka ? String(selection.ka).trim() : "";
-    const kaCanon = kaRaw ? `KA${kaRaw.replace(/^KA/i, "")}` : undefined;
+    const tvCanon = extractTv(selection.tv);
+    const kaCanon = extractKa(selection.ka);
 
-    setFilters((prev) => ({ ...prev, tv: selection.tv, ka: kaCanon }));
+    setFilters((prev) => ({ ...prev, tv: tvCanon, ka: kaCanon }));
     if (kaCanon) setSearchQuery(kaCanon);
   };
 
@@ -150,8 +160,12 @@ const PresetZoekerPage: FC = () => {
           if (terms.length === 0 && Array.isArray(presetData.terms)) {
             terms = presetData.terms.map((t) => String(t).trim()).filter((t) => t.length > 0);
           }
+        } else {
+          console.warn("[PresetZoeker] search-preset niet bruikbaar:", presetRes.status);
         }
-      } catch {}
+      } catch (presetErr) {
+        console.warn("[PresetZoeker] search-preset faalde, fallback", presetErr);
+      }
 
       if (terms.length === 0) {
         if (hasUserQuery) terms = [searchQuery!.trim()];
@@ -180,7 +194,8 @@ const PresetZoekerPage: FC = () => {
 
       const searchData = await searchRes.json();
       setSources(searchData.sources || []);
-    } catch {
+    } catch (err: unknown) {
+      console.error("[PresetZoeker] fout bij zoeken", err);
       setError("Er ging iets mis bij het zoeken. Controleer of /api/search beschikbaar is.");
       setLastUsedTerms([]);
     } finally {
@@ -224,7 +239,8 @@ const PresetZoekerPage: FC = () => {
           return { ...(prev as any), fullText: j.fullText, title: j.title || (prev as any).title } as any;
         });
       }
-    } catch {
+    } catch (e) {
+      console.warn("[PresetZoeker] source-detail faalde", e);
     } finally {
       setDetailLoading(false);
     }
@@ -422,14 +438,6 @@ const PresetZoekerPage: FC = () => {
                     />
                     Cito
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer text-sm">
-                    <input
-                      type="checkbox"
-                      checked={filters.historiek}
-                      onChange={(e) => setFilters({ ...filters, historiek: e.target.checked })}
-                    />
-                    Historiek
-                  </label>
                 </div>
               </div>
             </div>
@@ -444,7 +452,7 @@ const PresetZoekerPage: FC = () => {
             {loading ? (
               <div className="flex flex-col items-center justify-center h-64 text-gray-400 animate-pulse">
                 <span className="text-4xl mb-2">📡</span>
-                <p>Zoeken in Kleio &amp; Cito &amp; Historiek...</p>
+                <p>Zoeken in Kleio &amp; Cito...</p>
               </div>
             ) : (
               <SelectionPanel onSelectSource={(s: any) => handleSelectSource(s)} selectedId={selectedDetailSource?.id} />

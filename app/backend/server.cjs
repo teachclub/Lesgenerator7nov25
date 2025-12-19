@@ -1,9 +1,5 @@
 "use strict";
 
-/**
- * Minimal clean server voor Lessie2000 / LesGO v2 in /app/backend
- */
-
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
@@ -70,8 +66,9 @@ app.use("/api", require("./routes/a22.thesaurus.cjs"));
 app.use("/api", require("./routes/a35.proposals-v2.cjs"));
 app.use("/api", require("./routes/lessonV2.refineConcept.cjs"));
 app.use("/api", require("./routes/a14.sourceDetail.cjs"));
-
 app.use("/api", require("./routes/a15.imageProxy.cjs")());
+app.use("/api", require("./routes/a16.questionGen.cjs")());
+app.use("/api", require("./routes/searchMatch.cjs")());
 
 const lessonRouter = express.Router();
 

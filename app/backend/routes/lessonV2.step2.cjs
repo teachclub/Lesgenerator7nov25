@@ -68,7 +68,60 @@ function coerceQuestionArray(vragen, sourceType) {
   return out;
 }
 
-function normalizeStep2Output(parsed, lightSources) {
+function normalizeSeedSource(raw) {
+  if (!isObj(raw)) return null;
+
+  const type = normType(raw.type);
+  const text = normStr(raw.text);
+  const imageUrl = normStr(raw.imageUrl);
+  const observatie = normStr(raw.observatie);
+  const eersteReactie = normStr(raw.eersteReactie);
+
+  if (type === "image") {
+    if (!imageUrl) return null;
+  } else {
+    if (!text) return null;
+  }
+
+  return {
+    type,
+    text: type === "text" ? text.slice(0, 1200) : "",
+    imageUrl: type === "image" ? imageUrl : "",
+    observatie: observatie.slice(0, 400),
+    eersteReactie: eersteReactie.slice(0, 250)
+  };
+}
+
+function injectSeedSourceStartopdracht(leerling, seedSource) {
+  if (!seedSource) return;
+
+  const lines = [];
+  lines.push("Startbron (verwondering):");
+  if (seedSource.type === "image") {
+    lines.push(`Afbeelding: ${seedSource.imageUrl}`);
+  } else {
+    lines.push(seedSource.text);
+  }
+  if (seedSource.observatie) lines.push(`Observatie: ${seedSource.observatie}`);
+  if (seedSource.eersteReactie) lines.push(`Eerste reactie: ${seedSource.eersteReactie}`);
+
+  const beschrijving =
+    "Start met verwondering (je eerste reactie mag vanuit nu). Daarna ga je bewust ‘met de bril van toen’ kijken: je zoekt verklaringen in de historische context, niet in een oordeel.";
+
+  const stappen = [
+    "Bekijk/lees de startbron en noteer 2–3 concrete observaties.",
+    "Schrijf je eerste reactie op in één zin (dat mag presentistisch zijn).",
+    "Formuleer één vraag die je helpt om te verklaren wat je ziet/leest (niet: veroordelen).",
+    "Ga daarna pas verder met de bronnen en opdrachten: probeer te begrijpen hoe mensen toen dachten en handelden."
+  ];
+
+  leerling.startopdracht = {
+    beschrijving: `${beschrijving}\n\n${lines.join("\n")}`,
+    stappen
+  };
+}
+
+function normalizeStep2Output(parsed, lightSources, seedSourceRaw) {
   const N = lightSources.length;
 
   const step2 = isObj(parsed) ? parsed : {};
@@ -216,6 +269,9 @@ function normalizeStep2Output(parsed, lightSources) {
     ];
   }
 
+  const seed = normalizeSeedSource(seedSourceRaw);
+  injectSeedSourceStartopdracht(leerling, seed);
+
   return step2;
 }
 
@@ -271,12 +327,15 @@ function registerLessonV2Step2Routes(router) {
         url: s.url || null
       }));
 
+      const seedSource = body.seedSource || conceptRaw.seedSource || null;
+
       const safeBody = {
         ...body,
         concept,
         tvKa,
         deelvragen,
         sources: lightSources,
+        seedSource,
         masterSignature: MASTER_SIGNATURE,
         step: "step2"
       };
@@ -296,11 +355,12 @@ function registerLessonV2Step2Routes(router) {
           masterSignature: MASTER_SIGNATURE,
           sourceCount: lightSources.length,
           tv: tvKa.tv,
-          ka: tvKa.ka
+          ka: tvKa.ka,
+          seedSource: !!seedSource
         }
       });
 
-      const normalized = normalizeStep2Output(json, lightSources);
+      const normalized = normalizeStep2Output(json, lightSources, seedSource);
 
       if (!normalized.data || !normalized.data.leerling) {
         return res.status(502).json({

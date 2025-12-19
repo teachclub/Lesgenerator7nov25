@@ -1,59 +1,54 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from "react";
 
-type ResilientImageProps = {
-  src?: string | null;
-  alt?: string;
-  className?: string;
+type Props = React.ImgHTMLAttributes<HTMLImageElement> & {
+  src: string;
 };
 
-export const ResilientImage: React.FC<ResilientImageProps> = ({
-  src,
-  alt = 'Afbeelding',
-  className = '',
-}) => {
-  const [currentSrc, setCurrentSrc] = useState<string | null>(null);
-  const [hasError, setHasError] = useState(false);
-  const [retryWithProxy, setRetryWithProxy] = useState(false);
+function isHttpUrl(u: string) {
+  return /^https?:\/\//i.test(u || "");
+}
+function isDataOrBlob(u: string) {
+  return /^(data:|blob:)/i.test(u || "");
+}
+
+export default function ResilientImage({ src, ...rest }: Props) {
+  const original = String(src || "");
+
+  const initial = useMemo(() => {
+    if (!original) return "";
+    if (isDataOrBlob(original)) return original;
+    if (isHttpUrl(original)) return `/api/image-proxy?url=${encodeURIComponent(original)}`;
+    return original;
+  }, [original]);
+
+  const [currentSrc, setCurrentSrc] = useState<string>(initial);
+  const [triedProxy, setTriedProxy] = useState<boolean>(isHttpUrl(original));
 
   useEffect(() => {
-    if (src) {
-        setCurrentSrc(src);
-        setHasError(false);
-        setRetryWithProxy(false);
-    } else {
-        setCurrentSrc(null);
-    }
-  }, [src]);
+    setCurrentSrc(initial);
+    setTriedProxy(isHttpUrl(original));
+  }, [initial, original]);
 
-  const handleError = () => {
-    if (!retryWithProxy && src) {
-      // Eerste keer fout? Probeer via proxy!
-      setRetryWithProxy(true);
-      setCurrentSrc(`/api/image-proxy?url=${encodeURIComponent(src)}`);
-    } else {
-      // Proxy ook mislukt? Dan is het echt stuk.
-      setHasError(true);
+  function onError(e: any) {
+    // Als we per ongeluk een data: via proxy kregen (of iets raars), stop ermee
+    if (isDataOrBlob(original)) {
+      setCurrentSrc(original);
+      return;
     }
-  };
 
-  if (!currentSrc || hasError) {
-    return (
-      <div className={`flex items-center justify-center bg-gray-100 text-gray-400 text-xs p-2 ${className}`}>
-        <span className="italic">Geen beeld</span>
-      </div>
-    );
+    // Als we nog niet via proxy geprobeerd hebben en het is http: probeer proxy
+    if (isHttpUrl(original) && !triedProxy) {
+      setTriedProxy(true);
+      setCurrentSrc(`/api/image-proxy?url=${encodeURIComponent(original)}`);
+      return;
+    }
+
+    // Anders: val terug naar originele src (kan ook extern zijn; dan faalt ie gewoon stil)
+    setCurrentSrc(original);
   }
 
-  return (
-    <img
-      src={currentSrc}
-      alt={alt}
-      className={className}
-      loading="lazy"
-      referrerPolicy="no-referrer"
-      onError={handleError}
-    />
-  );
-};
+  if (!currentSrc) return null;
 
-export default ResilientImage;
+  return <img {...rest} src={currentSrc} onError={onError} />;
+}
+

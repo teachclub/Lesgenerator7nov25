@@ -1,31 +1,42 @@
-const express = require('express');
+"use strict";
+
+const express = require("express");
+const axios = require("axios");
+
 const router = express.Router();
 
-router.get('/image-proxy', async (req, res) => {
-  try {
-    const { url } = req.query;
-    if (!url) return res.status(400).send('Geen URL');
+function isHttpUrl(u) {
+  return /^https?:\/\//i.test(u || "");
+}
+function isDataOrBlob(u) {
+  return /^(data:|blob:)/i.test(u || "");
+}
 
-    // We doen net alsof we een Chrome browser zijn
-    const response = await fetch(url, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
+router.get("/image-proxy", async (req, res) => {
+  try {
+    const url = String(req.query.url || "").trim();
+
+    if (!url || isDataOrBlob(url) || !isHttpUrl(url)) {
+      return res.status(204).end();
+    }
+
+    const r = await axios.get(url, {
+      responseType: "arraybuffer",
+      timeout: 12000,
+      headers: { "User-Agent": "LesGO-image-proxy", Accept: "image/*,*/*;q=0.8" },
+      maxContentLength: 6_000_000,
+      maxBodyLength: 6_000_000,
+      validateStatus: (s) => s >= 200 && s < 400,
     });
 
-    if (!response.ok) throw new Error(`Fout bij ophalen: ${response.status}`);
-
-    res.setHeader('Content-Type', response.headers.get('content-type'));
-    // Cache instellen voor snelheid
-    res.setHeader('Cache-Control', 'public, max-age=86400'); 
-    
-    const buffer = Buffer.from(await response.arrayBuffer());
-    res.send(buffer);
-
-  } catch (error) {
-    // Stuur een 404 als het mislukt, dan kan de frontend de fallback tonen
-    res.status(404).send('Image not found');
+    const ct = String(r.headers["content-type"] || "image/*");
+    res.setHeader("Content-Type", ct);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    return res.status(200).send(Buffer.from(r.data));
+  } catch {
+    return res.status(204).end();
   }
 });
 
 module.exports = router;
+
