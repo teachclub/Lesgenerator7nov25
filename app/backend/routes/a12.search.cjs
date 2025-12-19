@@ -83,59 +83,102 @@ function normalizeRequestBody(body) {
   return { termsArray, filters, cap, providerRaw };
 }
 
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve) => {
+    let done = false;
+
+    const t = setTimeout(() => {
+      if (done) return;
+      done = true;
+      resolve({ ok: false, timeout: true, label });
+    }, ms);
+
+    Promise.resolve()
+      .then(() => promise)
+      .then((value) => {
+        if (done) return;
+        done = true;
+        clearTimeout(t);
+        resolve({ ok: true, value });
+      })
+      .catch((err) => {
+        if (done) return;
+        done = true;
+        clearTimeout(t);
+        resolve({ ok: false, error: err, label });
+      });
+  });
+}
+
 router.post("/search", async (req, res) => {
+  const started = Date.now();
+
   try {
     const { termsArray, filters, cap, providerRaw } = normalizeRequestBody(req.body || {});
     const queryString = termsArray.join(" ").trim();
 
-    if (providerRaw === "kleio" && !kleioService) {
-      console.error("[A12] provider=kleio gevraagd maar kleioService is null");
-    }
-    if (providerRaw === "historiek" && !historiekService) {
-      console.error("[A12] provider=historiek gevraagd maar historiekService is null");
-    }
-
     const kaOnlyQuery = termsArray.length === 1 && isKaToken(termsArray[0]) && !!filters.ka;
 
+    const meta = {
+      count: 0,
+      droppedKleioEmpty: 0,
+      droppedKleioNoise: 0,
+      timeouts: [],
+      errors: [],
+      ms: 0,
+    };
+
     let allResults = [];
-    const promises = [];
 
     if (filters?.cito !== false && citoService) {
       try {
         if (filters.ka && !Array.isArray(filters.ka)) filters.ka = [filters.ka];
         const citoQ = filters.ka ? "" : queryString;
         const citoRes = citoService.searchCito({ query: citoQ, filters }) || [];
-        allResults.push(...citoRes);
+        if (Array.isArray(citoRes)) allResults.push(...citoRes);
       } catch (e) {
+        meta.errors.push({ provider: "cito", message: e?.message ? String(e.message) : "onbekend" });
         console.error("[A12] Cito error:", e && (e.stack || e.message || e));
       }
     }
 
+    const tasks = [];
+
     if (filters?.kleio !== false && kleioService) {
       const kleioQuery = kaOnlyQuery ? [] : termsArray;
-      promises.push(
-        kleioService
-          .searchKleio({ query: kleioQuery, filters })
-          .then((r) => {
-            if (Array.isArray(r)) allResults.push(...r);
-          })
-          .catch((e) => console.error("[A12] Kleio error:", e && (e.stack || e.message || e)))
+      tasks.push(
+        withTimeout(
+          kleioService.searchKleio({ query: kleioQuery, filters }),
+          5500,
+          "kleio"
+        )
       );
     }
 
     const historiekEnabled = false;
     if (historiekEnabled && filters?.historiek !== false && historiekService) {
-      promises.push(
-        historiekService
-          .searchHistoriek({ query: termsArray, filters })
-          .then((r) => {
-            if (Array.isArray(r)) allResults.push(...r);
-          })
-          .catch((e) => console.error("[A12] Historiek error:", e && (e.stack || e.message || e)))
+      tasks.push(
+        withTimeout(
+          historiekService.searchHistoriek({ query: termsArray, filters }),
+          5500,
+          "historiek"
+        )
       );
     }
 
-    await Promise.all(promises);
+    const results = await Promise.all(tasks);
+
+    for (const r of results) {
+      if (r.ok && Array.isArray(r.value)) {
+        allResults.push(...r.value);
+      } else if (r.timeout) {
+        meta.timeouts.push(r.label);
+        console.error("[A12] timeout:", r.label);
+      } else if (r.error) {
+        meta.errors.push({ provider: r.label, message: r.error?.message ? String(r.error.message) : "onbekend" });
+        console.error("[A12] provider error:", r.label, r.error && (r.error.stack || r.error.message || r.error));
+      }
+    }
 
     if (filters.images === false) allResults = allResults.filter((i) => i.type !== "IMAGE");
     if (filters.text === false) allResults = allResults.filter((i) => i.type !== "TEXT");
@@ -143,16 +186,12 @@ router.post("/search", async (req, res) => {
     const hasAnyQuery = queryString.length > 0;
     const hasKa = Array.isArray(filters.ka) ? filters.ka.length > 0 : !!filters.ka;
     if (!hasAnyQuery && !hasKa) {
-      return res.json({ sources: [], meta: { count: 0, droppedKleioEmpty: 0, droppedKleioNoise: 0 } });
+      meta.ms = Date.now() - started;
+      return res.json({ sources: [], meta: { count: 0, droppedKleioEmpty: 0, droppedKleioNoise: 0, timeouts: meta.timeouts, errors: meta.errors, ms: meta.ms } });
     }
 
     const filtered = filterSources(allResults, { minTextLen: 80, minTextLenKleio: 1200 });
-    console.log(
-      "[A12] droppedKleioEmpty:",
-      filtered.droppedKleioEmpty,
-      "droppedKleioNoise:",
-      filtered.droppedKleioNoise
-    );
+    console.log("[A12] droppedKleioEmpty:", filtered.droppedKleioEmpty, "droppedKleioNoise:", filtered.droppedKleioNoise);
 
     allResults = filtered.sources;
 
@@ -160,12 +199,20 @@ router.post("/search", async (req, res) => {
       allResults = shuffleArray(allResults).slice(0, cap);
     }
 
+    meta.count = allResults.length;
+    meta.droppedKleioEmpty = filtered.droppedKleioEmpty;
+    meta.droppedKleioNoise = filtered.droppedKleioNoise;
+    meta.ms = Date.now() - started;
+
     res.json({
       sources: allResults,
       meta: {
-        count: allResults.length,
-        droppedKleioEmpty: filtered.droppedKleioEmpty,
-        droppedKleioNoise: filtered.droppedKleioNoise,
+        count: meta.count,
+        droppedKleioEmpty: meta.droppedKleioEmpty,
+        droppedKleioNoise: meta.droppedKleioNoise,
+        timeouts: meta.timeouts,
+        errors: meta.errors,
+        ms: meta.ms,
       },
     });
   } catch (error) {
