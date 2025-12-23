@@ -21,15 +21,26 @@ try {
 const yrRe = /(?:1[0-9]{3}|20[0-2][0-9])/g;
 
 const http = axios.create({
-  headers: { "User-Agent": "Mozilla/5.0 (Lessie2000 Kleio bot)" },
+  headers: {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+  },
   timeout: 12000,
   maxContentLength: 3_000_000,
   maxBodyLength: 3_000_000,
+  validateStatus: (s) => s >= 200 && s < 500,
 });
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_KEYS = 80;
-const cache = new Map(); // key -> { ts, data }
+const cache = new Map();
+
+const FEED_CACHE_TTL_MS = 5 * 60 * 1000;
+let feedCache = { ts: 0, items: [] };
 
 function now() {
   return Date.now();
@@ -47,7 +58,6 @@ function cacheGet(key) {
 
 function cacheSet(key, data) {
   if (cache.size >= CACHE_MAX_KEYS) {
-    // simpele FIFO: delete oudste
     let oldestK = null;
     let oldestTs = Infinity;
     for (const [k, v] of cache.entries()) {
@@ -107,10 +117,15 @@ function medianYear(years) {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
+/*
+  ✅ TV-filter “strict”:
+  - range bestaat
+  - geen jaartallen => wegfilteren (anders sluipt oud spul door bij tv=9/10)
+*/
 function tvDecisionByMedian(years, range) {
   if (!range) return true;
   const mid = medianYear(years);
-  if (!Number.isFinite(mid)) return null; // noYear: niet wegfilteren
+  if (!Number.isFinite(mid)) return false;
   const [a, b] = range;
   return mid >= a && mid <= b;
 }
@@ -147,6 +162,63 @@ function expandFromKaTrefwoorden(term, n = 6) {
     .map((x) => x[0]);
 }
 
+function isBronnenUrl(url) {
+  const u = String(url || "");
+  return u.includes("vgnkleio.nl/") && u.includes("/bronnen/");
+}
+
+function isHttpUrl(url) {
+  const u = String(url || "");
+  return /^https?:\/\//i.test(u);
+}
+
+function isBadImage(url) {
+  const u = String(url || "").trim();
+  if (!u) return true;
+  const low = u.toLowerCase();
+
+  if (low.startsWith("data:")) return true;
+  if (low.includes("data:image/svg+xml")) return true;
+  if (low.includes("placeholder")) return true;
+  if (low.includes("logo")) return true;
+  if (low.includes("icon")) return true;
+
+  return false;
+}
+
+function toImageProxy(url) {
+  const u = String(url || "").trim();
+  if (!u) return null;
+  if (!isHttpUrl(u)) return null;
+  if (isBadImage(u)) return null;
+  return `/api/image-proxy?url=${encodeURIComponent(u)}`;
+}
+
+function firstFromSrcset(srcset) {
+  const s = String(srcset || "").trim();
+  if (!s) return null;
+  // "url1 300w, url2 768w" -> pak eerste url
+  const first = s.split(",")[0];
+  const url = first ? first.trim().split(/\s+/)[0] : "";
+  return url || null;
+}
+
+function pickImgFromArticleCard($, $el) {
+  try {
+    const img = $el.find("img").first();
+    if (!img || !img.length) return null;
+
+    const dataSrc = img.attr("data-src") || img.attr("data-lazy-src");
+    const src = img.attr("src");
+    const srcset = img.attr("srcset");
+    const s1 = dataSrc || src || firstFromSrcset(srcset);
+
+    return s1 ? String(s1).trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 function getTextFrom($, sel) {
   try {
     const t = $(sel).text();
@@ -173,15 +245,7 @@ function bestContentText($) {
 
   if (primary) parts.push(primary);
 
-  const maybe = [
-    "h1",
-    ".entry-title",
-    ".post-title",
-    ".wp-block-heading",
-    ".wp-block-group",
-    ".wp-block-columns",
-    ".wp-block-column",
-  ];
+  const maybe = ["h1", ".entry-title", ".post-title"];
   for (const s of maybe) {
     const t = getTextFrom($, s);
     if (t && t.length >= 40) parts.push(t);
@@ -196,24 +260,116 @@ function bestContentText($) {
   return squashWs(parts.join("\n\n"));
 }
 
+function pickBestDetailImage($) {
+  // 1) og:image
+  const og = $('meta[property="og:image"]').attr("content");
+  if (og && String(og).trim()) return String(og).trim();
+
+  // 2) elementor / entry-content
+  const a =
+    $(".elementor-widget-theme-post-content img").attr("data-src") ||
+    $(".elementor-widget-theme-post-content img").attr("src") ||
+    $(".entry-content img").attr("data-src") ||
+    $(".entry-content img").attr("src");
+  if (a && String(a).trim()) return String(a).trim();
+
+  // 3) first article img
+  const b =
+    $("article img").first().attr("data-src") ||
+    $("article img").first().attr("src") ||
+    firstFromSrcset($("article img").first().attr("srcset"));
+  if (b && String(b).trim()) return String(b).trim();
+
+  return null;
+}
+
 async function fetchDetail(url) {
   try {
-    const { data } = await http.get(url);
+    if (!isBronnenUrl(url)) return { text: null, image: null };
+
+    const { data, status } = await http.get(url);
+    if (status >= 400 || !data) return { text: null, image: null };
+
     const $ = cheerio.load(data);
 
     const text = bestContentText($);
-
-    const img =
-      $(".elementor-widget-theme-post-content img").attr("src") ||
-      $(".entry-content img").attr("src") ||
-      $("article img").first().attr("src") ||
-      null;
+    const img = pickBestDetailImage($);
 
     const clipped = text ? text.substring(0, 4500) : null;
-    return { text: clipped, image: img };
+    return { text: clipped, image: img || null };
   } catch {
     return { text: null, image: null };
   }
+}
+
+/*
+  Fallback: WP-search kan soms (tijdelijk) raar doen.
+  Dan gebruiken we de RSS-feed als “index” en filteren lokaal op term.
+*/
+async function fetchFeedItems() {
+  const t = now();
+  if (feedCache.items.length && t - feedCache.ts < FEED_CACHE_TTL_MS) return feedCache.items;
+
+  const feedUrl = "https://www.vgnkleio.nl/feed/";
+  try {
+    const { data, status } = await http.get(feedUrl);
+    if (status >= 400 || !data) {
+      feedCache = { ts: t, items: [] };
+      return [];
+    }
+
+    const $ = cheerio.load(data, { xmlMode: true });
+    const items = [];
+
+    $("item").each((_, el) => {
+      const $el = $(el);
+      const title = squashWs($el.find("title").first().text());
+      const link = squashWs($el.find("link").first().text());
+      const desc = squashWs($el.find("description").first().text());
+      const contentEncoded = squashWs($el.find("content\\:encoded").first().text());
+
+      let img = null;
+      const m = (contentEncoded || desc || "").match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (m && m[1]) img = m[1];
+
+      if (title && link && isBronnenUrl(link)) {
+        items.push({
+          title,
+          link,
+          thumb: img,
+          snippet: squashWs((desc || "").replace(/<[^>]+>/g, " ")).substring(0, 900),
+        });
+      }
+    });
+
+    feedCache = { ts: t, items };
+    return items;
+  } catch {
+    feedCache = { ts: t, items: [] };
+    return [];
+  }
+}
+
+function includesLoose(hay, needle) {
+  const h = normKey(hay);
+  const n = normKey(needle);
+  if (!h || !n) return false;
+  return h.includes(n);
+}
+
+async function searchViaFeed(term) {
+  const t = squashWs(term);
+  if (!t) return [];
+  const items = await fetchFeedItems();
+  if (!items.length) return [];
+
+  const out = [];
+  for (const it of items) {
+    const hay = [it.title, it.snippet].filter(Boolean).join(" ");
+    if (includesLoose(hay, t)) out.push({ title: it.title, link: it.link, thumb: it.thumb });
+    if (out.length >= 12) break;
+  }
+  return out;
 }
 
 async function searchSingleTerm(term) {
@@ -222,7 +378,12 @@ async function searchSingleTerm(term) {
 
   const url = `https://www.vgnkleio.nl/?s=${encodeURIComponent(t)}`;
   try {
-    const { data } = await http.get(url);
+    const { data, status } = await http.get(url);
+
+    if (status === 403 || status === 429 || !data) {
+      return await searchViaFeed(t);
+    }
+
     const $ = cheerio.load(data);
     const items = [];
 
@@ -230,15 +391,24 @@ async function searchSingleTerm(term) {
       if (items.length >= 12) return;
       const $el = $(el);
       const a = $el.find("h2 a, h3 a, .entry-title a").first();
-      const title = a.text().trim();
+      const title = (a.text() || "").trim();
       const link = a.attr("href");
-      const thumb = $el.find("img").first().attr("src");
-      if (title && link) items.push({ title, link, thumb });
+
+      if (!title || !link) return;
+      if (!isBronnenUrl(link)) return;
+
+      const thumb = pickImgFromArticleCard($, $el);
+      items.push({ title, link, thumb });
     });
+
+    if (!items.length) {
+      const viaFeed = await searchViaFeed(t);
+      if (viaFeed.length) return viaFeed;
+    }
 
     return items;
   } catch {
-    return [];
+    return await searchViaFeed(t);
   }
 }
 
@@ -266,10 +436,11 @@ async function runTermsCollect(terms, merged, seen) {
   for (const t of terms) {
     const hits = await searchSingleTerm(t);
     for (const h of hits) {
-      if (h && h.link && !seen.has(h.link)) {
-        seen.add(h.link);
-        merged.push(h);
-      }
+      if (!h || !h.link) continue;
+      if (!isBronnenUrl(h.link)) continue;
+      if (seen.has(h.link)) continue;
+      seen.add(h.link);
+      merged.push(h);
     }
   }
 }
@@ -288,30 +459,30 @@ const searchKleio = async ({ query, filters }) => {
   const range = tvNum ? tvRange(tvNum) : null;
   const kaKey = filters?.ka ? normalizeKaKey(filters.ka) : "";
 
-  // cache key: vooral op KA/TV en seedTerms
   const queryArr = Array.isArray(query) ? query.map(squashWs).filter(Boolean) : [];
   let seedTerms = [];
 
-  if (queryArr.length === 1 && !filters?.ka) {
+  if (queryArr.length === 1) {
     const base = queryArr[0];
-    const extra6 = expandFromKaTrefwoorden(base, 6);
-    seedTerms = uniqueKeepOrder([base, ...extra6]);
+    const extra = expandFromKaTrefwoorden(base, 6);
+    seedTerms = uniqueKeepOrder([base, ...extra]);
   } else if (queryArr.length > 0) {
     seedTerms = uniqueKeepOrder(queryArr);
   }
 
-  if (seedTerms.length === 0 && filters?.ka) {
-    if (KA_MAPPING[kaKey]) seedTerms = uniqueKeepOrder(KA_MAPPING[kaKey]);
-
-    // extra “grabbelton” vanuit KA_TREF als KA_MAPPING te smal is
-    if (seedTerms.length < 6 && KA_TREF && KA_TREF[kaKey] && Array.isArray(KA_TREF[kaKey])) {
-      const pool = uniqueKeepOrder(KA_TREF[kaKey]).filter((x) => !/^ka\d+$/i.test(normKey(x)));
-      // neem max 10 trefwoorden uit de KA-tabel erbij
-      seedTerms = uniqueKeepOrder([...seedTerms, ...pool.slice(0, 10)]);
-    }
+  if (filters?.ka) {
+    const kaTerms = [];
+    if (KA_MAPPING[kaKey]) kaTerms.push(...KA_MAPPING[kaKey]);
+    if (KA_TREF && KA_TREF[kaKey] && Array.isArray(KA_TREF[kaKey])) kaTerms.push(...KA_TREF[kaKey]);
+    const cleaned = uniqueKeepOrder(kaTerms).filter((x) => !/^ka\d+$/i.test(normKey(x)));
+    seedTerms = uniqueKeepOrder([...seedTerms, ...cleaned.slice(0, 6)]);
   }
 
-  seedTerms = uniqueKeepOrder(seedTerms).slice(0, 12);
+  seedTerms = uniqueKeepOrder(seedTerms)
+    .map((x) => squashWs(x))
+    .filter((t) => t.length >= 4)
+    .slice(0, 10);
+
   if (!seedTerms.length) return [];
 
   const cacheKey = JSON.stringify({
@@ -325,23 +496,22 @@ const searchKleio = async ({ query, filters }) => {
 
   const merged = [];
   const seen = new Set();
-  await runTermsCollect(seedTerms.slice(0, 10), merged, seen);
+  await runTermsCollect(seedTerms, merged, seen);
 
   if (!merged.length) {
     cacheSet(cacheKey, []);
     return [];
   }
 
-  // voorkom dat KA45 de boel doodt: cap detail-fetches
   const MAX_DETAILS = 28;
   const items = merged.slice(0, MAX_DETAILS);
 
-  const enriched = [];
   const details = await mapLimit(items, 4, async (item) => {
     const d = await fetchDetail(item.link);
     return { item, d };
   });
 
+  const enriched = [];
   for (const { item, d } of details) {
     const years = extractYears([item.title, d?.text].join(" "));
     let keep = true;
@@ -356,14 +526,18 @@ const searchKleio = async ({ query, filters }) => {
 
     const text = (d && d.text) || "...";
 
+    const rawImg = (d && d.image) || item.thumb || null;
+    const proxiedImg = rawImg ? toImageProxy(rawImg) : null;
+
     enriched.push({
-      id: `kleio-${item.link}`,
+      id: `kleio-${encodeURIComponent(item.link)}`,
       provider: "Kleio",
       title: item.title,
       description: text ? squashWs(text).substring(0, 900) : "...",
       fullText: text,
       url: item.link,
-      imageUrl: d ? d.image : null,
+      link: item.link,
+      imageUrl: proxiedImg,
       type: "TEXT",
       tv: labelTv && tvNum ? String(tvNum) : undefined,
       tvLabel: labelTv && tvNum ? `Tijdvak ${tvNum}` : undefined,
