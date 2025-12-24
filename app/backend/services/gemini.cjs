@@ -1,162 +1,99 @@
 "use strict";
 
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+/*
+  Doel:
+  - Gemini mag NOOIT de backend laten crashen bij startup als er geen API key is.
+  - Alleen routes die Gemini echt aanroepen, mogen op dat moment een nette fout krijgen.
 
-const MODEL_ID = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+  Dit bestand exporteert meerdere aliassen (generate / generateText / askGemini)
+  zodat bestaande code vrijwel zeker blijft werken.
+*/
 
 function pickApiKey() {
-  const key =
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    process.env.GOOGLE_GENAI_API_KEY ||
-    process.env.API_KEY;
-
-  if (!key) {
-    throw new Error(
-      "[Gemini] Geen API key gevonden. Zet GEMINI_API_KEY of GOOGLE_API_KEY in backend/.env"
-    );
-  }
-  return key;
+  const k = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  return k && String(k).trim() ? String(k).trim() : "";
 }
 
-const apiKey = pickApiKey();
-const client = new GoogleGenerativeAI(apiKey);
-const model = client.getGenerativeModel({ model: MODEL_ID });
-
-/**
- * Ruwe call naar Gemini → geeft alleen de tekst terug.
- */
-async function callGemini({ label = "Gemini", meta = {}, prompt }) {
-  if (!prompt || typeof prompt !== "string") {
-    throw new Error(`[${label}] callGemini: prompt ontbreekt of is geen string`);
-  }
-
-  console.log(`[Gemini] (${label}) model=${MODEL_ID}`);
-  const startedAt = Date.now();
-
-  try {
-    const result = await model.generateContent({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }],
-        },
-      ],
-    });
-
-    const ms = Date.now() - startedAt;
-    const response = result && result.response;
-    const text =
-      response && typeof response.text === "function" ? response.text() : "";
-
-    console.log(
-      `[Gemini] (${label}) klaar in ${ms}ms; lengte output ≈ ${
-        text ? text.length : 0
-      }`
-    );
-
-    return { text, meta, raw: result };
-  } catch (err) {
-    console.error(`[Gemini] (${label}) FOUT bij generateContent`, err);
-    throw err;
-  }
+function hasGeminiKey() {
+  return !!pickApiKey();
 }
 
-/**
- * Probeert uit willekeurige Gemini-tekst een geldig JSON-object te halen.
- * Strategie:
- * 1. Pure JSON: hele string = { ... }
- * 2. ```json ... ``` of ``` ... ``` blok
- * 3. Substring tussen eerste '{' en laatste '}'
- * 4. Anders: null
- */
-function extractJsonObjectFromText(text, label = "Gemini") {
-  if (!text || typeof text !== "string") return null;
-
-  const original = text;
-  let t = text.trim();
-
-  // 1) Pure JSON?
-  if (t.startsWith("{") && t.endsWith("}")) {
-    try {
-      return JSON.parse(t);
-    } catch (e) {
-      console.warn(
-        `[${label}] JSON.parse fout op pure blok, probeer andere strategieën`
-      );
-    }
-  }
-
-  // 2) Fenced code block met ```json of ```?
-  const fencedJsonRegex = /```json\s*([\s\S]*?)```/i;
-  const fencedAnyRegex = /```\s*([\s\S]*?)```/;
-
-  let match = fencedJsonRegex.exec(original);
-  if (!match) {
-    match = fencedAnyRegex.exec(original);
-  }
-
-  if (match && match[1]) {
-    const candidate = match[1].trim();
-    if (candidate.startsWith("{") && candidate.endsWith("}")) {
-      try {
-        return JSON.parse(candidate);
-      } catch (e) {
-        console.warn(
-          `[${label}] JSON.parse fout op fenced blok, ga door naar brute-force`
-        );
-      }
-    }
-  }
-
-  // 3) Brute-force: alles tussen eerste '{' en laatste '}'.
-  const firstBrace = original.indexOf("{");
-  const lastBrace = original.lastIndexOf("}");
-
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    const candidate = original.slice(firstBrace, lastBrace + 1).trim();
-    try {
-      return JSON.parse(candidate);
-    } catch (e) {
-      console.warn(
-        `[${label}] JSON.parse fout op brute-force blok; geef null terug`
-      );
-    }
-  }
-
-  // 4) Geen bruikbaar JSON-object gevonden
-  console.warn(
-    `[${label}] extractJsonObjectFromText: geen geldig JSON-object gevonden`
+function keyError() {
+  return new Error(
+    "[Gemini] Geen API key gevonden. Zet GEMINI_API_KEY of GOOGLE_API_KEY in app/backend/.env"
   );
-  return null;
 }
 
-/**
- * Hoofdfunctie: wordt gebruikt door routes (proposals, step1/2/3/4).
- * - Roept Gemini
- * - Probeert JSON te extraheren
- * - Gooit een duidelijke error als er geen geldig object is
- */
-async function runGeminiAndParse({ label = "Gemini", meta = {}, prompt }) {
-  const { text } = await callGemini({ label, meta, prompt });
+/*
+  Lazy import: pas laden als je 'm echt gebruikt.
+  (Zo blijft QL03/Kleio/CITO gewoon draaien zonder key.)
+*/
+async function getClient() {
+  const apiKey = pickApiKey();
+  if (!apiKey) throw keyError();
 
-  const json = extractJsonObjectFromText(text, label);
-
-  if (!json || typeof json !== "object" || Array.isArray(json)) {
-    const err = new Error(
-      `[${label}] response is geen geldig JSON-object (zie err.rawText voor inspectie)`
-    );
-    err.rawText = text;
-    err.meta = meta;
-    throw err;
+  let mod;
+  try {
+    mod = await import("@google/generative-ai");
+  } catch (e) {
+    const msg = e?.message ? String(e.message) : String(e);
+    throw new Error("[Gemini] Package @google/generative-ai ontbreekt of faalt: " + msg);
   }
 
-  return json;
+  const { GoogleGenerativeAI } = mod;
+  if (!GoogleGenerativeAI) {
+    throw new Error("[Gemini] GoogleGenerativeAI export niet gevonden in @google/generative-ai");
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  return genAI;
+}
+
+/*
+  Basale generator. Houd het bewust generiek + tolerant.
+  Callers kunnen string prompt meegeven of object met opties.
+*/
+async function generate(input, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const modelName = opts.model || "gemini-1.5-flash";
+
+  const prompt =
+    typeof input === "string"
+      ? input
+      : input && typeof input === "object"
+      ? String(input.prompt || input.text || "")
+      : "";
+
+  if (!prompt.trim()) {
+    throw new Error("[Gemini] generate(): prompt ontbreekt/empty");
+  }
+
+  const genAI = await getClient();
+  const model = genAI.getGenerativeModel({ model: modelName });
+
+  const resp = await model.generateContent(prompt);
+  const text = resp?.response?.text ? resp.response.text() : "";
+  return { text: String(text || ""), raw: resp };
+}
+
+/*
+  Aliassen (compat):
+*/
+async function generateText(prompt, options) {
+  const r = await generate(prompt, options);
+  return r.text;
+}
+
+async function askGemini(prompt, options) {
+  return generateText(prompt, options);
 }
 
 module.exports = {
-  callGemini,
-  runGeminiAndParse,
-  extractJsonObjectFromText,
+  hasGeminiKey,
+  pickApiKey,
+  getClient,
+  generate,
+  generateText,
+  askGemini,
 };
 

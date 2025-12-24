@@ -1,5 +1,7 @@
 "use strict";
 
+const fs = require("fs");
+const path = require("path");
 const axios = require("axios");
 const cheerio = require("cheerio");
 
@@ -18,6 +20,9 @@ try {
   KA_TREF = {};
 }
 
+const CSV_PATH = path.join(__dirname, "../data/kleio_cache.csv");
+const CSV_HEADERS = ["key", "provider", "type", "title", "url", "tv", "ka", "description", "fullText", "imageUrl"];
+
 const yrRe = /(?:1[0-9]{3}|20[0-2][0-9])/g;
 
 const http = axios.create({
@@ -29,46 +34,28 @@ const http = axios.create({
     "Cache-Control": "no-cache",
     Pragma: "no-cache",
   },
-  timeout: 12000,
+  timeout: 25000,
   maxContentLength: 3_000_000,
   maxBodyLength: 3_000_000,
   validateStatus: (s) => s >= 200 && s < 500,
 });
 
-const CACHE_TTL_MS = 10 * 60 * 1000;
-const CACHE_MAX_KEYS = 80;
-const cache = new Map();
+const MEM_CACHE_TTL_MS = 10 * 60 * 1000;
+const MEM_CACHE_MAX_KEYS = 80;
+const memCache = new Map();
 
 const FEED_CACHE_TTL_MS = 5 * 60 * 1000;
 let feedCache = { ts: 0, items: [] };
 
+const csvIndex = {
+  byKey: new Map(),
+  rows: [],
+  loaded: false,
+  lastLoadMs: 0,
+};
+
 function now() {
   return Date.now();
-}
-
-function cacheGet(key) {
-  const v = cache.get(key);
-  if (!v) return null;
-  if (now() - v.ts > CACHE_TTL_MS) {
-    cache.delete(key);
-    return null;
-  }
-  return v.data;
-}
-
-function cacheSet(key, data) {
-  if (cache.size >= CACHE_MAX_KEYS) {
-    let oldestK = null;
-    let oldestTs = Infinity;
-    for (const [k, v] of cache.entries()) {
-      if (v.ts < oldestTs) {
-        oldestTs = v.ts;
-        oldestK = k;
-      }
-    }
-    if (oldestK) cache.delete(oldestK);
-  }
-  cache.set(key, { ts: now(), data });
 }
 
 function squashWs(s) {
@@ -93,9 +80,46 @@ function uniqueKeepOrder(arr) {
   return out;
 }
 
-function extractYears(text) {
-  const hits = squashWs(text).match(yrRe) || [];
-  return hits.map(Number).filter((y) => Number.isInteger(y) && y >= 800 && y <= 2000);
+function normalizeUrl(u) {
+  const s = String(u || "").trim();
+  if (!s) return "";
+  return s.endsWith("/") ? s.slice(0, -1) : s;
+}
+
+function kleioKeyFor(url) {
+  const u = normalizeUrl(url);
+  if (!u) return "";
+  return `kleio|${u}`;
+}
+
+function isBronnenUrl(url) {
+  const u = String(url || "");
+  return u.includes("vgnkleio.nl/") && u.includes("/bronnen/");
+}
+
+function isHttpUrl(url) {
+  const u = String(url || "");
+  return /^https?:\/\//i.test(u);
+}
+
+function isBadImage(url) {
+  const u = String(url || "").trim();
+  if (!u) return true;
+  const low = u.toLowerCase();
+  if (low.startsWith("data:")) return true;
+  if (low.includes("data:image/svg+xml")) return true;
+  if (low.includes("placeholder")) return true;
+  if (low.includes("logo")) return true;
+  if (low.includes("icon")) return true;
+  return false;
+}
+
+function toImageProxy(url) {
+  const u = String(url || "").trim();
+  if (!u) return null;
+  if (!isHttpUrl(u)) return null;
+  if (isBadImage(u)) return null;
+  return `/api/image-proxy?url=${encodeURIComponent(u)}`;
 }
 
 function tvRange(tvNum) {
@@ -111,23 +135,30 @@ function tvRange(tvNum) {
   );
 }
 
+function extractYears(text) {
+  const hits = squashWs(text).match(yrRe) || [];
+  return hits.map(Number).filter((y) => Number.isInteger(y) && y >= 800 && y <= 2000);
+}
+
 function medianYear(years) {
   if (!Array.isArray(years) || years.length === 0) return null;
   const sorted = [...years].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)];
 }
 
-/*
-  ✅ TV-filter “strict”:
-  - range bestaat
-  - geen jaartallen => wegfilteren (anders sluipt oud spul door bij tv=9/10)
-*/
 function tvDecisionByMedian(years, range) {
   if (!range) return true;
   const mid = medianYear(years);
   if (!Number.isFinite(mid)) return false;
   const [a, b] = range;
   return mid >= a && mid <= b;
+}
+
+function normalizeKaKey(ka) {
+  const s = String(ka || "").trim().toLowerCase();
+  if (!s) return "";
+  if (s.startsWith("ka")) return s;
+  return "ka" + s.replace(/\D/g, "");
 }
 
 function expandFromKaTrefwoorden(term, n = 6) {
@@ -162,61 +193,249 @@ function expandFromKaTrefwoorden(term, n = 6) {
     .map((x) => x[0]);
 }
 
-function isBronnenUrl(url) {
-  const u = String(url || "");
-  return u.includes("vgnkleio.nl/") && u.includes("/bronnen/");
+function memGet(key) {
+  const v = memCache.get(key);
+  if (!v) return null;
+  if (now() - v.ts > MEM_CACHE_TTL_MS) {
+    memCache.delete(key);
+    return null;
+  }
+  return v.data;
 }
 
-function isHttpUrl(url) {
-  const u = String(url || "");
-  return /^https?:\/\//i.test(u);
+function memSet(key, data) {
+  if (memCache.size >= MEM_CACHE_MAX_KEYS) {
+    let oldestK = null;
+    let oldestTs = Infinity;
+    for (const [k, v] of memCache.entries()) {
+      if (v.ts < oldestTs) {
+        oldestTs = v.ts;
+        oldestK = k;
+      }
+    }
+    if (oldestK) memCache.delete(oldestK);
+  }
+  memCache.set(key, { ts: now(), data });
 }
 
-function isBadImage(url) {
-  const u = String(url || "").trim();
-  if (!u) return true;
-  const low = u.toLowerCase();
+function parseCsvLine(line) {
+  const out = [];
+  let cur = "";
+  let inQ = false;
 
-  if (low.startsWith("data:")) return true;
-  if (low.includes("data:image/svg+xml")) return true;
-  if (low.includes("placeholder")) return true;
-  if (low.includes("logo")) return true;
-  if (low.includes("icon")) return true;
-
-  return false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQ = false;
+        }
+      } else {
+        cur += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQ = true;
+      } else if (ch === ",") {
+        out.push(cur);
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+  }
+  out.push(cur);
+  return out;
 }
 
-function toImageProxy(url) {
-  const u = String(url || "").trim();
-  if (!u) return null;
-  if (!isHttpUrl(u)) return null;
-  if (isBadImage(u)) return null;
-  return `/api/image-proxy?url=${encodeURIComponent(u)}`;
+function csvEscape(v) {
+  const s = String(v ?? "");
+  if (s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function ensureCsvLoaded() {
+  const t0 = now();
+  if (csvIndex.loaded) return;
+
+  try {
+    if (!fs.existsSync(CSV_PATH)) {
+      csvIndex.rows = [];
+      csvIndex.byKey = new Map();
+      csvIndex.loaded = true;
+      csvIndex.lastLoadMs = now() - t0;
+      return;
+    }
+
+    const raw = fs.readFileSync(CSV_PATH, "utf-8");
+    const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (!lines.length) {
+      csvIndex.rows = [];
+      csvIndex.byKey = new Map();
+      csvIndex.loaded = true;
+      csvIndex.lastLoadMs = now() - t0;
+      return;
+    }
+
+    const header = parseCsvLine(lines[0]).map((h) => squashWs(h));
+    const idx = {};
+    for (let i = 0; i < header.length; i++) idx[header[i]] = i;
+
+    const rows = [];
+    const byKey = new Map();
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCsvLine(lines[i]);
+      const row = {};
+      for (const h of CSV_HEADERS) {
+        const j = idx[h];
+        row[h] = j === undefined ? "" : String(cols[j] ?? "");
+      }
+
+      const key = squashWs(row.key);
+      if (!key) continue;
+
+      if (!byKey.has(key)) {
+        byKey.set(key, row);
+        rows.push(row);
+      }
+    }
+
+    csvIndex.rows = rows;
+    csvIndex.byKey = byKey;
+    csvIndex.loaded = true;
+    csvIndex.lastLoadMs = now() - t0;
+  } catch {
+    csvIndex.rows = [];
+    csvIndex.byKey = new Map();
+    csvIndex.loaded = true;
+    csvIndex.lastLoadMs = now() - t0;
+  }
+}
+
+function writeCsvAtomic(rows) {
+  const tmp = `${CSV_PATH}.tmp`;
+  const headerLine = CSV_HEADERS.join(",") + "\n";
+  const body = rows
+    .map((r) => CSV_HEADERS.map((h) => csvEscape(r[h] ?? "")).join(","))
+    .join("\n");
+  fs.mkdirSync(path.dirname(CSV_PATH), { recursive: true });
+  fs.writeFileSync(tmp, headerLine + body + (body ? "\n" : ""), "utf-8");
+  fs.renameSync(tmp, CSV_PATH);
+}
+
+function upsertRows(newRows) {
+  ensureCsvLoaded();
+
+  let changed = false;
+  for (const r of Array.isArray(newRows) ? newRows : []) {
+    const key = squashWs(r.key);
+    if (!key) continue;
+
+    const existing = csvIndex.byKey.get(key);
+    if (!existing) {
+      const clean = {};
+      for (const h of CSV_HEADERS) clean[h] = String(r[h] ?? "");
+      csvIndex.byKey.set(key, clean);
+      csvIndex.rows.push(clean);
+      changed = true;
+      continue;
+    }
+
+    let localChanged = false;
+    for (const h of CSV_HEADERS) {
+      const nv = String(r[h] ?? "");
+      if (nv && nv !== String(existing[h] ?? "")) {
+        existing[h] = nv;
+        localChanged = true;
+      }
+    }
+    if (localChanged) changed = true;
+  }
+
+  if (changed) {
+    writeCsvAtomic(csvIndex.rows);
+  }
+
+  return changed;
+}
+
+function includesLoose(hay, needle) {
+  const h = normKey(hay);
+  const n = normKey(needle);
+  if (!h || !n) return false;
+  return h.includes(n);
+}
+
+function scoreRow(row, terms) {
+  const hay = [row.title, row.description, row.fullText].filter(Boolean).join(" ");
+  const h = normKey(hay);
+  if (!h) return 0;
+
+  let score = 0;
+  for (const t of Array.isArray(terms) ? terms : []) {
+    const tt = normKey(t);
+    if (!tt) continue;
+    if (h.includes(tt)) score += Math.min(6, tt.length);
+  }
+  if (isBronnenUrl(row.url)) score += 2;
+  return score;
+}
+
+function csvSearch(seedTerms, tvNum, kaKey, limit = 24) {
+  ensureCsvLoaded();
+
+  const rows = csvIndex.rows || [];
+  if (!rows.length) return [];
+
+  const out = [];
+  for (const r of rows) {
+    if (!r || !r.url) continue;
+
+    if (tvNum && String(r.tv || "") && String(r.tv) !== String(tvNum)) continue;
+    if (kaKey && String(r.ka || "") && normalizeKaKey(r.ka) !== normalizeKaKey(kaKey)) continue;
+
+    const sc = scoreRow(r, seedTerms);
+    if (sc <= 0) continue;
+
+    out.push({ row: r, score: sc });
+  }
+
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit).map((x) => x.row);
 }
 
 function firstFromSrcset(srcset) {
   const s = String(srcset || "").trim();
   if (!s) return null;
-  // "url1 300w, url2 768w" -> pak eerste url
   const first = s.split(",")[0];
   const url = first ? first.trim().split(/\s+/)[0] : "";
   return url || null;
 }
 
-function pickImgFromArticleCard($, $el) {
-  try {
-    const img = $el.find("img").first();
-    if (!img || !img.length) return null;
+function pickBestDetailImage($) {
+  const og = $('meta[property="og:image"]').attr("content");
+  if (og && String(og).trim()) return String(og).trim();
 
-    const dataSrc = img.attr("data-src") || img.attr("data-lazy-src");
-    const src = img.attr("src");
-    const srcset = img.attr("srcset");
-    const s1 = dataSrc || src || firstFromSrcset(srcset);
+  const a =
+    $(".elementor-widget-theme-post-content img").attr("data-src") ||
+    $(".elementor-widget-theme-post-content img").attr("src") ||
+    $(".entry-content img").attr("data-src") ||
+    $(".entry-content img").attr("src");
+  if (a && String(a).trim()) return String(a).trim();
 
-    return s1 ? String(s1).trim() : null;
-  } catch {
-    return null;
-  }
+  const b =
+    $("article img").first().attr("data-src") ||
+    $("article img").first().attr("src") ||
+    firstFromSrcset($("article img").first().attr("srcset"));
+  if (b && String(b).trim()) return String(b).trim();
+
+  return null;
 }
 
 function getTextFrom($, sel) {
@@ -260,29 +479,6 @@ function bestContentText($) {
   return squashWs(parts.join("\n\n"));
 }
 
-function pickBestDetailImage($) {
-  // 1) og:image
-  const og = $('meta[property="og:image"]').attr("content");
-  if (og && String(og).trim()) return String(og).trim();
-
-  // 2) elementor / entry-content
-  const a =
-    $(".elementor-widget-theme-post-content img").attr("data-src") ||
-    $(".elementor-widget-theme-post-content img").attr("src") ||
-    $(".entry-content img").attr("data-src") ||
-    $(".entry-content img").attr("src");
-  if (a && String(a).trim()) return String(a).trim();
-
-  // 3) first article img
-  const b =
-    $("article img").first().attr("data-src") ||
-    $("article img").first().attr("src") ||
-    firstFromSrcset($("article img").first().attr("srcset"));
-  if (b && String(b).trim()) return String(b).trim();
-
-  return null;
-}
-
 async function fetchDetail(url) {
   try {
     if (!isBronnenUrl(url)) return { text: null, image: null };
@@ -291,7 +487,6 @@ async function fetchDetail(url) {
     if (status >= 400 || !data) return { text: null, image: null };
 
     const $ = cheerio.load(data);
-
     const text = bestContentText($);
     const img = pickBestDetailImage($);
 
@@ -302,10 +497,6 @@ async function fetchDetail(url) {
   }
 }
 
-/*
-  Fallback: WP-search kan soms (tijdelijk) raar doen.
-  Dan gebruiken we de RSS-feed als “index” en filteren lokaal op term.
-*/
 async function fetchFeedItems() {
   const t = now();
   if (feedCache.items.length && t - feedCache.ts < FEED_CACHE_TTL_MS) return feedCache.items;
@@ -350,13 +541,6 @@ async function fetchFeedItems() {
   }
 }
 
-function includesLoose(hay, needle) {
-  const h = normKey(hay);
-  const n = normKey(needle);
-  if (!h || !n) return false;
-  return h.includes(n);
-}
-
 async function searchViaFeed(term) {
   const t = squashWs(term);
   if (!t) return [];
@@ -370,6 +554,22 @@ async function searchViaFeed(term) {
     if (out.length >= 12) break;
   }
   return out;
+}
+
+function pickImgFromArticleCard($, $el) {
+  try {
+    const img = $el.find("img").first();
+    if (!img || !img.length) return null;
+
+    const dataSrc = img.attr("data-src") || img.attr("data-lazy-src");
+    const src = img.attr("src");
+    const srcset = img.attr("srcset");
+    const s1 = dataSrc || src || firstFromSrcset(srcset);
+
+    return s1 ? String(s1).trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 async function searchSingleTerm(term) {
@@ -445,11 +645,27 @@ async function runTermsCollect(terms, merged, seen) {
   }
 }
 
-function normalizeKaKey(ka) {
-  const s = String(ka || "").trim().toLowerCase();
-  if (!s) return "";
-  if (s.startsWith("ka")) return s;
-  return "ka" + s.replace(/\D/g, "");
+function asSourceFromRow(r, tvNum) {
+  const tv = r.tv ? String(r.tv) : tvNum ? String(tvNum) : "";
+  const tvLabel = tv ? `Tijdvak ${tv}` : undefined;
+
+  const fullText = squashWs(r.fullText || r.description || "");
+  const desc = squashWs(r.description || "").substring(0, 900);
+
+  return {
+    id: `kleio-${encodeURIComponent(r.url || "")}`,
+    provider: "Kleio",
+    title: r.title || "",
+    description: desc || (fullText ? fullText.substring(0, 900) : "..."),
+    fullText: fullText || "...",
+    url: r.url || "",
+    link: r.url || "",
+    imageUrl: r.imageUrl || null,
+    type: "TEXT",
+    tv: tv || undefined,
+    tvLabel,
+    ka: r.ka || undefined,
+  };
 }
 
 const searchKleio = async ({ query, filters }) => {
@@ -485,21 +701,74 @@ const searchKleio = async ({ query, filters }) => {
 
   if (!seedTerms.length) return [];
 
-  const cacheKey = JSON.stringify({
-    kaKey: kaKey || null,
-    tv: tvNum || null,
-    terms: seedTerms,
-  });
-
-  const cached = cacheGet(cacheKey);
+  const memKey = JSON.stringify({ kaKey: kaKey || null, tv: tvNum || null, terms: seedTerms });
+  const cached = memGet(memKey);
   if (cached) return cached;
+
+  const fromCsv = csvSearch(seedTerms, tvNum, kaKey, 24);
+
+  if (fromCsv.length) {
+    const needEnrich = fromCsv.filter((r) => !squashWs(r.fullText || "").length || squashWs(r.fullText || "").length < 250);
+
+    if (needEnrich.length) {
+      const enriched = await mapLimit(needEnrich.slice(0, 12), 4, async (r) => {
+        const url = r.url;
+        const d = await fetchDetail(url);
+        const text = d && d.text ? squashWs(d.text) : "";
+        const rawImg = d && d.image ? d.image : r.imageUrl || "";
+        const proxiedImg = rawImg ? toImageProxy(rawImg) : null;
+
+        return {
+          key: r.key,
+          provider: r.provider || "Kleio",
+          type: r.type || "TEXT",
+          title: r.title || "",
+          url: r.url || "",
+          tv: r.tv || (tvNum ? String(tvNum) : ""),
+          ka: r.ka || (filters?.ka ? String(filters.ka) : ""),
+          description: text ? text.substring(0, 900) : (r.description || ""),
+          fullText: text ? text.substring(0, 4500) : (r.fullText || ""),
+          imageUrl: proxiedImg || r.imageUrl || "",
+        };
+      });
+
+      upsertRows(enriched);
+      for (const upd of enriched) {
+        const row = csvIndex.byKey.get(upd.key);
+        if (row) {
+          row.description = upd.description || row.description || "";
+          row.fullText = upd.fullText || row.fullText || "";
+          row.imageUrl = upd.imageUrl || row.imageUrl || "";
+          row.tv = upd.tv || row.tv || "";
+          row.ka = upd.ka || row.ka || "";
+        }
+      }
+    }
+
+    const out = fromCsv.map((r) => asSourceFromRow(r, tvNum));
+
+    if (range) {
+      const filtered = [];
+      for (const s of out) {
+        const years = extractYears([s.title, s.fullText].join(" "));
+        const decision = tvDecisionByMedian(years, range);
+        if (decision !== true) continue;
+        filtered.push(s);
+      }
+      memSet(memKey, filtered);
+      return filtered;
+    }
+
+    memSet(memKey, out);
+    return out;
+  }
 
   const merged = [];
   const seen = new Set();
   await runTermsCollect(seedTerms, merged, seen);
 
   if (!merged.length) {
-    cacheSet(cacheKey, []);
+    memSet(memKey, []);
     return [];
   }
 
@@ -511,9 +780,15 @@ const searchKleio = async ({ query, filters }) => {
     return { item, d };
   });
 
-  const enriched = [];
+  const enrichedSources = [];
+  const upserts = [];
+
   for (const { item, d } of details) {
-    const years = extractYears([item.title, d?.text].join(" "));
+    const url = normalizeUrl(item.link);
+    if (!url) continue;
+
+    const text = (d && d.text) ? squashWs(d.text) : "...";
+    const years = extractYears([item.title, text].join(" "));
     let keep = true;
     let labelTv = false;
 
@@ -522,30 +797,49 @@ const searchKleio = async ({ query, filters }) => {
       if (decision === false) keep = false;
       if (decision === true) labelTv = true;
     }
-    if (!keep) continue;
 
-    const text = (d && d.text) || "...";
+    if (!isBronnenUrl(url)) keep = false;
+    if (!text || text.length < 250) keep = false;
+    if (!years || !years.length) keep = false;
+
+    if (!keep) continue;
 
     const rawImg = (d && d.image) || item.thumb || null;
     const proxiedImg = rawImg ? toImageProxy(rawImg) : null;
 
-    enriched.push({
-      id: `kleio-${encodeURIComponent(item.link)}`,
+    enrichedSources.push({
+      id: `kleio-${encodeURIComponent(url)}`,
       provider: "Kleio",
       title: item.title,
       description: text ? squashWs(text).substring(0, 900) : "...",
       fullText: text,
-      url: item.link,
-      link: item.link,
+      url,
+      link: url,
       imageUrl: proxiedImg,
       type: "TEXT",
       tv: labelTv && tvNum ? String(tvNum) : undefined,
       tvLabel: labelTv && tvNum ? `Tijdvak ${tvNum}` : undefined,
+      ka: filters?.ka ? String(filters.ka) : undefined,
+    });
+
+    upserts.push({
+      key: kleioKeyFor(url),
+      provider: "Kleio",
+      type: "TEXT",
+      title: item.title,
+      url,
+      tv: tvNum ? String(tvNum) : "",
+      ka: filters?.ka ? String(filters.ka) : "",
+      description: text ? text.substring(0, 900) : "",
+      fullText: text ? text.substring(0, 4500) : "",
+      imageUrl: proxiedImg || "",
     });
   }
 
-  cacheSet(cacheKey, enriched);
-  return enriched;
+  if (upserts.length) upsertRows(upserts);
+
+  memSet(memKey, enrichedSources);
+  return enrichedSources;
 };
 
 module.exports = { searchKleio };

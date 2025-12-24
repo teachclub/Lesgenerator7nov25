@@ -1,3 +1,5 @@
+"use strict";
+
 const express = require("express");
 const router = express.Router();
 
@@ -9,11 +11,21 @@ let citoService = null;
 let kleioService = null;
 let historiekService = null;
 
+let kleioCache = null;
+try {
+  kleioCache = require("../services/kleioCache.cjs");
+  console.log("[A12] kleioCache loaded");
+} catch (e) {
+  console.error("[A12] kleioCache require failed:", e && (e.stack || e.message || e));
+  kleioCache = null;
+}
+
 try {
   citoService = require("../services/a28.cito.cjs");
   console.log("[A12] cito loaded");
 } catch (e) {
   console.error("[A12] cito require failed:", e && (e.stack || e.message || e));
+  citoService = null;
 }
 
 try {
@@ -119,7 +131,11 @@ function normalizeRequestBody(body) {
     filters.historiek = false;
   }
 
-  return { termsArray, filters, cap, providerRaw };
+  const cacheFirst = body.cacheFirst === undefined ? true : !!body.cacheFirst;
+  const cacheMin = Number.isFinite(Number(body.cacheMin)) ? Math.max(0, Math.min(80, Number(body.cacheMin))) : 8;
+  const cacheLimit = Number.isFinite(Number(body.cacheLimit)) ? Math.max(1, Math.min(80, Number(body.cacheLimit))) : 18;
+
+  return { termsArray, filters, cap, providerRaw, cacheFirst, cacheMin, cacheLimit };
 }
 
 function withTimeout(promise, ms, label) {
@@ -149,12 +165,17 @@ function withTimeout(promise, ms, label) {
   });
 }
 
-async function doSearch(termsArrayIn, filtersIn, capIn) {
+async function doSearch(termsArrayIn, filtersIn, capIn, optsIn) {
   const started = Date.now();
 
   const termsArray = asArray(termsArrayIn);
   const filters = filtersIn && typeof filtersIn === "object" ? { ...filtersIn } : {};
   const cap = Number.isFinite(Number(capIn)) ? Math.max(1, Math.min(80, Number(capIn))) : 40;
+
+  const opts = optsIn && typeof optsIn === "object" ? { ...optsIn } : {};
+  const cacheFirst = opts.cacheFirst === undefined ? true : !!opts.cacheFirst;
+  const cacheMin = Number.isFinite(Number(opts.cacheMin)) ? Math.max(0, Math.min(80, Number(opts.cacheMin))) : 8;
+  const cacheLimit = Number.isFinite(Number(opts.cacheLimit)) ? Math.max(1, Math.min(80, Number(opts.cacheLimit))) : 18;
 
   const queryString = termsArray.join(" ").trim();
   const kaOnlyQuery = termsArray.length === 1 && isKaToken(termsArray[0]) && !!filters.ka;
@@ -166,6 +187,8 @@ async function doSearch(termsArrayIn, filtersIn, capIn) {
     timeouts: [],
     errors: [],
     ms: 0,
+    cache: { used: false, count: 0, ms: 0, min: cacheMin },
+    liveKleio: { used: false, ms: 0, addedToCache: 0 },
   };
 
   let allResults = [];
@@ -182,50 +205,6 @@ async function doSearch(termsArrayIn, filtersIn, capIn) {
     }
   }
 
-  const tasks = [];
-  const PROVIDER_TIMEOUT_MS = 12000;
-
-  if (KLEIO_ENABLED && filters?.kleio !== false && kleioService) {
-    const kleioQuery = kaOnlyQuery ? [] : shrinkForKleio(termsArray);
-    if (kleioQuery.length > 0 || filters?.ka) {
-      tasks.push(
-        withTimeout(
-          kleioService.searchKleio({ query: kleioQuery, filters }),
-          PROVIDER_TIMEOUT_MS,
-          "kleio"
-        )
-      );
-    }
-  }
-
-  const historiekEnabled = false;
-  if (historiekEnabled && filters?.historiek !== false && historiekService) {
-    tasks.push(
-      withTimeout(
-        historiekService.searchHistoriek({ query: termsArray, filters }),
-        PROVIDER_TIMEOUT_MS,
-        "historiek"
-      )
-    );
-  }
-
-  const results = await Promise.all(tasks);
-
-  for (const r of results) {
-    if (r.ok && Array.isArray(r.value)) {
-      allResults.push(...r.value);
-    } else if (r.timeout) {
-      meta.timeouts.push(r.label);
-      console.error("[A12] timeout:", r.label);
-    } else if (r.error) {
-      meta.errors.push({ provider: r.label, message: r.error?.message ? String(r.error.message) : "onbekend" });
-      console.error("[A12] provider error:", r.label, r.error && (r.error.stack || r.error.message || r.error));
-    }
-  }
-
-  if (filters.images === false) allResults = allResults.filter((i) => i.type !== "IMAGE");
-  if (filters.text === false) allResults = allResults.filter((i) => i.type !== "TEXT");
-
   const hasAnyQuery = queryString.length > 0;
   const hasKa = Array.isArray(filters.ka) ? filters.ka.length > 0 : !!filters.ka;
   if (!hasAnyQuery && !hasKa) {
@@ -233,43 +212,160 @@ async function doSearch(termsArrayIn, filtersIn, capIn) {
     return { sources: [], meta };
   }
 
-  const filtered = filterSources(allResults, { minTextLen: 80, minTextLenKleio: 250 });
-  console.log("[A12] droppedKleioEmpty:", filtered.droppedKleioEmpty, "droppedKleioNoise:", filtered.droppedKleioNoise);
+  const PROVIDER_TIMEOUT_MS = 25000;
 
-  allResults = filtered.sources;
+  const wantKleio = KLEIO_ENABLED && filters?.kleio !== false && !!kleioService;
 
-  if (allResults.length > cap) {
-    allResults = shuffleArray(allResults).slice(0, cap);
+  let kleioFromCache = [];
+  if (
+    wantKleio &&
+    cacheFirst &&
+    kleioCache &&
+    typeof kleioCache.cacheSearchKleio === "function"
+  ) {
+    const t0 = Date.now();
+    try {
+      const tvStr = filters.tv ? String(filters.tv) : "";
+      const kaStr = Array.isArray(filters.ka) ? String(filters.ka[0] || "") : (filters.ka ? String(filters.ka) : "");
+
+      const cacheTerms = kaOnlyQuery ? [] : shrinkForKleio(termsArray);
+
+      kleioFromCache = kleioCache.cacheSearchKleio({
+        terms: cacheTerms,
+        tv: tvStr,
+        ka: kaStr ? kaStr : "",
+        limit: cacheLimit,
+      }) || [];
+
+      // Filter cache Kleio meteen (zodat cache ook schoon blijft in UI)
+      const cachedFiltered = filterSources(kleioFromCache, {
+        minTextLen: 80,
+        minTextLenKleio: 800,
+        allowShortKleioWithImage: true,
+      });
+
+      meta.droppedKleioEmpty += cachedFiltered.droppedKleioEmpty;
+      meta.droppedKleioNoise += cachedFiltered.droppedKleioNoise;
+
+      kleioFromCache = cachedFiltered.sources;
+
+      meta.cache.used = true;
+      meta.cache.count = Array.isArray(kleioFromCache) ? kleioFromCache.length : 0;
+    } catch (e) {
+      meta.errors.push({ provider: "kleioCache", message: e?.message ? String(e.message) : "onbekend" });
+      console.error("[A12] kleioCache error:", e && (e.stack || e.message || e));
+    } finally {
+      meta.cache.ms = Date.now() - t0;
+    }
   }
 
-  meta.count = allResults.length;
-  meta.droppedKleioEmpty = filtered.droppedKleioEmpty;
-  meta.droppedKleioNoise = filtered.droppedKleioNoise;
+  if (Array.isArray(kleioFromCache) && kleioFromCache.length) {
+    allResults.push(...kleioFromCache);
+  }
+
+  const cacheEnough =
+    cacheFirst &&
+    !!kleioCache &&
+    meta.cache.used === true &&
+    meta.cache.count >= cacheMin &&
+    meta.cache.count > 0;
+
+  const shouldFetchLiveKleio = wantKleio && !cacheEnough;
+
+  if (shouldFetchLiveKleio) {
+    const kleioQuery = kaOnlyQuery ? [] : shrinkForKleio(termsArray);
+    if (kleioQuery.length > 0 || filters?.ka) {
+      const t0 = Date.now();
+      meta.liveKleio.used = true;
+
+      const r = await withTimeout(
+        kleioService.searchKleio({ query: kleioQuery, filters }),
+        PROVIDER_TIMEOUT_MS,
+        "kleio"
+      );
+
+      meta.liveKleio.ms = Date.now() - t0;
+
+      if (r.timeout) meta.timeouts.push("kleio");
+      if (!r.ok && r.error) {
+        meta.errors.push({ provider: "kleio", message: r.error?.message ? String(r.error.message) : "onbekend" });
+      }
+
+      if (r.ok && Array.isArray(r.value)) {
+        const live = r.value || [];
+
+        // Filter LIVE Kleio meteen, vóór cacheUpsertMany
+        const liveFiltered = filterSources(live, {
+          minTextLen: 80,
+          minTextLenKleio: 800,
+          allowShortKleioWithImage: true,
+        });
+
+        meta.droppedKleioEmpty += liveFiltered.droppedKleioEmpty;
+        meta.droppedKleioNoise += liveFiltered.droppedKleioNoise;
+
+        allResults.push(...liveFiltered.sources);
+
+        if (kleioCache && typeof kleioCache.cacheUpsertMany === "function") {
+          try {
+            const up = kleioCache.cacheUpsertMany(liveFiltered.sources);
+            meta.liveKleio.addedToCache = up && typeof up.added === "number" ? up.added : 0;
+          } catch (e) {
+            meta.errors.push({ provider: "kleioCacheUpsert", message: e?.message ? String(e.message) : "onbekend" });
+            console.error("[A12] kleioCache upsert error:", e && (e.stack || e.message || e));
+          }
+        }
+      }
+    }
+  }
+
+  // (Historiek staat hier bewust “passief”; vinkje kan later weer aan)
+  if (filters?.historiek && historiekService && typeof historiekService.searchHistoriek === "function") {
+    try {
+      const t0 = Date.now();
+      const r = await withTimeout(
+        historiekService.searchHistoriek({ query: termsArray, filters }),
+        PROVIDER_TIMEOUT_MS,
+        "historiek"
+      );
+      if (r.timeout) meta.timeouts.push("historiek");
+      if (!r.ok && r.error) meta.errors.push({ provider: "historiek", message: r.error?.message ? String(r.error.message) : "onbekend" });
+      if (r.ok && Array.isArray(r.value)) allResults.push(...r.value);
+      meta.historiekMs = Date.now() - t0;
+    } catch (e) {
+      meta.errors.push({ provider: "historiek", message: e?.message ? String(e.message) : "onbekend" });
+    }
+  }
+
+  // Shuffle + cap
+  const shuffled = shuffleArray(allResults.slice());
+  const limited = shuffled.slice(0, cap);
+
+  meta.count = limited.length;
   meta.ms = Date.now() - started;
 
-  return { sources: allResults, meta };
+  return { sources: limited, meta };
 }
-
-router.doSearch = doSearch;
 
 router.post("/search", async (req, res) => {
   try {
-    const { termsArray, filters, cap } = normalizeRequestBody(req.body || {});
-    const r = await doSearch(termsArray, filters, cap);
-    res.json({
-      sources: r.sources,
+    const { termsArray, filters, cap, cacheFirst, cacheMin, cacheLimit } = normalizeRequestBody(req.body || {});
+    const r = await doSearch(termsArray, filters, cap, { cacheFirst, cacheMin, cacheLimit });
+    res.json(r);
+  } catch (e) {
+    res.status(500).json({
+      sources: [],
       meta: {
-        count: r.meta.count,
-        droppedKleioEmpty: r.meta.droppedKleioEmpty,
-        droppedKleioNoise: r.meta.droppedKleioNoise,
-        timeouts: r.meta.timeouts,
-        errors: r.meta.errors,
-        ms: r.meta.ms,
+        count: 0,
+        droppedKleioEmpty: 0,
+        droppedKleioNoise: 0,
+        timeouts: [],
+        errors: [{ provider: "api", message: e?.message ? String(e.message) : "onbekend" }],
+        ms: 0,
+        cache: { used: false, count: 0, ms: 0, min: 8 },
+        liveKleio: { used: false, ms: 0, addedToCache: 0 },
       },
     });
-  } catch (error) {
-    console.error("[A12] Fout:", error && (error.stack || error.message || error));
-    res.status(500).json({ error: "Error" });
   }
 });
 
