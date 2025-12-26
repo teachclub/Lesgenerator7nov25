@@ -43,6 +43,7 @@ module.exports = function healthRouterFactory() {
     "POST /api/search-preset",
     "POST /api/proposals-v2",
     "POST /api/refine-concept",
+    "POST /api/question-gen",
     "GET /api/image-proxy?url=...",
     "POST /api/generate-lesson-v2/step1",
     "POST /api/generate-lesson-v2/step2",

@@ -165,33 +165,50 @@ module.exports = function a16QuestionGenRouter() {
 
   router.post("/question-gen", async (req, res) => {
     const startedAt = Date.now();
+    console.log("[a16.questionGen] BEGIN", new Date().toISOString(), "bodyKeys=", Object.keys(req.body || {}));
+
     try {
       const body = req.body || {};
       const prompt = buildQuestionGenPrompt(body);
+
+      console.log("[a16.questionGen] BEFORE_GEMINI", "promptLen=", prompt.length);
 
       let json = await runGeminiAndParse({
         label: "A16/questionGen",
         meta: { route: "/api/question-gen" },
         prompt,
+        timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS || 20000),
       });
+
+      console.log("[a16.questionGen] AFTER_GEMINI", "keys=", Object.keys(json || {}));
 
       const bad = extractBadHoofdvragen(json.hoofdvraagSuggesties);
 
       if (Boolean(body.presentisme) && bad.length) {
         const repairPrompt = buildRepairPrompt(body, bad);
+
+        console.log("[a16.questionGen] REPAIR_BEFORE_GEMINI", "badN=", bad.length);
+
         const repaired = await runGeminiAndParse({
           label: "A16/questionGen-repair",
           meta: { route: "/api/question-gen", repair: true },
           prompt: repairPrompt,
+          timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS || 20000),
         });
 
         const repairedBad = extractBadHoofdvragen(repaired.hoofdvraagSuggesties);
-        if (!repairedBad.length && Array.isArray(repaired.hoofdvraagSuggesties) && repaired.hoofdvraagSuggesties.length) {
+        if (
+          !repairedBad.length &&
+          Array.isArray(repaired.hoofdvraagSuggesties) &&
+          repaired.hoofdvraagSuggesties.length
+        ) {
           json = { ...json, hoofdvraagSuggesties: repaired.hoofdvraagSuggesties };
         }
       }
 
       const ms = Date.now() - startedAt;
+
+      console.log("[a16.questionGen] END", { ms });
 
       return res.json({
         ok: true,
@@ -200,7 +217,7 @@ module.exports = function a16QuestionGenRouter() {
         deelvragen: Array.isArray(json.deelvragen) ? json.deelvragen : [],
       });
     } catch (err) {
-      console.error("[a16.questionGen] FOUT", err);
+      console.error("[a16.questionGen] ERR", err);
       return res.status(500).json({
         ok: false,
         error: "question-gen faalde",

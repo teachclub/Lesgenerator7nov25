@@ -1,487 +1,781 @@
 import React, { useMemo, useState } from "react";
-import { useSearchMatch } from "../hooks/useSearchMatch";
-import { useQuestionGen } from "../hooks/useQuestionGen";
-import { log, error } from "../utils/log";
-import "./QuestionLabPage.css";
 
-type Hoofdvraag = { id: number; vraag: string };
-type Deelvraag = { id: number; subdimensie: string; vraag: string };
+type VraagType =
+  | "verklarend"
+  | "vergelijkend"
+  | "oorzaak-gevolg"
+  | "continuiteit-verandering"
+  | "perspectief"
+  | "standpunt"
+  | "chronologisch"
+  | "probleem-oplossing";
 
-const TVS = [
-  { tv: "1", label: "TV1" },
-  { tv: "2", label: "TV2" },
-  { tv: "3", label: "TV3" },
-  { tv: "4", label: "TV4" },
-  { tv: "5", label: "TV5" },
-  { tv: "6", label: "TV6" },
-  { tv: "7", label: "TV7" },
-  { tv: "8", label: "TV8" },
-  { tv: "9", label: "TV9" },
-  { tv: "10", label: "TV10" },
+type HoofdvraagSuggestie = { id: number; vraag: string };
+
+type DeelvraagItem = { id: number; subdimensie: string; vraag: string };
+
+type Source = {
+  provider?: string;
+  type?: string;
+  title?: string;
+  url?: string | null;
+  description?: string;
+  fullText?: string;
+  imageUrl?: string | null;
+};
+
+type DimKey = "politiek" | "sociaal" | "cultureel" | "individueel";
+
+const DIMENSIES: Array<{ key: DimKey; label: string; apiMatchHint: string }> = [
+  { key: "politiek", label: "politiek (macht/bestuur)", apiMatchHint: "politiek" },
+  { key: "sociaal", label: "sociaal-economisch (geld/werk/groepen)", apiMatchHint: "sociaal" },
+  { key: "cultureel", label: "cultureel-mentaal (ideeën/propaganda/beelden)", apiMatchHint: "cultureel" },
+  { key: "individueel", label: "individueel (keuzes/motieven/ervaringen)", apiMatchHint: "individueel" },
 ];
 
-function clamp(n: number, a: number, b: number) {
-  return Math.max(a, Math.min(b, n));
+function asString(x: any): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
 }
 
-function labelTaalniveau(v: number) {
-  if (v <= 0) return "mavo";
-  if (v === 1) return "havo";
-  return "vwo";
+function safeJsonParse(s: string) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
 }
 
-function nuanceTo15(n: number) {
-  const x = clamp(Number(n) || 0, 0, 100);
-  if (x <= 20) return 1;
-  if (x <= 40) return 2;
-  if (x <= 60) return 3;
-  if (x <= 80) return 4;
-  return 5;
+function uniq(arr: string[]) {
+  return [...new Set(arr.filter(Boolean))];
 }
 
-const QuestionLabPage = () => {
-  const [vraagType, setVraagType] = useState<string>("verklarend");
-  const [richting, setRichting] = useState<string>("");
-  const [presentisme, setPresentisme] = useState<boolean>(true);
-  const [taalniveau, setTaalniveau] = useState<number>(1);
-  const [nuance, setNuance] = useState<number>(55);
-
-  const [tvSelected, setTvSelected] = useState<Set<string>>(new Set());
-
-  const [prikkelFileName, setPrikkelFileName] = useState<string>("");
-  const [prikkelText, setPrikkelText] = useState<string>("");
-
-  const [hoofdvraagResult, setHoofdvraagResult] = useState<Hoofdvraag[] | null>(null);
-  const [gekozenHoofdvraag, setGekozenHoofdvraag] = useState<Hoofdvraag | null>(null);
-  const [deelvragen, setDeelvragen] = useState<Deelvraag[] | null>(null);
-
-  const [selectie, setSelectie] = useState<Record<number, Set<string>>>({});
-  const [voorstel, setVoorstel] = useState<any[] | null>(null);
-  const [loadingVoorstel, setLoadingVoorstel] = useState(false);
-  const [loadingGen, setLoadingGen] = useState(false);
-
-  const { fetchMatches, result: bronnenPerDeelvraag } = useSearchMatch();
-  const { genereerHoofdvraagEnDeelvragen } = useQuestionGen();
-
-  const tvChips = useMemo(
-    () => Array.from(tvSelected).sort((a, b) => Number(a) - Number(b)),
-    [tvSelected]
-  );
-
-  const resetAlles = () => {
-    setHoofdvraagResult(null);
-    setGekozenHoofdvraag(null);
-    setDeelvragen(null);
-    setSelectie({});
-    setVoorstel(null);
-  };
-
-  const toggleTv = (tv: string) => {
-    setTvSelected((prev) => {
-      const n = new Set(prev);
-      n.has(tv) ? n.delete(tv) : n.add(tv);
-      return n;
-    });
-  };
-
-  const onUpload = async (file: File | null) => {
-    if (!file) {
-      setPrikkelFileName("");
-      setPrikkelText("");
-      return;
-    }
-    setPrikkelFileName(file.name);
-    try {
-      const txt = await file.text();
-      setPrikkelText(txt.slice(0, 12000));
-    } catch (e) {
-      error("❌ Upload lezen faalde", e);
-      setPrikkelText("");
-    }
-  };
-
-  const buildInvoer = () => {
-    const tvLine = tvChips.length ? `Tijdvak(ken): TV${tvChips.join(", TV")}` : "Tijdvak(ken): (niet geselecteerd)";
-    const lvl = labelTaalniveau(taalniveau);
-
-    const presentLine = presentisme
-      ? "Presentisme-regel: hoofdvraag heeft impliciete bril-van-nu (ongeloof/afkeur/verbazing) zonder nu-vs-toen te benoemen."
-      : "Presentisme-regel: neutraal en verklarend.";
-
-    const prikkel = prikkelText?.trim()
-      ? `Prikkelende bron (geüpload, fragment):\n${prikkelText.trim()}\n`
-      : "";
-
-    return [
-      `Soort vraag: ${vraagType}`,
-      `Richting/idee: ${richting || "(leeg)"}`,
-      presentLine,
-      `Taalniveau: ${lvl}`,
-      `Nuance/afwegen (1-5): ${nuanceTo15(nuance)}`,
-      tvLine,
-      prikkel ? prikkel : "",
-      "Output: 3 hoofdvraagchips + 4 deelvragen (subdimensies).",
-    ]
+function normalizeBegrippen(input: string): string[] {
+  return uniq(
+    input
+      .split(/[,\n;]/g)
+      .map((s) => s.trim())
       .filter(Boolean)
-      .join("\n");
-  };
+  );
+}
 
-  const genereer = async () => {
+function tvLabel(tv: string) {
+  return `TV${tv}`;
+}
+
+function sourceKey(s: Source) {
+  const u = asString(s?.url);
+  if (u) return u;
+  return `${asString(s?.provider)}|${asString(s?.type)}|${asString(s?.title)}`;
+}
+
+export default function QuestionLabPage() {
+  const [vraagType, setVraagType] = useState<VraagType>("verklarend");
+  const [richting, setRichting] = useState("Waarom stemden in 1933 miljoenen Duitsers voor een tiran als Hitler?");
+  const [presentisme, setPresentisme] = useState(true);
+
+  const [begrippenInput, setBegrippenInput] = useState(
+    "Hitler, NSDAP, Weimarrepubliek, economische crisis, propaganda, geweld, noodverordeningen"
+  );
+  const begrippen = useMemo(() => normalizeBegrippen(begrippenInput), [begrippenInput]);
+
+  const [begrippenSelected, setBegrippenSelected] = useState<Record<string, boolean>>(() => ({}));
+
+  const [tvSelected, setTvSelected] = useState<string[]>(["9"]);
+  const [ka, setKa] = useState("KA42");
+
+  const [isBusy, setIsBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const [bijpromptHoofd, setBijpromptHoofd] = useState("");
+  const [hoofdvraagSuggesties, setHoofdvraagSuggesties] = useState<HoofdvraagSuggestie[]>([]);
+  const [selectedHoofdvraagId, setSelectedHoofdvraagId] = useState<number | null>(null);
+  const selectedHoofdvraag = useMemo(() => {
+    const hv = hoofdvraagSuggesties.find((x) => x.id === selectedHoofdvraagId);
+    return hv ? hv.vraag : "";
+  }, [hoofdvraagSuggesties, selectedHoofdvraagId]);
+
+  const [acceptedHoofdvraag, setAcceptedHoofdvraag] = useState("");
+
+  const [deelvragenByDim, setDeelvragenByDim] = useState<Record<DimKey, string[]>>({
+    politiek: [],
+    sociaal: [],
+    cultureel: [],
+    individueel: [],
+  });
+
+  const [selectedDeelvraagByDim, setSelectedDeelvraagByDim] = useState<Record<DimKey, string | null>>({
+    politiek: null,
+    sociaal: null,
+    cultureel: null,
+    individueel: null,
+  });
+
+  const [bijpromptByDim, setBijpromptByDim] = useState<Record<DimKey, string>>({
+    politiek: "",
+    sociaal: "",
+    cultureel: "",
+    individueel: "",
+  });
+
+  const [sourcesByDim, setSourcesByDim] = useState<Record<DimKey, Source[]>>({
+    politiek: [],
+    sociaal: [],
+    cultureel: [],
+    individueel: [],
+  });
+
+  const [selectedSourceByDim, setSelectedSourceByDim] = useState<Record<DimKey, Record<string, boolean>>>({
+    politiek: {},
+    sociaal: {},
+    cultureel: {},
+    individueel: {},
+  });
+
+  function toggleTv(tv: string) {
+    setTvSelected((prev) => {
+      const s = new Set(prev);
+      if (s.has(tv)) s.delete(tv);
+      else s.add(tv);
+      return [...s].sort((a, b) => Number(a) - Number(b));
+    });
+  }
+
+  function toggleBegripChip(b: string) {
+    setBegrippenSelected((prev) => ({ ...prev, [b]: !prev[b] }));
+  }
+
+  const selectedBegrippen = useMemo(() => {
+    const active = Object.entries(begrippenSelected)
+      .filter(([, v]) => !!v)
+      .map(([k]) => k);
+    return active.length ? active : begrippen;
+  }, [begrippenSelected, begrippen]);
+
+  async function postJson(path: string, body: any) {
+    const r = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const t = await r.text();
+    if (!r.ok) {
+      const j = safeJsonParse(t);
+      const msg = j?.error || j?.message || t || `HTTP ${r.status}`;
+      throw new Error(msg);
+    }
+    return safeJsonParse(t) ?? {};
+  }
+
+  function coerceHoofdvragen(payload: any): HoofdvraagSuggestie[] {
+    const hv = payload?.hoofdvraagSuggesties || payload?.data?.hoofdvraagSuggesties || payload?.result?.hoofdvraagSuggesties || [];
+    if (!Array.isArray(hv)) return [];
+    return hv
+      .map((x: any, idx: number) => {
+        const id = Number(x?.id ?? idx + 1);
+        const vraag = asString(x?.vraag || x?.text || x?.hoofdvraag);
+        if (!vraag) return null;
+        return { id, vraag };
+      })
+      .filter(Boolean) as HoofdvraagSuggestie[];
+  }
+
+  function coerceDeelvragen(payload: any): DeelvraagItem[] {
+    const dv = payload?.deelvragen || payload?.data?.deelvragen || payload?.result?.deelvragen || [];
+    if (!Array.isArray(dv)) return [];
+    return dv
+      .map((x: any, idx: number) => {
+        const id = Number(x?.id ?? idx + 1);
+        const subdimensie = asString(x?.subdimensie || x?.subdimension || "");
+        const vraag = asString(x?.vraag || x?.deelvraag || x?.question || x?.text || "");
+        if (!vraag) return null;
+        return { id, subdimensie, vraag };
+      })
+      .filter(Boolean) as DeelvraagItem[];
+  }
+
+  async function handleGenHoofdvragen(isRegen: boolean) {
+    setErrorMsg("");
+    setIsBusy(true);
+
     try {
-      setLoadingGen(true);
-      setVoorstel(null);
-
-      const invoer = buildInvoer();
-
-      const payload = {
-        invoer,
+      const payload = await postJson("/api/question-gen", {
         vraagType,
         richting,
         presentisme,
-        level: labelTaalniveau(taalniveau),
-        nuance: nuanceTo15(nuance),
-        tv: tvChips,
-        prikkelText,
-      };
-
-      const resultaat = await genereerHoofdvraagEnDeelvragen(payload);
-
-      const hoofd = (resultaat?.hoofdvraagSuggesties || []).slice(0, 3);
-      setHoofdvraagResult(hoofd);
-      setGekozenHoofdvraag(null);
-
-      setDeelvragen(resultaat?.deelvragen || []);
-      setSelectie({});
-
-      log("🎯 Vragen gegenereerd", { payload, resultaat });
-    } catch (err) {
-      error("❌ Generatie faalde", err);
-    } finally {
-      setLoadingGen(false);
-    }
-  };
-
-  const verwijderHoofdvraag = (id: number) => {
-    setHoofdvraagResult((prev) => (prev ? prev.filter((hv) => hv.id !== id) : prev));
-    if (gekozenHoofdvraag?.id === id) setGekozenHoofdvraag(null);
-  };
-
-  const kiesHoofdvraag = (hv: Hoofdvraag) => {
-    setGekozenHoofdvraag(hv);
-    setVoorstel(null);
-  };
-
-  const handleUpdateDeelvraag = (index: number, nieuweVraag: string) => {
-    setDeelvragen((prev) => {
-      if (!prev) return prev;
-      const updated = [...prev];
-      updated[index] = { ...updated[index], vraag: nieuweVraag };
-      return updated;
-    });
-  };
-
-  const handleVerwijderDeelvraag = (id: number) => {
-    setDeelvragen((prev) => (prev ? prev.filter((dv) => dv.id !== id) : prev));
-  };
-
-  const toggleSelectie = (dvId: number, bronId: string) => {
-    setSelectie((prev) => {
-      const nieuw = new Set(prev[dvId] || []);
-      nieuw.has(bronId) ? nieuw.delete(bronId) : nieuw.add(bronId);
-      return { ...prev, [dvId]: nieuw };
-    });
-  };
-
-  const opslaanSelectie = async (dvId: number) => {
-    const bronIds = Array.from(selectie[dvId] || []);
-    try {
-      const res = await fetch("/api/bronselectie", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deelvraagId: dvId, bronIds }),
+        level: "havo",
+        nuance: 3,
+        tv: tvSelected,
+        ka,
+        begrippen: selectedBegrippen,
+        prikkelText: "",
+        bijprompt: isRegen ? bijpromptHoofd : "",
       });
-      const data = await res.json();
-      if (data.ok) log(`✅ Opgeslagen selectie voor deelvraag ${dvId}`, bronIds);
-      else error(`❌ Fout bij opslaan`, data);
-    } catch (err) {
-      error(`❌ Netwerkfout bij opslaan`, err);
-    }
-  };
 
-  const verstuurLesvoorstel = async () => {
-    if (!deelvragen) return;
-    const payload = {
-      hoofdvraag: gekozenHoofdvraag,
-      deelvragen,
-      selectie: Object.fromEntries(Object.entries(selectie).map(([k, v]) => [k, Array.from(v)])),
-    };
-    try {
-      setLoadingVoorstel(true);
-      const res = await fetch("/api/lesson-v2", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      setVoorstel(data.voorstel);
-      log("📦 Voorstel ontvangen", data);
-    } catch (err) {
-      error("❌ Lesvoorstel ophalen faalde", err);
+      const hv = coerceHoofdvragen(payload);
+
+      setHoofdvraagSuggesties(hv);
+      setSelectedHoofdvraagId(hv.length ? hv[0].id : null);
+      setAcceptedHoofdvraag("");
+
+      setDeelvragenByDim({ politiek: [], sociaal: [], cultureel: [], individueel: [] });
+      setSelectedDeelvraagByDim({ politiek: null, sociaal: null, cultureel: null, individueel: null });
+      setSourcesByDim({ politiek: [], sociaal: [], cultureel: [], individueel: [] });
+      setSelectedSourceByDim({ politiek: {}, sociaal: {}, cultureel: {}, individueel: {} });
+    } catch (e: any) {
+      setErrorMsg(e?.message ? String(e.message) : "Onbekende fout");
     } finally {
-      setLoadingVoorstel(false);
+      setIsBusy(false);
     }
-  };
+  }
+
+  function handleAcceptHoofdvraag() {
+    if (!selectedHoofdvraag) return;
+    setAcceptedHoofdvraag(selectedHoofdvraag);
+  }
+
+  function findBestDeelvraagForDim(items: DeelvraagItem[], dim: DimKey) {
+    const hint = DIMENSIES.find((d) => d.key === dim)?.apiMatchHint || "";
+    const normalized = hint.toLowerCase();
+    const exact = items.find((x) => asString(x.subdimensie).toLowerCase().includes(normalized));
+    return exact || items[0] || null;
+  }
+
+  async function handleGenDeelvraag(dim: DimKey, isRegen: boolean) {
+    if (!acceptedHoofdvraag) return;
+
+    setErrorMsg("");
+    setIsBusy(true);
+
+    try {
+      const payload = await postJson("/api/question-gen", {
+        vraagType,
+        richting: acceptedHoofdvraag,
+        presentisme,
+        level: "havo",
+        nuance: 3,
+        tv: tvSelected,
+        ka,
+        begrippen: selectedBegrippen,
+        prikkelText: "",
+        bijprompt: isRegen ? bijpromptByDim[dim] : "",
+        focusSubdimensie: DIMENSIES.find((d) => d.key === dim)?.label || "",
+      });
+
+      const dvAll = coerceDeelvragen(payload);
+      const best = findBestDeelvraagForDim(dvAll, dim);
+
+      if (!best?.vraag) throw new Error("Geen deelvraag ontvangen");
+
+      setDeelvragenByDim((prev) => {
+        const next = isRegen ? [best.vraag] : uniq([best.vraag, ...(prev[dim] || [])]);
+        return { ...prev, [dim]: next };
+      });
+
+      setSelectedDeelvraagByDim((prev) => ({ ...prev, [dim]: best.vraag }));
+      setSourcesByDim((prev) => ({ ...prev, [dim]: [] }));
+      setSelectedSourceByDim((prev) => ({ ...prev, [dim]: {} }));
+    } catch (e: any) {
+      setErrorMsg(e?.message ? String(e.message) : "Onbekende fout");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  function removeDeelvraagChip(dim: DimKey, vraag: string) {
+    setDeelvragenByDim((prev) => {
+      const nextArr = (prev[dim] || []).filter((x) => x !== vraag);
+      return { ...prev, [dim]: nextArr };
+    });
+    setSelectedDeelvraagByDim((prev) => {
+      const cur = prev[dim];
+      if (cur === vraag) return { ...prev, [dim]: null };
+      return prev;
+    });
+    setSourcesByDim((prev) => ({ ...prev, [dim]: [] }));
+    setSelectedSourceByDim((prev) => ({ ...prev, [dim]: {} }));
+  }
+
+  function canMatchAllDims() {
+    return DIMENSIES.every((d) => !!selectedDeelvraagByDim[d.key]);
+  }
+
+  async function handleMatchBronnenAllDims() {
+    if (!canMatchAllDims()) return;
+
+    setErrorMsg("");
+    setIsBusy(true);
+
+    try {
+      for (const d of DIMENSIES) {
+        const dim = d.key;
+        const q0 = selectedDeelvraagByDim[dim];
+        if (!q0) continue;
+
+        const q = selectedBegrippen.length ? `${q0} ${selectedBegrippen.join(" ")}` : q0;
+
+        const payload = await postJson("/api/search", {
+          query: [q],
+          filters: {
+            tv: tvSelected.length ? tvSelected[0] : "",
+            ka,
+            text: true,
+            images: true,
+            cito: true,
+            kleio: true,
+            historiek: false,
+          },
+          cacheFirst: true,
+          cacheMin: 8,
+          cacheLimit: 18,
+        });
+
+        const sources: Source[] = Array.isArray(payload?.sources) ? payload.sources : [];
+        setSourcesByDim((prev) => ({ ...prev, [dim]: sources }));
+        setSelectedSourceByDim((prev) => ({ ...prev, [dim]: prev[dim] || {} }));
+      }
+    } catch (e: any) {
+      setErrorMsg(e?.message ? String(e.message) : "Onbekende fout");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  function toggleSelectSource(dim: DimKey, s: Source) {
+    const k = sourceKey(s);
+    setSelectedSourceByDim((prev) => {
+      const cur = prev[dim] || {};
+      const next = { ...cur, [k]: !cur[k] };
+      return { ...prev, [dim]: next };
+    });
+  }
+
+  function selectedSourceCount(dim: DimKey) {
+    const m = selectedSourceByDim[dim] || {};
+    return Object.values(m).filter(Boolean).length;
+  }
 
   return (
-    <div className="ql">
-      <header className="ql-header">
-        <div>
-          <h1>QuestionLab</h1>
-          <p>3 kolommen: vraagconfig → hoofdvraagchips → bronnen & lesvoorstel.</p>
-        </div>
-        <div className="ql-header-actions">
-          <button className="ql-btn ql-btn-light" type="button" onClick={resetAlles}>
-            Reset
-          </button>
-          <a className="ql-link" href="/preset">
-            Preset-zoeker
-          </a>
-        </div>
-      </header>
+    <div
+      style={{
+        maxWidth: 1100,
+        margin: "0 auto",
+        padding: 16,
+        fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
+      }}
+    >
+      <h1 style={{ margin: "8px 0 12px" }}>QuestionLab (QL03) — Hoofdvraagchips → Deelvraagchips → Match bronnen</h1>
 
-      <div className="ql-grid">
-        <aside className="ql-col ql-left">
-          <section className="ql-card">
-            <h2>Instellingen</h2>
-
-            <label className="ql-label">Wat voor soort onderzoeksvraag</label>
-            <select className="ql-select" value={vraagType} onChange={(e) => setVraagType(e.target.value)}>
-              <option value="verklarend">Verklarend (waarom/waardoor)</option>
-              <option value="vergelijkend">Vergelijkend (hoe/waarom elders anders)</option>
-              <option value="oorzaak-gevolg">Oorzaak–gevolg</option>
-              <option value="continuiteit-verandering">Continuïteit & verandering</option>
-              <option value="perspectief">Perspectief / standplaatsgebondenheid</option>
-            </select>
-
-            <label className="ql-label">Wat is je hoofdvraag / welke richting denk je aan?</label>
-            <textarea
-              className="ql-textarea"
-              value={richting}
-              onChange={(e) => setRichting(e.target.value)}
-              placeholder="Bijv. ‘Hoe kregen nazi’s zoveel steun?’"
-            />
-
-            <label className="ql-check">
-              <input type="checkbox" checked={presentisme} onChange={(e) => setPresentisme(e.target.checked)} />
-              Presentisme in hoofdvraag (impliciet)
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" }}>
+        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontWeight: 600 }}>Type hoofdvraag</span>
+              <select value={vraagType} onChange={(e) => setVraagType(e.target.value as VraagType)}>
+                <option value="verklarend">verklarend</option>
+                <option value="vergelijkend">vergelijkend</option>
+                <option value="oorzaak-gevolg">oorzaak-gevolg</option>
+                <option value="continuiteit-verandering">continuiteit-verandering</option>
+                <option value="perspectief">perspectief</option>
+                <option value="standpunt">standpunt</option>
+                <option value="chronologisch">chronologisch</option>
+                <option value="probleem-oplossing">probleem-oplossing</option>
+              </select>
             </label>
 
-            <div className="ql-sliders">
-              <div className="ql-slider">
-                <div className="ql-slider-top">
-                  <span>Taalniveau</span>
-                  <strong>{labelTaalniveau(taalniveau)}</strong>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={2}
-                  step={1}
-                  value={taalniveau}
-                  onChange={(e) => setTaalniveau(Number(e.target.value))}
-                />
-              </div>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="checkbox" checked={presentisme} onChange={(e) => setPresentisme(e.target.checked)} />
+              <span>Presentisme (impliciet in hoofdvraag)</span>
+            </label>
+          </div>
 
-              <div className="ql-slider">
-                <div className="ql-slider-top">
-                  <span>Complexiteit / nuance</span>
-                  <strong>{nuanceTo15(nuance)}</strong>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={nuance}
-                  onChange={(e) => setNuance(Number(e.target.value))}
-                />
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Heb je al een hoofdvraag voor je les of waar denk je aan?</div>
+            <textarea
+              value={richting}
+              onChange={(e) => setRichting(e.target.value)}
+              rows={3}
+              style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
+              placeholder="Bijv. Waarom stemden in 1933 miljoenen Duitsers voor een tiran als Hitler?"
+            />
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Welke historische begrippen vind je belangrijk?</div>
+            <textarea
+              value={begrippenInput}
+              onChange={(e) => setBegrippenInput(e.target.value)}
+              rows={3}
+              style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
+              placeholder="Bijv. Hitler, NSDAP, Weimarrepubliek..."
+            />
+
+            <div style={{ fontSize: 12, marginTop: 6, opacity: 0.9 }}>
+              Begrippen (klik chips om te selecteren):{" "}
+              <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {begrippen.map((b) => {
+                  const active = !!begrippenSelected[b];
+                  return (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => toggleBegripChip(b)}
+                      style={{
+                        borderRadius: 999,
+                        padding: "6px 10px",
+                        border: active ? "1px solid #111" : "1px solid #ddd",
+                        background: active ? "#111" : "#fff",
+                        color: active ? "#fff" : "#111",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {b}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: 8, opacity: 0.85 }}>
+                Actief: {selectedBegrippen.length ? selectedBegrippen.join(", ") : "—"}
               </div>
             </div>
+          </div>
+        </div>
 
-            <label className="ql-label">Uploaden prikkelende bron</label>
-            <input
-              className="ql-file"
-              type="file"
-              accept=".txt,.md,.html"
-              onChange={(e) => onUpload(e.target.files?.[0] || null)}
-            />
-            {!!prikkelFileName && <div className="ql-muted">Geselecteerd: {prikkelFileName}</div>}
+        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Tijdvakken (chips)</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {Array.from({ length: 10 }).map((_, i) => {
+              const tv = String(i + 1);
+              const active = tvSelected.includes(tv);
+              return (
+                <button
+                  key={tv}
+                  onClick={() => toggleTv(tv)}
+                  style={{
+                    borderRadius: 999,
+                    padding: "6px 10px",
+                    border: active ? "1px solid #111" : "1px solid #ddd",
+                    background: active ? "#111" : "#fff",
+                    color: active ? "#fff" : "#111",
+                    cursor: "pointer",
+                  }}
+                  type="button"
+                >
+                  {tvLabel(tv)}
+                </button>
+              );
+            })}
+          </div>
 
-            <div className="ql-divider" />
+          <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontWeight: 600 }}>KA</span>
+              <input
+                value={ka}
+                onChange={(e) => setKa(e.target.value)}
+                style={{ borderRadius: 10, border: "1px solid #ccc", padding: "6px 10px", width: 110 }}
+              />
+            </label>
 
-            <label className="ql-label">Tijdvak</label>
-            <div className="ql-chips">
-              {TVS.map((t) => (
+            <button
+              type="button"
+              onClick={() => handleGenHoofdvragen(false)}
+              disabled={isBusy}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 12,
+                border: "1px solid #111",
+                background: "#111",
+                color: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              Genereer 3 hoofdvragen
+            </button>
+          </div>
+
+          {errorMsg ? <div style={{ marginTop: 10, color: "#b00020", whiteSpace: "pre-wrap" }}>{errorMsg}</div> : null}
+
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
+            Backend endpoints: <code>/api/question-gen</code> en <code>/api/search</code>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 14, border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>Stap 1 — Hoofdvraagchips</div>
+
+        {hoofdvraagSuggesties.length ? (
+          <>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {hoofdvraagSuggesties.map((h) => {
+                const active = h.id === selectedHoofdvraagId;
+                return (
+                  <button
+                    key={h.id}
+                    type="button"
+                    onClick={() => setSelectedHoofdvraagId(h.id)}
+                    style={{
+                      borderRadius: 999,
+                      padding: "8px 12px",
+                      border: active ? "1px solid #111" : "1px solid #ddd",
+                      background: active ? "#111" : "#fff",
+                      color: active ? "#fff" : "#111",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      maxWidth: 1000,
+                    }}
+                    title="Klik om te selecteren"
+                  >
+                    {h.vraag}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Bijprompt (regen hoofdvragen)</div>
+              <textarea
+                value={bijpromptHoofd}
+                onChange={(e) => setBijpromptHoofd(e.target.value)}
+                rows={2}
+                style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
+                placeholder="Bijv. Maak het concreter voor HAVO 4, meer richting propaganda en crisis..."
+              />
+              <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button
                   type="button"
-                  key={t.tv}
-                  className={`ql-chip ${tvSelected.has(t.tv) ? "ql-chip-on" : ""}`}
-                  onClick={() => toggleTv(t.tv)}
+                  onClick={() => handleGenHoofdvragen(true)}
+                  disabled={isBusy}
+                  style={{ padding: "8px 12px", borderRadius: 12, border: "1px solid #111", background: "#fff", cursor: "pointer" }}
                 >
-                  {t.label}
+                  Regen hoofdvragen
                 </button>
-              ))}
-            </div>
-
-            <div className="ql-actions">
-              <button className="ql-btn" type="button" onClick={genereer} disabled={loadingGen}>
-                {loadingGen ? "⏳ Genereren..." : "Genereer hoofdvraag + deelvragen"}
-              </button>
-            </div>
-          </section>
-        </aside>
-
-        <main className="ql-col ql-mid">
-          <section className="ql-card">
-            <h2>Hoofdvraag (3 chips)</h2>
-
-            <div className="ql-chiprow">
-              {(hoofdvraagResult || []).map((hv) => (
-                <div
-                  key={hv.id}
-                  className={`ql-bigchip ${gekozenHoofdvraag?.id === hv.id ? "ql-bigchip-on" : ""}`}
-                  onClick={() => kiesHoofdvraag(hv)}
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
+                  onClick={handleAcceptHoofdvraag}
+                  disabled={isBusy || !selectedHoofdvraag}
+                  style={{ padding: "8px 12px", borderRadius: 12, border: "1px solid #111", background: "#111", color: "#fff", cursor: "pointer" }}
                 >
-                  <span>{hv.vraag}</span>
-                  <button
-                    className="ql-x"
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      verwijderHoofdvraag(hv.id);
-                    }}
-                    aria-label="Verwijder hoofvraag"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              {!hoofdvraagResult?.length && <div className="ql-muted">Nog geen hoofdvragen (klik links op genereren).</div>}
-            </div>
-
-            {gekozenHoofdvraag && (
-              <div className="ql-picked">
-                <strong>Gekozen:</strong> {gekozenHoofdvraag.vraag}
-                <button className="ql-btn ql-btn-light" type="button" onClick={() => setGekozenHoofdvraag(null)}>
-                  Wegklikken
+                  Gebruik deze hoofdvraag
                 </button>
               </div>
-            )}
-          </section>
+            </div>
 
-          {gekozenHoofdvraag && (
-            <section className="ql-card">
-              <h2>Deelvragen</h2>
+            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85 }}>
+              Geselecteerd: <span style={{ fontWeight: 600 }}>{selectedHoofdvraag || "—"}</span>
+            </div>
+          </>
+        ) : (
+          <div style={{ opacity: 0.75 }}>Nog geen hoofdvragen. Klik “Genereer 3 hoofdvragen”.</div>
+        )}
+      </div>
 
-              {(deelvragen || []).map((dv, index) => (
-                <div key={dv.id} className="ql-deelvraag">
-                  <div className="ql-deelvraag-top">
-                    <div className="ql-subdimensie">{dv.subdimensie}</div>
+      <div style={{ marginTop: 14, border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>Stap 2 — Deelvragen per subdimensie (chips)</div>
 
-                    <button className="ql-x2" type="button" onClick={() => handleVerwijderDeelvraag(dv.id)}>
-                      ×
-                    </button>
+        {!acceptedHoofdvraag ? (
+          <div style={{ opacity: 0.75 }}>Kies eerst een hoofdvraag en klik “Gebruik deze hoofdvraag”.</div>
+        ) : (
+          <>
+            <div style={{ marginBottom: 10, opacity: 0.9 }}>
+              Hoofdvraag in gebruik: <span style={{ fontWeight: 700 }}>{acceptedHoofdvraag}</span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {DIMENSIES.map((d) => {
+                const dim = d.key;
+                const chips = deelvragenByDim[dim] || [];
+                const selected = selectedDeelvraagByDim[dim];
+
+                return (
+                  <div key={dim} style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>{d.label}</div>
+
+                    {chips.length ? (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {chips.map((q) => {
+                          const active = q === selected;
+                          return (
+                            <div key={q} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedDeelvraagByDim((prev) => ({ ...prev, [dim]: q }))}
+                                style={{
+                                  borderRadius: 999,
+                                  padding: "8px 12px",
+                                  border: active ? "1px solid #111" : "1px solid #ddd",
+                                  background: active ? "#111" : "#fff",
+                                  color: active ? "#fff" : "#111",
+                                  cursor: "pointer",
+                                  textAlign: "left",
+                                }}
+                                title="Klik om te selecteren"
+                              >
+                                {q}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => removeDeelvraagChip(dim, q)}
+                                style={{
+                                  borderRadius: 999,
+                                  padding: "6px 10px",
+                                  border: "1px solid #ddd",
+                                  background: "#fff",
+                                  cursor: "pointer",
+                                }}
+                                title="Verwijder"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ opacity: 0.75, fontSize: 12 }}>Nog geen deelvragen in deze subdimensie.</div>
+                    )}
+
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 6 }}>Bijprompt (regen deelvraag)</div>
+                      <textarea
+                        value={bijpromptByDim[dim]}
+                        onChange={(e) => setBijpromptByDim((prev) => ({ ...prev, [dim]: e.target.value }))}
+                        rows={2}
+                        style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
+                        placeholder="Bijv. Focus op rol van SA/geweld, of op werkloosheid..."
+                      />
+                      <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleGenDeelvraag(dim, false)}
+                          disabled={isBusy}
+                          style={{ padding: "8px 12px", borderRadius: 12, border: "1px solid #111", background: "#fff", cursor: "pointer" }}
+                        >
+                          Genereer deelvraag
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleGenDeelvraag(dim, true)}
+                          disabled={isBusy}
+                          style={{ padding: "8px 12px", borderRadius: 12, border: "1px solid #111", background: "#fff", cursor: "pointer" }}
+                        >
+                          Regen deelvraag
+                        </button>
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+                        Geselecteerd: <span style={{ fontWeight: 600 }}>{selected || "—"}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={handleMatchBronnenAllDims}
+                disabled={isBusy || !canMatchAllDims()}
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  border: "1px solid #111",
+                  background: canMatchAllDims() ? "#111" : "#eee",
+                  color: canMatchAllDims() ? "#fff" : "#666",
+                  cursor: canMatchAllDims() ? "pointer" : "not-allowed",
+                }}
+              >
+                Match met bronnen
+              </button>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                Voor matchen: selecteer per subdimensie 1 deelvraag-chip.
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <h2 style={{ margin: "8px 0 10px" }}>Stap 3 — Bronnen per subdimensie (selecteerbaar)</h2>
+
+        {!acceptedHoofdvraag ? (
+          <div style={{ opacity: 0.75 }}>Nog niet actief. Eerst hoofdvraag kiezen + deelvragen selecteren.</div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+            {DIMENSIES.map((d) => {
+              const dim = d.key;
+              const sources = sourcesByDim[dim] || [];
+              const selN = selectedSourceCount(dim);
+              const q = selectedDeelvraagByDim[dim];
+
+              return (
+                <div key={dim} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontWeight: 800 }}>{d.label}</div>
+                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
+                        Deelvraag: <span style={{ fontWeight: 600 }}>{q || "—"}</span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12, opacity: 0.85, alignSelf: "center" }}>Geselecteerde bronnen: {selN}</div>
                   </div>
 
-                  <textarea
-                    className="ql-textarea ql-textarea-small"
-                    value={dv.vraag}
-                    onChange={(e) => handleUpdateDeelvraag(index, e.target.value)}
-                  />
+                  {sources.length ? (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 6 }}>Resultaten ({sources.length})</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+                        {sources.map((s, idx) => {
+                          const k = sourceKey(s);
+                          const checked = !!(selectedSourceByDim[dim] && selectedSourceByDim[dim][k]);
 
-                  <div className="ql-toolbar">
-                    <button
-                      className="ql-btn ql-btn-light"
-                      type="button"
-                      onClick={() => fetchMatches(String(dv.id), dv.vraag, dv.subdimensie)}
-                    >
-                      🔍 Vind bronnen
-                    </button>
-                  </div>
+                          return (
+                            <label
+                              key={`${k}-${idx}`}
+                              style={{
+                                display: "flex",
+                                gap: 10,
+                                alignItems: "flex-start",
+                                border: "1px solid #eee",
+                                borderRadius: 10,
+                                padding: 10,
+                              }}
+                            >
+                              <input type="checkbox" checked={checked} onChange={() => toggleSelectSource(dim, s)} />
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600 }}>
+                                  {asString(s.provider) || "?"} · {asString(s.type) || "?"} · {asString(s.title) || "(zonder titel)"}
+                                </div>
+                                {s.url ? (
+                                  <div style={{ fontSize: 12, marginTop: 3 }}>
+                                    <a href={s.url} target="_blank" rel="noreferrer">
+                                      {s.url}
+                                    </a>
+                                  </div>
+                                ) : null}
+                                {s.description ? (
+                                  <div style={{ fontSize: 12, marginTop: 6, opacity: 0.85, whiteSpace: "pre-wrap" }}>{s.description}</div>
+                                ) : null}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>Nog geen bronnen opgehaald voor deze subdimensie.</div>
+                  )}
                 </div>
-              ))}
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-              {!deelvragen?.length && <div className="ql-muted">Nog geen deelvragen.</div>}
-            </section>
-          )}
-        </main>
-
-        <aside className="ql-col ql-right">
-          <section className="ql-card">
-            <h2>Bronnen & selectie</h2>
-
-            {!gekozenHoofdvraag && <div className="ql-muted">Kies eerst een hoofdvraag in het midden.</div>}
-
-            {gekozenHoofdvraag &&
-              (deelvragen || []).map((dv) => (
-                <div key={dv.id} className="ql-bronblok">
-                  <div className="ql-bronblok-top">
-                    <strong>Deelvraag {dv.id}</strong>
-                    <span className="ql-muted">{dv.subdimensie}</span>
-                  </div>
-
-                  <div className="ql-bronnen">
-                    {(bronnenPerDeelvraag[dv.id] || []).map((b, i) => (
-                      <label key={b.id} className="ql-bron">
-                        <input
-                          type="checkbox"
-                          checked={selectie[dv.id]?.has(b.id) || false}
-                          onChange={() => toggleSelectie(dv.id, b.id)}
-                        />
-                        <div>
-                          <div className="ql-bron-title">
-                            <strong>{i < 2 ? "⭐" : "▫️"} {b.title}</strong>
-                          </div>
-                          <div className="ql-bron-desc">{b.motivatie || b.kernargumenten?.[0]}</div>
-                        </div>
-                      </label>
-                    ))}
-
-                    {!bronnenPerDeelvraag[dv.id]?.length && <div className="ql-muted">Nog geen bronnen (dummy search-match geeft nog lege lijst).</div>}
-                  </div>
-
-                  <div className="ql-toolbar">
-                    <button className="ql-btn ql-btn-light" type="button" onClick={() => opslaanSelectie(dv.id)}>
-                      💾 Opslaan selectie
-                    </button>
-                  </div>
-                </div>
-              ))}
-          </section>
-
-          <section className="ql-card">
-            <h2>Lesvoorstel</h2>
-            <button className="ql-btn" type="button" onClick={verstuurLesvoorstel} disabled={!gekozenHoofdvraag || loadingVoorstel}>
-              {loadingVoorstel ? "⏳ Bouwen..." : "📦 Bouw lesvoorstel"}
-            </button>
-
-            {voorstel && (
-              <ul className="ql-voorstel">
-                {voorstel.map((blok, i) => (
-                  <li key={i}>
-                    <strong>{blok.subdimensie}:</strong> {blok.deelvraag} → {blok.aanbeveling}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </aside>
+      <div style={{ marginTop: 14, borderTop: "1px solid #eee", paddingTop: 12, fontSize: 12, opacity: 0.8 }}>
+        QL03: hoofdvraagchips + bijprompt regen + deelvraagchips per subdimensie + selecteren/verwijderen + Match met bronnen + selectie per dim in state.
       </div>
     </div>
   );
-};
-
-export default QuestionLabPage;
+}
 
