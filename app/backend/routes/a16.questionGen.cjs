@@ -1,9 +1,33 @@
 "use strict";
 
 const express = require("express");
-const { runGeminiAndParse } = require("../services/gemini.cjs");
-const { buildBasePreamble } = require("../prompts/lessonV2.base.cjs");
-const { MASTER_SIGNATURE } = require("../config/masterSignature.cjs");
+
+console.log("[a16.questionGen] MODULE_LOAD ok");
+
+let runGeminiAndParse = null;
+let buildBasePreamble = null;
+let MASTER_SIGNATURE = null;
+
+try {
+  ({ runGeminiAndParse } = require("../services/gemini.cjs"));
+  console.log("[a16.questionGen] require services/gemini.cjs ok");
+} catch (e) {
+  console.log("[a16.questionGen] require services/gemini.cjs FAIL", e?.message || String(e));
+}
+
+try {
+  ({ buildBasePreamble } = require("../prompts/lessonV2.base.cjs"));
+  console.log("[a16.questionGen] require prompts/lessonV2.base.cjs ok");
+} catch (e) {
+  console.log("[a16.questionGen] require prompts/lessonV2.base.cjs FAIL", e?.message || String(e));
+}
+
+try {
+  ({ MASTER_SIGNATURE } = require("../config/masterSignature.cjs"));
+  console.log("[a16.questionGen] require config/masterSignature.cjs ok");
+} catch (e) {
+  console.log("[a16.questionGen] require config/masterSignature.cjs FAIL", e?.message || String(e));
+}
 
 function normalizeLevel(level) {
   const v = String(level || "").toLowerCase().trim();
@@ -60,6 +84,10 @@ function extractBadHoofdvragen(arr) {
 }
 
 function buildQuestionGenPrompt(input) {
+  if (!buildBasePreamble || !MASTER_SIGNATURE) {
+    throw new Error("A16 mist buildBasePreamble of MASTER_SIGNATURE (require faalde).");
+  }
+
   const preamble = buildBasePreamble(MASTER_SIGNATURE);
 
   const vraagType = normalizeVraagType(input.vraagType);
@@ -120,6 +148,10 @@ function buildQuestionGenPrompt(input) {
 }
 
 function buildRepairPrompt(input, badQuestions) {
+  if (!buildBasePreamble || !MASTER_SIGNATURE) {
+    throw new Error("A16 mist buildBasePreamble of MASTER_SIGNATURE (require faalde).");
+  }
+
   const preamble = buildBasePreamble(MASTER_SIGNATURE);
 
   const vraagType = normalizeVraagType(input.vraagType);
@@ -163,11 +195,24 @@ function buildRepairPrompt(input, badQuestions) {
 module.exports = function a16QuestionGenRouter() {
   const router = express.Router();
 
+  console.log("[a16.questionGen] FACTORY ok (router gemaakt)");
+
+  router.use((req, res, next) => {
+    console.log("[a16.questionGen] HIT", req.method, req.url);
+    next();
+  });
+
+  router.get("/question-gen/ping", (req, res) => {
+    return res.json({ ok: true, route: "/api/question-gen/ping", ts: new Date().toISOString() });
+  });
+
   router.post("/question-gen", async (req, res) => {
     const startedAt = Date.now();
     console.log("[a16.questionGen] BEGIN", new Date().toISOString(), "bodyKeys=", Object.keys(req.body || {}));
 
     try {
+      if (!runGeminiAndParse) throw new Error("runGeminiAndParse ontbreekt (require services/gemini.cjs faalde).");
+
       const body = req.body || {};
       const prompt = buildQuestionGenPrompt(body);
 

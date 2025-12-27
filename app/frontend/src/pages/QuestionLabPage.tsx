@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type VraagType =
   | "verklarend"
@@ -11,7 +11,6 @@ type VraagType =
   | "probleem-oplossing";
 
 type HoofdvraagSuggestie = { id: number; vraag: string };
-
 type DeelvraagItem = { id: number; subdimensie: string; vraag: string };
 
 type Source = {
@@ -62,6 +61,11 @@ function tvLabel(tv: string) {
   return `TV${tv}`;
 }
 
+function tvLabelLong(tv: string) {
+  const n = String(tv || "").trim();
+  return n ? `Tijdvak ${n}` : "";
+}
+
 function sourceKey(s: Source) {
   const u = asString(s?.url);
   if (u) return u;
@@ -70,12 +74,10 @@ function sourceKey(s: Source) {
 
 export default function QuestionLabPage() {
   const [vraagType, setVraagType] = useState<VraagType>("verklarend");
-  const [richting, setRichting] = useState("Waarom stemden in 1933 miljoenen Duitsers voor een tiran als Hitler?");
+  const [richting, setRichting] = useState("");
   const [presentisme, setPresentisme] = useState(true);
 
-  const [begrippenInput, setBegrippenInput] = useState(
-    "Hitler, NSDAP, Weimarrepubliek, economische crisis, propaganda, geweld, noodverordeningen"
-  );
+  const [begrippenInput, setBegrippenInput] = useState("");
   const begrippen = useMemo(() => normalizeBegrippen(begrippenInput), [begrippenInput]);
 
   const [begrippenSelected, setBegrippenSelected] = useState<Record<string, boolean>>(() => ({}));
@@ -131,6 +133,12 @@ export default function QuestionLabPage() {
     individueel: {},
   });
 
+  const [chipSuggesties, setChipSuggesties] = useState<string[]>([]);
+  const [chipsBusy, setChipsBusy] = useState(false);
+  const [chipsErr, setChipsErr] = useState("");
+  const chipsAbortRef = useRef<AbortController | null>(null);
+  const chipsTimerRef = useRef<number | null>(null);
+
   function toggleTv(tv: string) {
     setTvSelected((prev) => {
       const s = new Set(prev);
@@ -141,7 +149,9 @@ export default function QuestionLabPage() {
   }
 
   function toggleBegripChip(b: string) {
-    setBegrippenSelected((prev) => ({ ...prev, [b]: !prev[b] }));
+    const key = String(b || "").trim();
+    if (!key) return;
+    setBegrippenSelected((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
   const selectedBegrippen = useMemo(() => {
@@ -151,11 +161,12 @@ export default function QuestionLabPage() {
     return active.length ? active : begrippen;
   }, [begrippenSelected, begrippen]);
 
-  async function postJson(path: string, body: any) {
+  async function postJson(path: string, body: any, signal?: AbortSignal) {
     const r = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal,
     });
     const t = await r.text();
     if (!r.ok) {
@@ -166,8 +177,95 @@ export default function QuestionLabPage() {
     return safeJsonParse(t) ?? {};
   }
 
+  useEffect(() => {
+    const baseKeywords = normalizeBegrippen(begrippenInput);
+    const tv0 = tvSelected && tvSelected.length ? tvSelected[0] : "";
+    const tvL = tvLabelLong(tv0);
+
+    // Belangrijk: /api/chips alleen aanroepen als er minstens 1 begrip is ingevuld.
+    // Dit voorkomt 400 Bad Request en voorkomt “drukte” als je nog niks hebt ingevuld.
+    if (!baseKeywords.length) {
+      setChipSuggesties([]);
+      setChipsErr("");
+      setChipsBusy(false);
+      return;
+    }
+
+    const text = `${richting || ""}\n${begrippenInput || ""}`.trim();
+    if (!text || text.length < 2) {
+      setChipSuggesties([]);
+      setChipsErr("");
+      setChipsBusy(false);
+      return;
+    }
+
+    if (chipsTimerRef.current) {
+      window.clearTimeout(chipsTimerRef.current);
+      chipsTimerRef.current = null;
+    }
+    if (chipsAbortRef.current) {
+      chipsAbortRef.current.abort();
+      chipsAbortRef.current = null;
+    }
+
+    setChipsErr("");
+    setChipsBusy(true);
+
+    chipsTimerRef.current = window.setTimeout(async () => {
+      const ac = new AbortController();
+      chipsAbortRef.current = ac;
+
+      try {
+        const payload = await postJson(
+          "/api/chips",
+          {
+            tvLabel: tvL || "Tijdvak 9",
+            kaLabels: ka ? [ka] : [],
+            baseKeywords,
+            text,
+          },
+          ac.signal
+        );
+
+        const expanded: string[] = Array.isArray(payload?.expanded) ? payload.expanded : [];
+        const raw = expanded.map((s) => String(s || "").trim()).filter(Boolean);
+
+        const drop = new Set<string>();
+        if (tvL) drop.add(tvL);
+        if (ka) drop.add(ka);
+        for (const b of baseKeywords) drop.add(b);
+
+        const cleaned = uniq(raw.filter((x) => !drop.has(x) && x !== "Tijdvak" && !/^TV\d+$/i.test(x)));
+
+        setChipSuggesties(cleaned);
+        setChipsErr("");
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        setChipsErr(e?.message ? String(e.message) : "Chips: onbekende fout");
+        setChipSuggesties([]);
+      } finally {
+        setChipsBusy(false);
+      }
+    }, 450);
+
+    return () => {
+      if (chipsTimerRef.current) {
+        window.clearTimeout(chipsTimerRef.current);
+        chipsTimerRef.current = null;
+      }
+      if (chipsAbortRef.current) {
+        chipsAbortRef.current.abort();
+        chipsAbortRef.current = null;
+      }
+    };
+  }, [richting, begrippenInput, tvSelected, ka]);
+
   function coerceHoofdvragen(payload: any): HoofdvraagSuggestie[] {
-    const hv = payload?.hoofdvraagSuggesties || payload?.data?.hoofdvraagSuggesties || payload?.result?.hoofdvraagSuggesties || [];
+    const hv =
+      payload?.hoofdvraagSuggesties ||
+      payload?.data?.hoofdvraagSuggesties ||
+      payload?.result?.hoofdvraagSuggesties ||
+      [];
     if (!Array.isArray(hv)) return [];
     return hv
       .map((x: any, idx: number) => {
@@ -395,7 +493,7 @@ export default function QuestionLabPage() {
               onChange={(e) => setRichting(e.target.value)}
               rows={3}
               style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
-              placeholder="Bijv. Waarom stemden in 1933 miljoenen Duitsers voor een tiran als Hitler?"
+              placeholder="Typ hier je idee voor de hoofdvraag..."
             />
           </div>
 
@@ -410,7 +508,7 @@ export default function QuestionLabPage() {
             />
 
             <div style={{ fontSize: 12, marginTop: 6, opacity: 0.9 }}>
-              Begrippen (klik chips om te selecteren):{" "}
+              Begrippen (klik chips om te selecteren):
               <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {begrippen.map((b) => {
                   const active = !!begrippenSelected[b];
@@ -433,6 +531,45 @@ export default function QuestionLabPage() {
                   );
                 })}
               </div>
+
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: 600 }}>Suggesties (uit /api/chips)</div>
+                  {chipsBusy ? <div style={{ fontSize: 12, opacity: 0.75 }}>laden…</div> : null}
+                  {chipsErr ? <div style={{ fontSize: 12, color: "#b00020" }}>{chipsErr}</div> : null}
+                </div>
+
+                {chipSuggesties.length ? (
+                  <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {chipSuggesties.map((s) => {
+                      const active = !!begrippenSelected[s];
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => toggleBegripChip(s)}
+                          style={{
+                            borderRadius: 999,
+                            padding: "6px 10px",
+                            border: active ? "1px solid #111" : "1px solid #ddd",
+                            background: active ? "#111" : "#fff",
+                            color: active ? "#fff" : "#111",
+                            cursor: "pointer",
+                          }}
+                          title="Klik om te (de)selecteren"
+                        >
+                          {s}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+                    {normalizeBegrippen(begrippenInput).length ? (chipsBusy ? "Suggesties ophalen…" : "Geen suggesties gevonden.") : "Typ eerst minstens 1 begrip."}
+                  </div>
+                )}
+              </div>
+
               <div style={{ marginTop: 8, opacity: 0.85 }}>
                 Actief: {selectedBegrippen.length ? selectedBegrippen.join(", ") : "—"}
               </div>
@@ -496,7 +633,7 @@ export default function QuestionLabPage() {
           {errorMsg ? <div style={{ marginTop: 10, color: "#b00020", whiteSpace: "pre-wrap" }}>{errorMsg}</div> : null}
 
           <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
-            Backend endpoints: <code>/api/question-gen</code> en <code>/api/search</code>
+            Backend endpoints: <code>/api/question-gen</code> en <code>/api/search</code> en <code>/api/chips</code>
           </div>
         </div>
       </div>
@@ -539,7 +676,7 @@ export default function QuestionLabPage() {
                 onChange={(e) => setBijpromptHoofd(e.target.value)}
                 rows={2}
                 style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
-                placeholder="Bijv. Maak het concreter voor HAVO 4, meer richting propaganda en crisis..."
+                placeholder="Bijv. Maak het concreter voor HAVO 4..."
               />
               <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button
@@ -643,7 +780,7 @@ export default function QuestionLabPage() {
                         onChange={(e) => setBijpromptByDim((prev) => ({ ...prev, [dim]: e.target.value }))}
                         rows={2}
                         style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
-                        placeholder="Bijv. Focus op rol van SA/geweld, of op werkloosheid..."
+                        placeholder="Bijv. Focus op rol van SA/geweld..."
                       />
                       <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
                         <button
@@ -688,9 +825,7 @@ export default function QuestionLabPage() {
               >
                 Match met bronnen
               </button>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>
-                Voor matchen: selecteer per subdimensie 1 deelvraag-chip.
-              </div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>Voor matchen: selecteer per subdimensie 1 deelvraag-chip.</div>
             </div>
           </>
         )}

@@ -1,10 +1,11 @@
+"use strict";
+
 // services/a06.chips.cjs
-// Service voor het genereren van "chips" (zoektermen)
+// Service voor het genereren van "chips" (zoektermen) — NL-only
 
 const MODEL_CHIPS = () => process.env.GEMINI_MODEL_CHIPS || "gemini-2.5-flash-lite";
 const API_KEY = () => process.env.GEMINI_API_KEY;
 
-// Lokale, robuuste Gemini-aanroeper
 async function callGeminiApi(prompt, modelToUse) {
   if (!API_KEY()) {
     console.error("[A06 Service] Fout: GEMINI_API_KEY ontbreekt.");
@@ -13,7 +14,7 @@ async function callGeminiApi(prompt, modelToUse) {
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelToUse}:generateContent`;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
   try {
     const res = await fetch(endpoint, {
@@ -24,7 +25,6 @@ async function callGeminiApi(prompt, modelToUse) {
       },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        // Geen JSON-respons nodig, alleen tekst
       }),
       signal: controller.signal,
     });
@@ -38,49 +38,70 @@ async function callGeminiApi(prompt, modelToUse) {
     }
 
     const data = await res.json();
-    const rawText = data.candidates[0].content.parts[0].text;
-    return { ok: true, status: 200, data: rawText };
-
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    return { ok: true, status: 200, data: String(rawText) };
   } catch (error) {
     clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
+    if (error && error.name === "AbortError") {
       return { ok: false, status: 408, data: { error: "Request timeout (15s)" } };
     }
     console.error("[A06 Service] Onverwachte Fout:", error);
-    return { ok: false, status: 500, data: { error: error.message } };
+    return { ok: false, status: 500, data: { error: error?.message || "Onbekende fout" } };
   }
 }
 
+function uniq(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const x of Array.isArray(arr) ? arr : []) {
+    const s = String(x || "").trim();
+    const k = s.toLowerCase();
+    if (!s) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
 /**
- * Vraagt Gemini om extra, Engelstalige/internationale zoektermen.
+ * Vraagt Gemini om extra zoektermen in het NEDERLANDS.
+ * Eigennamen mogen officieel blijven (NSDAP, Gestapo, Rijksdagbrand).
+ * Maar géén generieke Engelse termen ("World War II") → dat moet "Tweede Wereldoorlog" zijn.
  */
 async function expandKeywordsWithGemini({ tvLabel, kaLabels, baseKeywords }) {
   const prompt = `
-Je bent een historische zoekassistent voor de Europeana-database.
-Tijdvak: ${tvLabel}
-Kenmerkende Aspecten: ${kaLabels.join(", ")}
-Basiszoekwoorden (Nederlands): ${baseKeywords.join(", ")}
+Je bent een historische zoekassistent voor bronnenzoektocht (Nederlands).
+Context:
+- Tijdvak: ${tvLabel}
+- Kenmerkende Aspecten: ${kaLabels.join(", ")}
+- Basiszoekwoorden: ${baseKeywords.join(", ")}
 
-Geef maximaal 10 extra relevante zoektermen (namen, plaatsen, gebeurtenissen, begrippen)
-in het Engels of internationale schrijfwijze, gescheiden per regel.
-Geen uitleg, alleen de termen.
+TAAK:
+Geef maximaal 12 extra relevante zoektermen in het NEDERLANDS.
+Regels:
+- GEEN Engels.
+- GEEN uitleg.
+- Alleen termen, 1 per regel.
+Voorbeelden: "Weimarrepubliek", "Rijksdagbrand", "noodverordeningen", "propaganda", "antisemitisme", "Kristallnacht", "Neurenberger rassenwetten", "Anschluss", "dictatuur", "nationaalsocialisme".
+
+OUTPUT:
+Alleen de termen.
   `.trim();
 
   const result = await callGeminiApi(prompt, MODEL_CHIPS());
+  if (!result.ok) throw new Error(result.data?.error || "Gemini-aanroep mislukt");
 
-  if (!result.ok) {
-    throw new Error(result.data.error || "Gemini-aanroep mislukt");
-  }
-
-  const text = result.data;
+  const text = String(result.data || "");
   const lines = text
     .split("\n")
-    .map((l) => l.replace(/^[-*•\d.\s]+/, "").trim()) // Verwijder bullets
+    .map((l) => l.replace(/^[-*•\d.\s]+/, "").trim())
     .filter(Boolean);
 
-  return lines;
+  return uniq(lines).slice(0, 12);
 }
 
 module.exports = {
   expandKeywordsWithGemini,
 };
+

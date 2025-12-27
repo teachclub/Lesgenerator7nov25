@@ -25,6 +25,25 @@ function safeStr(x) {
   return typeof x === "string" ? x : "";
 }
 
+function canonUrl(u) {
+  const s = typeof u === "string" ? u.trim() : "";
+  if (!s) return "";
+  return s.endsWith("/") ? s.slice(0, -1) : s;
+}
+
+function uniqByUrlOrId(list) {
+  const out = [];
+  const seen = new Set();
+  for (const s of list || []) {
+    const u = canonUrl(s?.url || "");
+    const k = u ? `u:${u.toLowerCase()}` : `i:${String(s?.id || "").toLowerCase()}`;
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
 function uniqKeepOrder(arr) {
   const out = [];
   const seen = new Set();
@@ -145,8 +164,6 @@ module.exports = function searchMatchRouter() {
         tv: tv.length ? tv[0] : undefined,
       };
 
-      const meta = { timeouts: [], errors: [], ms: 0 };
-
       let allResults = [];
 
       if (citoService && filters.cito) {
@@ -154,26 +171,22 @@ module.exports = function searchMatchRouter() {
           const citoQ = terms.join(" ");
           const citoRes = citoService.searchCito({ query: citoQ, filters }) || [];
           if (Array.isArray(citoRes)) allResults.push(...citoRes);
-        } catch (e) {
-          meta.errors.push({ provider: "cito", message: e?.message ? String(e.message) : "onbekend" });
-        }
+        } catch {}
       }
 
       if (kleioService && filters.kleio) {
         const r = await withTimeout(kleioService.searchKleio({ query: terms, filters }), 5500, "kleio");
         if (r.ok && Array.isArray(r.value)) allResults.push(...r.value);
-        else if (r.timeout) meta.timeouts.push("kleio");
-        else meta.errors.push({ provider: "kleio", message: r.error?.message ? String(r.error.message) : "onbekend" });
       }
 
       const filtered = filterSources(allResults, { minTextLen: 80, minTextLenKleio: 1200 });
-      const sources = filtered.sources || [];
+      const sourcesUniq = uniqByUrlOrId(filtered.sources || []);
 
-      const mapped = sources
+      const mapped = sourcesUniq
         .map((s) => {
           const title = safeStr(s.title) || safeStr(s.name) || "(zonder titel)";
-          const desc = safeStr(s.description) || safeStr(s.fullText) || safeStr(s.content) || "";
-          const id = String(s.id ?? s.url ?? title);
+          const desc = safeStr(s.description) || safeStr(s.fullText) || "";
+          const id = String(s.id ?? canonUrl(s.url) ?? title);
 
           const score = scoreForSubdimensie(title + " " + desc, subdimensie);
 
@@ -190,14 +203,12 @@ module.exports = function searchMatchRouter() {
             kernargumenten: [],
             didactische_waarde: "",
             eindscore: score,
-            url: s.url ?? null,
+            url: canonUrl(s.url ?? null),
             provider: s.provider ?? null,
           };
         })
         .sort((a, b) => (b.eindscore || 0) - (a.eindscore || 0))
         .slice(0, 8);
-
-      meta.ms = Date.now() - started;
 
       return res.json({
         ok: true,
@@ -208,17 +219,14 @@ module.exports = function searchMatchRouter() {
         queryUsed: terms,
         bronnen: mapped,
         meta: {
-          ms: meta.ms,
-          timeouts: meta.timeouts,
-          errors: meta.errors,
+          ms: Date.now() - started,
           droppedKleioEmpty: filtered.droppedKleioEmpty || 0,
           droppedKleioNoise: filtered.droppedKleioNoise || 0,
-          sourcesCount: sources.length,
+          sourcesCount: sourcesUniq.length,
         },
       });
     } catch (e) {
-      const msg = e?.message ? String(e.message) : "onbekend";
-      return res.status(500).json({ ok: false, error: "search-match faalde", message: msg });
+      return res.status(500).json({ ok: false, error: "search-match faalde" });
     }
   });
 

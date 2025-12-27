@@ -18,23 +18,24 @@ app.use((req, res, next) => {
   next();
 });
 
-// health
 const healthRouterFactory = require("./routes/a01.health.cjs");
 app.use("/", healthRouterFactory());
 
-// core API routes
 app.use("/api", require("./routes/a06.chips.cjs"));
+app.use("/api", require("./routes/a24.chipSuggest.cjs")());
 app.use("/api", require("./routes/a12.search.cjs"));
 app.use("/api", require("./routes/a13.searchPreset.cjs"));
 app.use("/api", require("./routes/a22.thesaurus.cjs"));
 app.use("/api", require("./routes/a35.proposals-v2.cjs"));
 app.use("/api", require("./routes/lessonV2.refineConcept.cjs"));
-app.use("/api", require("./routes/a14.sourceDetail.cjs"));
+
+// ⬇️ DIT WAS DE BUG — factory MOET aangeroepen worden
+app.use("/api", require("./routes/a14.sourceDetail.cjs")());
+
 app.use("/api", require("./routes/a15.imageProxy.cjs")());
 app.use("/api", require("./routes/a16.questionGen.cjs")());
 app.use("/api", require("./routes/searchMatch.cjs")());
 
-// lesson v2 steps (register style)
 try {
   const { registerLessonV2Step1Routes } = require("./routes/lessonV2.step1.cjs");
   const { registerLessonV2Step2Routes } = require("./routes/lessonV2.step2.cjs");
@@ -48,7 +49,6 @@ try {
   console.warn("[server] lessonV2 step routes niet geregistreerd:", e?.message || String(e));
 }
 
-// optional db browser
 try {
   const dbBrowserFactory = require("./routes/a50.dbBrowser.cjs");
   app.use("/api", dbBrowserFactory());
