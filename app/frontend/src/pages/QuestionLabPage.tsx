@@ -21,6 +21,7 @@ type Source = {
   description?: string;
   fullText?: string;
   imageUrl?: string | null;
+  score?: number;
 };
 
 type DimKey = "politiek" | "sociaal" | "cultureel" | "individueel";
@@ -70,6 +71,29 @@ function sourceKey(s: Source) {
   const u = asString(s?.url);
   if (u) return u;
   return `${asString(s?.provider)}|${asString(s?.type)}|${asString(s?.title)}`;
+}
+
+function dimColor(dim: DimKey) {
+  if (dim === "politiek") return "#e7f0ff";
+  if (dim === "sociaal") return "#fff6d6";
+  if (dim === "cultureel") return "#ffe8d6";
+  return "#efeaff";
+}
+
+function dimAccent(dim: DimKey) {
+  if (dim === "politiek") return "#2b6cb0";
+  if (dim === "sociaal") return "#b7791f";
+  if (dim === "cultureel") return "#c05621";
+  return "#6b46c1";
+}
+
+function labelShort(s: string) {
+  const x = String(s || "").toLowerCase();
+  if (x.includes("politiek")) return "Politiek";
+  if (x.includes("sociaal")) return "Eco";
+  if (x.includes("cultureel")) return "Cultuur";
+  if (x.includes("individueel")) return "Individueel";
+  return s;
 }
 
 export default function QuestionLabPage() {
@@ -133,6 +157,15 @@ export default function QuestionLabPage() {
     individueel: {},
   });
 
+  const [activeDim, setActiveDim] = useState<DimKey>("politiek");
+  const [activeSourceKey, setActiveSourceKey] = useState<string | null>(null);
+  const [showMoreByDim, setShowMoreByDim] = useState<Record<DimKey, boolean>>({
+    politiek: false,
+    sociaal: false,
+    cultureel: false,
+    individueel: false,
+  });
+
   const [chipSuggesties, setChipSuggesties] = useState<string[]>([]);
   const [chipsBusy, setChipsBusy] = useState(false);
   const [chipsErr, setChipsErr] = useState("");
@@ -182,8 +215,6 @@ export default function QuestionLabPage() {
     const tv0 = tvSelected && tvSelected.length ? tvSelected[0] : "";
     const tvL = tvLabelLong(tv0);
 
-    // Belangrijk: /api/chips alleen aanroepen als er minstens 1 begrip is ingevuld.
-    // Dit voorkomt 400 Bad Request en voorkomt “drukte” als je nog niks hebt ingevuld.
     if (!baseKeywords.length) {
       setChipSuggesties([]);
       setChipsErr("");
@@ -319,6 +350,10 @@ export default function QuestionLabPage() {
       setSelectedDeelvraagByDim({ politiek: null, sociaal: null, cultureel: null, individueel: null });
       setSourcesByDim({ politiek: [], sociaal: [], cultureel: [], individueel: [] });
       setSelectedSourceByDim({ politiek: {}, sociaal: {}, cultureel: {}, individueel: {} });
+
+      setActiveDim("politiek");
+      setActiveSourceKey(null);
+      setShowMoreByDim({ politiek: false, sociaal: false, cultureel: false, individueel: false });
     } catch (e: any) {
       setErrorMsg(e?.message ? String(e.message) : "Onbekende fout");
     } finally {
@@ -372,6 +407,10 @@ export default function QuestionLabPage() {
       setSelectedDeelvraagByDim((prev) => ({ ...prev, [dim]: best.vraag }));
       setSourcesByDim((prev) => ({ ...prev, [dim]: [] }));
       setSelectedSourceByDim((prev) => ({ ...prev, [dim]: {} }));
+
+      setActiveDim(dim);
+      setActiveSourceKey(null);
+      setShowMoreByDim((prev) => ({ ...prev, [dim]: false }));
     } catch (e: any) {
       setErrorMsg(e?.message ? String(e.message) : "Onbekende fout");
     } finally {
@@ -391,6 +430,7 @@ export default function QuestionLabPage() {
     });
     setSourcesByDim((prev) => ({ ...prev, [dim]: [] }));
     setSelectedSourceByDim((prev) => ({ ...prev, [dim]: {} }));
+    if (activeDim === dim) setActiveSourceKey(null);
   }
 
   function canMatchAllDims() {
@@ -430,7 +470,15 @@ export default function QuestionLabPage() {
         const sources: Source[] = Array.isArray(payload?.sources) ? payload.sources : [];
         setSourcesByDim((prev) => ({ ...prev, [dim]: sources }));
         setSelectedSourceByDim((prev) => ({ ...prev, [dim]: prev[dim] || {} }));
+        setShowMoreByDim((prev) => ({ ...prev, [dim]: false }));
       }
+
+      const firstDimWithSources =
+        DIMENSIES.find((x) => (sourcesByDim[x.key] || []).length > 0)?.key ||
+        DIMENSIES.find((x) => (selectedDeelvraagByDim[x.key] || "").length > 0)?.key ||
+        "politiek";
+      setActiveDim(firstDimWithSources as DimKey);
+      setActiveSourceKey(null);
     } catch (e: any) {
       setErrorMsg(e?.message ? String(e.message) : "Onbekende fout");
     } finally {
@@ -452,10 +500,36 @@ export default function QuestionLabPage() {
     return Object.values(m).filter(Boolean).length;
   }
 
+  function dimHasMatches(dim: DimKey) {
+    return (sourcesByDim[dim] || []).length > 0;
+  }
+
+  function getSourceByKey(dim: DimKey, key: string | null) {
+    if (!key) return null;
+    const list = sourcesByDim[dim] || [];
+    return list.find((s) => sourceKey(s) === key) || null;
+  }
+
+  function getRankedSources(dim: DimKey) {
+    const list = sourcesByDim[dim] || [];
+    const sorted = [...list].sort((a, b) => {
+      const sa = typeof a.score === "number" ? a.score : -Infinity;
+      const sb = typeof b.score === "number" ? b.score : -Infinity;
+      if (sb !== sa) return sb - sa;
+      return 0;
+    });
+    return sorted;
+  }
+
+  const activeSourcesAll = useMemo(() => getRankedSources(activeDim), [activeDim, sourcesByDim]);
+  const activeSourcesTop6 = useMemo(() => activeSourcesAll.slice(0, 6), [activeSourcesAll]);
+  const activeSourcesRest = useMemo(() => activeSourcesAll.slice(6), [activeSourcesAll]);
+  const activePicked = useMemo(() => getSourceByKey(activeDim, activeSourceKey), [activeDim, activeSourceKey, sourcesByDim]);
+
   return (
     <div
       style={{
-        maxWidth: 1100,
+        maxWidth: 1280,
         margin: "0 auto",
         padding: 16,
         fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
@@ -464,7 +538,7 @@ export default function QuestionLabPage() {
       <h1 style={{ margin: "8px 0 12px" }}>QuestionLab (QL03) — Hoofdvraagchips → Deelvraagchips → Match bronnen</h1>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" }}>
-        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+        <div style={{ border: "1px solid #ddd", borderRadius: 16, padding: 12 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ fontWeight: 600 }}>Type hoofdvraag</span>
@@ -487,23 +561,23 @@ export default function QuestionLabPage() {
           </div>
 
           <div style={{ marginTop: 10 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Heb je al een hoofdvraag voor je les of waar denk je aan?</div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Heb je al een hoofdvraag voor je les of waar denk je aan?</div>
             <textarea
               value={richting}
               onChange={(e) => setRichting(e.target.value)}
               rows={3}
-              style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
+              style={{ width: "100%", borderRadius: 12, border: "1px solid #ccc", padding: 10 }}
               placeholder="Typ hier je idee voor de hoofdvraag..."
             />
           </div>
 
           <div style={{ marginTop: 10 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Welke historische begrippen vind je belangrijk?</div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Welke historische begrippen vind je belangrijk?</div>
             <textarea
               value={begrippenInput}
               onChange={(e) => setBegrippenInput(e.target.value)}
               rows={3}
-              style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
+              style={{ width: "100%", borderRadius: 12, border: "1px solid #ccc", padding: 10 }}
               placeholder="Bijv. Hitler, NSDAP, Weimarrepubliek..."
             />
 
@@ -534,7 +608,7 @@ export default function QuestionLabPage() {
 
               <div style={{ marginTop: 10 }}>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <div style={{ fontWeight: 600 }}>Suggesties (uit /api/chips)</div>
+                  <div style={{ fontWeight: 700 }}>Suggesties (uit /api/chips)</div>
                   {chipsBusy ? <div style={{ fontSize: 12, opacity: 0.75 }}>laden…</div> : null}
                   {chipsErr ? <div style={{ fontSize: 12, color: "#b00020" }}>{chipsErr}</div> : null}
                 </div>
@@ -577,8 +651,8 @@ export default function QuestionLabPage() {
           </div>
         </div>
 
-        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Tijdvakken (chips)</div>
+        <div style={{ border: "1px solid #ddd", borderRadius: 16, padding: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Tijdvakken (chips)</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {Array.from({ length: 10 }).map((_, i) => {
               const tv = String(i + 1);
@@ -605,11 +679,11 @@ export default function QuestionLabPage() {
 
           <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontWeight: 600 }}>KA</span>
+              <span style={{ fontWeight: 700 }}>KA</span>
               <input
                 value={ka}
                 onChange={(e) => setKa(e.target.value)}
-                style={{ borderRadius: 10, border: "1px solid #ccc", padding: "6px 10px", width: 110 }}
+                style={{ borderRadius: 12, border: "1px solid #ccc", padding: "6px 10px", width: 110 }}
               />
             </label>
 
@@ -633,13 +707,13 @@ export default function QuestionLabPage() {
           {errorMsg ? <div style={{ marginTop: 10, color: "#b00020", whiteSpace: "pre-wrap" }}>{errorMsg}</div> : null}
 
           <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
-            Backend endpoints: <code>/api/question-gen</code> en <code>/api/search</code> en <code>/api/chips</code>
+            Backend: <code>/api/question-gen</code> · <code>/api/search</code> · <code>/api/chips</code>
           </div>
         </div>
       </div>
 
-      <div style={{ marginTop: 14, border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>Stap 1 — Hoofdvraagchips</div>
+      <div style={{ marginTop: 14, border: "1px solid #ddd", borderRadius: 16, padding: 12 }}>
+        <div style={{ fontWeight: 800, marginBottom: 8 }}>Stap 1 — Hoofdvraagchips</div>
 
         {hoofdvraagSuggesties.length ? (
           <>
@@ -659,7 +733,7 @@ export default function QuestionLabPage() {
                       color: active ? "#fff" : "#111",
                       cursor: "pointer",
                       textAlign: "left",
-                      maxWidth: 1000,
+                      maxWidth: 1100,
                     }}
                     title="Klik om te selecteren"
                   >
@@ -670,12 +744,12 @@ export default function QuestionLabPage() {
             </div>
 
             <div style={{ marginTop: 10 }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Bijprompt (regen hoofdvragen)</div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Bijprompt (regen hoofdvragen)</div>
               <textarea
                 value={bijpromptHoofd}
                 onChange={(e) => setBijpromptHoofd(e.target.value)}
                 rows={2}
-                style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
+                style={{ width: "100%", borderRadius: 12, border: "1px solid #ccc", padding: 10 }}
                 placeholder="Bijv. Maak het concreter voor HAVO 4..."
               />
               <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -699,7 +773,7 @@ export default function QuestionLabPage() {
             </div>
 
             <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85 }}>
-              Geselecteerd: <span style={{ fontWeight: 600 }}>{selectedHoofdvraag || "—"}</span>
+              Geselecteerd: <span style={{ fontWeight: 700 }}>{selectedHoofdvraag || "—"}</span>
             </div>
           </>
         ) : (
@@ -707,15 +781,15 @@ export default function QuestionLabPage() {
         )}
       </div>
 
-      <div style={{ marginTop: 14, border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>Stap 2 — Deelvragen per subdimensie (chips)</div>
+      <div style={{ marginTop: 14, border: "1px solid #ddd", borderRadius: 16, padding: 12 }}>
+        <div style={{ fontWeight: 800, marginBottom: 8 }}>Stap 2 — Deelvragen per subdimensie (chips)</div>
 
         {!acceptedHoofdvraag ? (
           <div style={{ opacity: 0.75 }}>Kies eerst een hoofdvraag en klik “Gebruik deze hoofdvraag”.</div>
         ) : (
           <>
             <div style={{ marginBottom: 10, opacity: 0.9 }}>
-              Hoofdvraag in gebruik: <span style={{ fontWeight: 700 }}>{acceptedHoofdvraag}</span>
+              Hoofdvraag in gebruik: <span style={{ fontWeight: 800 }}>{acceptedHoofdvraag}</span>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -725,8 +799,8 @@ export default function QuestionLabPage() {
                 const selected = selectedDeelvraagByDim[dim];
 
                 return (
-                  <div key={dim} style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 8 }}>{d.label}</div>
+                  <div key={dim} style={{ border: "1px solid #eee", borderRadius: 16, padding: 12 }}>
+                    <div style={{ fontWeight: 800, marginBottom: 8 }}>{d.label}</div>
 
                     {chips.length ? (
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -736,7 +810,11 @@ export default function QuestionLabPage() {
                             <div key={q} style={{ display: "flex", gap: 6, alignItems: "center" }}>
                               <button
                                 type="button"
-                                onClick={() => setSelectedDeelvraagByDim((prev) => ({ ...prev, [dim]: q }))}
+                                onClick={() => {
+                                  setSelectedDeelvraagByDim((prev) => ({ ...prev, [dim]: q }));
+                                  setActiveDim(dim);
+                                  setActiveSourceKey(null);
+                                }}
                                 style={{
                                   borderRadius: 999,
                                   padding: "8px 12px",
@@ -774,12 +852,12 @@ export default function QuestionLabPage() {
                     )}
 
                     <div style={{ marginTop: 10 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 6 }}>Bijprompt (regen deelvraag)</div>
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>Bijprompt (regen deelvraag)</div>
                       <textarea
                         value={bijpromptByDim[dim]}
                         onChange={(e) => setBijpromptByDim((prev) => ({ ...prev, [dim]: e.target.value }))}
                         rows={2}
-                        style={{ width: "100%", borderRadius: 10, border: "1px solid #ccc", padding: 10 }}
+                        style={{ width: "100%", borderRadius: 12, border: "1px solid #ccc", padding: 10 }}
                         placeholder="Bijv. Focus op rol van SA/geweld..."
                       />
                       <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -801,7 +879,7 @@ export default function QuestionLabPage() {
                         </button>
                       </div>
                       <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
-                        Geselecteerd: <span style={{ fontWeight: 600 }}>{selected || "—"}</span>
+                        Geselecteerd: <span style={{ fontWeight: 700 }}>{selected || "—"}</span>
                       </div>
                     </div>
                   </div>
@@ -831,84 +909,334 @@ export default function QuestionLabPage() {
         )}
       </div>
 
-      <div style={{ marginTop: 14 }}>
-        <h2 style={{ margin: "8px 0 10px" }}>Stap 3 — Bronnen per subdimensie (selecteerbaar)</h2>
+      <div style={{ marginTop: 14, border: "1px solid #ddd", borderRadius: 16, padding: 12 }}>
+        <div style={{ fontWeight: 900, marginBottom: 10 }}>Stap 3 — Matchen in 3 kolommen (klik deelvraag → preview bronnen)</div>
 
         {!acceptedHoofdvraag ? (
-          <div style={{ opacity: 0.75 }}>Nog niet actief. Eerst hoofdvraag kiezen + deelvragen selecteren.</div>
+          <div style={{ opacity: 0.75 }}>Nog niet actief. Eerst hoofdvraag kiezen + deelvragen selecteren + matchen.</div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-            {DIMENSIES.map((d) => {
-              const dim = d.key;
-              const sources = sourcesByDim[dim] || [];
-              const selN = selectedSourceCount(dim);
-              const q = selectedDeelvraagByDim[dim];
+          <div style={{ display: "grid", gridTemplateColumns: "320px 1fr 360px", gap: 12, alignItems: "start" }}>
+            <div style={{ border: "1px solid #eee", borderRadius: 16, padding: 12 }}>
+              <div style={{ fontWeight: 800, marginBottom: 8 }}>Deelvragen (categorieën)</div>
+              <div style={{ display: "grid", gap: 10 }}>
+                {DIMENSIES.map((d) => {
+                  const dim = d.key;
+                  const q = selectedDeelvraagByDim[dim];
+                  const count = (sourcesByDim[dim] || []).length;
+                  const selectedN = selectedSourceCount(dim);
+                  const isActive = dim === activeDim;
 
-              return (
-                <div key={dim} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                    <div>
-                      <div style={{ fontWeight: 800 }}>{d.label}</div>
-                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
-                        Deelvraag: <span style={{ fontWeight: 600 }}>{q || "—"}</span>
+                  return (
+                    <button
+                      key={dim}
+                      type="button"
+                      onClick={() => {
+                        setActiveDim(dim);
+                        setActiveSourceKey(null);
+                      }}
+                      style={{
+                        textAlign: "left",
+                        borderRadius: 14,
+                        border: isActive ? `2px solid ${dimAccent(dim)}` : "1px solid #e6e6e6",
+                        background: dimColor(dim),
+                        padding: 12,
+                        cursor: "pointer",
+                      }}
+                      title="Klik om bronnen te previewen"
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <div style={{ fontWeight: 900, color: dimAccent(dim) }}>{labelShort(d.label)}</div>
+                        <div style={{ fontSize: 12, opacity: 0.85 }}>
+                          {count ? `${count} gevonden` : "—"} · {selectedN} gekozen
+                        </div>
                       </div>
-                    </div>
-                    <div style={{ fontSize: 12, opacity: 0.85, alignSelf: "center" }}>Geselecteerde bronnen: {selN}</div>
+
+                      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.9, lineHeight: 1.25 }}>
+                        {q ? q : <span style={{ opacity: 0.7 }}>Geen deelvraag geselecteerd</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
+                Tip: de bovenste <b>4</b> bronnen markeren we als “meest relevant” (geel). Daarna nog <b>2</b> als “extra” (wit).
+              </div>
+            </div>
+
+            <div style={{ border: "1px solid #eee", borderRadius: 16, padding: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontWeight: 900 }}>Preview bronnen — {labelShort(DIMENSIES.find((d) => d.key === activeDim)?.label || activeDim)}</div>
+                  <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
+                    Deelvraag: <span style={{ fontWeight: 700 }}>{selectedDeelvraagByDim[activeDim] || "—"}</span>
                   </div>
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.85 }}>Gevonden: {(sourcesByDim[activeDim] || []).length}</div>
+              </div>
 
-                  {sources.length ? (
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 6 }}>Resultaten ({sources.length})</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
-                        {sources.map((s, idx) => {
-                          const k = sourceKey(s);
-                          const checked = !!(selectedSourceByDim[dim] && selectedSourceByDim[dim][k]);
+              {!dimHasMatches(activeDim) ? (
+                <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>Nog geen bronnen. Klik “Match met bronnen”.</div>
+              ) : (
+                <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                  {activeSourcesTop6.map((s, idx) => {
+                    const k = sourceKey(s);
+                    const checked = !!(selectedSourceByDim[activeDim] && selectedSourceByDim[activeDim][k]);
+                    const isPrimary = idx < 4;
+                    const isFocused = activeSourceKey === k;
 
-                          return (
-                            <label
-                              key={`${k}-${idx}`}
+                    return (
+                      <div
+                        key={`${k}-${idx}`}
+                        style={{
+                          borderRadius: 14,
+                          border: isFocused ? `2px solid ${dimAccent(activeDim)}` : "1px solid #e9e9e9",
+                          background: isPrimary ? "#fff7cc" : "#fff",
+                          padding: 10,
+                        }}
+                      >
+                        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSelectSource(activeDim, s)}
+                            style={{ marginTop: 3 }}
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => setActiveSourceKey(k)}
+                            style={{
+                              flex: 1,
+                              textAlign: "left",
+                              border: "none",
+                              background: "transparent",
+                              padding: 0,
+                              cursor: "pointer",
+                            }}
+                            title="Klik voor detail rechts"
+                          >
+                            <div style={{ fontWeight: 800, lineHeight: 1.2 }}>
+                              {asString(s.title) || "(zonder titel)"}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
+                              {asString(s.provider) || "?"} · {asString(s.type) || "?"}
+                            </div>
+
+                            {s.description ? (
+                              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85, whiteSpace: "pre-wrap" }}>
+                                {asString(s.description).slice(0, 220)}
+                                {asString(s.description).length > 220 ? "…" : ""}
+                              </div>
+                            ) : null}
+                          </button>
+
+                          {s.imageUrl ? (
+                            <img
+                              src={s.imageUrl}
+                              alt=""
                               style={{
-                                display: "flex",
-                                gap: 10,
-                                alignItems: "flex-start",
-                                border: "1px solid #eee",
+                                width: 96,
+                                height: 72,
+                                objectFit: "cover",
                                 borderRadius: 10,
-                                padding: 10,
+                                border: "1px solid #eee",
+                                flex: "0 0 auto",
                               }}
-                            >
-                              <input type="checkbox" checked={checked} onChange={() => toggleSelectSource(dim, s)} />
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600 }}>
-                                  {asString(s.provider) || "?"} · {asString(s.type) || "?"} · {asString(s.title) || "(zonder titel)"}
+                            />
+                          ) : null}
+                        </div>
+
+                        {s.url ? (
+                          <div style={{ marginTop: 8, fontSize: 12 }}>
+                            <a href={s.url} target="_blank" rel="noreferrer">
+                              open bron
+                            </a>
+                          </div>
+                        ) : null}
+
+                        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
+                          {isPrimary ? "meest relevant" : "extra"}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {activeSourcesRest.length ? (
+                    <div style={{ marginTop: 2 }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowMoreByDim((prev) => ({ ...prev, [activeDim]: !prev[activeDim] }))}
+                        style={{
+                          borderRadius: 12,
+                          padding: "8px 12px",
+                          border: "1px solid #111",
+                          background: "#fff",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {showMoreByDim[activeDim] ? "Verberg overige bronnen" : `Toon overige bronnen (${activeSourcesRest.length})`}
+                      </button>
+
+                      {showMoreByDim[activeDim] ? (
+                        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                          {activeSourcesRest.map((s, idx) => {
+                            const k = sourceKey(s);
+                            const checked = !!(selectedSourceByDim[activeDim] && selectedSourceByDim[activeDim][k]);
+                            const isFocused = activeSourceKey === k;
+
+                            return (
+                              <div
+                                key={`${k}-rest-${idx}`}
+                                style={{
+                                  borderRadius: 14,
+                                  border: isFocused ? `2px solid ${dimAccent(activeDim)}` : "1px solid #e9e9e9",
+                                  background: "#fff",
+                                  padding: 10,
+                                }}
+                              >
+                                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleSelectSource(activeDim, s)}
+                                    style={{ marginTop: 3 }}
+                                  />
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveSourceKey(k)}
+                                    style={{
+                                      flex: 1,
+                                      textAlign: "left",
+                                      border: "none",
+                                      background: "transparent",
+                                      padding: 0,
+                                      cursor: "pointer",
+                                    }}
+                                    title="Klik voor detail rechts"
+                                  >
+                                    <div style={{ fontWeight: 800, lineHeight: 1.2 }}>
+                                      {asString(s.title) || "(zonder titel)"}
+                                    </div>
+                                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
+                                      {asString(s.provider) || "?"} · {asString(s.type) || "?"}
+                                    </div>
+                                    {s.description ? (
+                                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85, whiteSpace: "pre-wrap" }}>
+                                        {asString(s.description).slice(0, 160)}
+                                        {asString(s.description).length > 160 ? "…" : ""}
+                                      </div>
+                                    ) : null}
+                                  </button>
+
+                                  {s.imageUrl ? (
+                                    <img
+                                      src={s.imageUrl}
+                                      alt=""
+                                      style={{
+                                        width: 96,
+                                        height: 72,
+                                        objectFit: "cover",
+                                        borderRadius: 10,
+                                        border: "1px solid #eee",
+                                        flex: "0 0 auto",
+                                      }}
+                                    />
+                                  ) : null}
                                 </div>
+
                                 {s.url ? (
-                                  <div style={{ fontSize: 12, marginTop: 3 }}>
+                                  <div style={{ marginTop: 8, fontSize: 12 }}>
                                     <a href={s.url} target="_blank" rel="noreferrer">
-                                      {s.url}
+                                      open bron
                                     </a>
                                   </div>
                                 ) : null}
-                                {s.description ? (
-                                  <div style={{ fontSize: 12, marginTop: 6, opacity: 0.85, whiteSpace: "pre-wrap" }}>{s.description}</div>
-                                ) : null}
                               </div>
-                            </label>
-                          );
-                        })}
-                      </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
-                  ) : (
-                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>Nog geen bronnen opgehaald voor deze subdimensie.</div>
-                  )}
+                  ) : null}
                 </div>
-              );
-            })}
+              )}
+            </div>
+
+            <div style={{ border: "1px solid #eee", borderRadius: 16, padding: 12 }}>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>Detail / selectie</div>
+
+              <div style={{ display: "grid", gap: 10 }}>
+                {DIMENSIES.map((d) => {
+                  const dim = d.key;
+                  const n = selectedSourceCount(dim);
+                  return (
+                    <div key={dim} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
+                      <div style={{ fontWeight: 800, color: dimAccent(dim) }}>{labelShort(d.label)}</div>
+                      <div style={{ opacity: 0.85 }}>{n} gekozen</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ marginTop: 12, borderTop: "1px solid #eee", paddingTop: 12 }}>
+                {activePicked ? (
+                  <>
+                    <div style={{ fontWeight: 900, lineHeight: 1.2 }}>{asString(activePicked.title) || "(zonder titel)"}</div>
+                    <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
+                      {asString(activePicked.provider) || "?"} · {asString(activePicked.type) || "?"}
+                    </div>
+
+                    {activePicked.imageUrl ? (
+                      <img
+                        src={activePicked.imageUrl}
+                        alt=""
+                        style={{
+                          width: "100%",
+                          maxHeight: 220,
+                          objectFit: "cover",
+                          borderRadius: 14,
+                          border: "1px solid #eee",
+                          marginTop: 10,
+                        }}
+                      />
+                    ) : null}
+
+                    {activePicked.url ? (
+                      <div style={{ marginTop: 10, fontSize: 12 }}>
+                        <a href={activePicked.url} target="_blank" rel="noreferrer">
+                          open bron
+                        </a>
+                      </div>
+                    ) : null}
+
+                    {activePicked.description ? (
+                      <div style={{ marginTop: 10, fontSize: 12, opacity: 0.9, whiteSpace: "pre-wrap", lineHeight: 1.35 }}>
+                        {asString(activePicked.description)}
+                      </div>
+                    ) : null}
+
+                    {activePicked.fullText ? (
+                      <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85, whiteSpace: "pre-wrap", lineHeight: 1.35 }}>
+                        {asString(activePicked.fullText).slice(0, 900)}
+                        {asString(activePicked.fullText).length > 900 ? "…" : ""}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>
+                    Klik in de middelste kolom op een bron om hier de preview te zien.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>
 
       <div style={{ marginTop: 14, borderTop: "1px solid #eee", paddingTop: 12, fontSize: 12, opacity: 0.8 }}>
-        QL03: hoofdvraagchips + bijprompt regen + deelvraagchips per subdimensie + selecteren/verwijderen + Match met bronnen + selectie per dim in state.
+        QL03: hoofdvraagchips + bijprompt regen + deelvraagchips per subdimensie + Match met bronnen + 3-koloms match UI met top-4 (geel) + next-2 (wit) + preview met image.
       </div>
     </div>
   );

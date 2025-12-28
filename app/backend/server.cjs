@@ -13,6 +13,9 @@ const PORT = process.env.PORT || 8081;
 app.use(cors());
 app.use(express.json({ limit: "4mb" }));
 
+// ✅ serve backend/app/backend/data/* as /static/*
+app.use("/static", express.static(path.join(__dirname, "data")));
+
 app.use((req, res, next) => {
   console.log(`[req] ${req.method} ${req.url}`);
   next();
