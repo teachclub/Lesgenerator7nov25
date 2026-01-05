@@ -21,32 +21,52 @@ function headTail30(text) {
   return { head30: head, tail30: tail, n_lines: lines.length };
 }
 
+// In Cloud Run: process.cwd() is /app (repo root). Lokaal vaak .../app/backend.
+// We willen repoRoot = .../app zodat paden als "backend/server.cjs" veilig resolven.
 function pickRepoRoot() {
-  return process.cwd();
+  const cwd = process.cwd();
+
+  // Als we in .../app/backend zitten: repoRoot = parent (..)
+  if (fs.existsSync(path.join(cwd, "routes")) && fs.existsSync(path.join(cwd, "services"))) {
+    return path.resolve(cwd, "..");
+  }
+
+  // Als we in repo root zitten (heeft app/backend): repoRoot = cwd
+  if (fs.existsSync(path.join(cwd, "app", "backend"))) {
+    return cwd;
+  }
+
+  // Fallback: cwd
+  return cwd;
 }
 
 function normalizeRel(p) {
   let s = String(p || "").trim();
-
   s = s.replace(/^\/+/, "");
   s = s.replace(/\\/g, "/");
   s = s.replace(/^\.\//, "");
 
-  // monorepo-ish prefixes die we in DevHub/CLI vaak gebruiken
-  if (s.startsWith("app/")) s = s.slice(4);
+  // Sta toe dat callers "app/backend/..." of "backend/..." of "app/..." sturen
+  if (s.startsWith("app/backend/")) s = s.slice("app/backend/".length);
   if (s.startsWith("backend/")) s = s.slice("backend/".length);
+  if (s.startsWith("app/")) s = s.slice("app/".length);
 
+  // Normaliseer naar backend-relatieve paden binnen repo: "backend/<file>"
+  // (we slaan in DB op als "<file>" om UI simpel te houden)
   return s;
 }
 
 function resolveSafe(repoRoot, rel) {
   const norm = normalizeRel(rel);
-  const abs = path.resolve(repoRoot, norm);
 
-  const rr = path.resolve(repoRoot);
-  const ok = abs === rr || abs.startsWith(rr + path.sep);
-  if (!ok) throw new Error("unsafe path (outside repoRoot)");
+  // Wij willen altijd lezen uit repoRoot/app/backend/<norm>
+  const base = path.join(repoRoot, "app", "backend");
+  const abs = path.resolve(base, norm);
 
+  const rr = path.resolve(base) + path.sep;
+  if (!abs.startsWith(rr)) {
+    throw new Error("unsafe path (outside repoRoot)");
+  }
   return { norm, abs };
 }
 
@@ -70,14 +90,13 @@ function makePool() {
   });
 }
 
-// Zorgt dat de bestaande (nieuwe) schema’s bestaan en dat oude installaties columns bij-krijgen.
 async function ensureTables(pool) {
+  // Align met jouw huidige schema (created_at + created_by/label/etc) + snapshot_files.content NOT NULL
   const sql = `
 BEGIN;
 
 CREATE SCHEMA IF NOT EXISTS lessie;
 
--- SNAPSHOTS (nieuwe schema)
 CREATE TABLE IF NOT EXISTS lessie.snapshots (
   id bigserial PRIMARY KEY,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -90,20 +109,6 @@ CREATE TABLE IF NOT EXISTS lessie.snapshots (
   meta jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
--- als er al een oudere snapshots bestaat: voeg kolommen toe
-ALTER TABLE lessie.snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz;
-ALTER TABLE lessie.snapshots ADD COLUMN IF NOT EXISTS created_by text;
-ALTER TABLE lessie.snapshots ADD COLUMN IF NOT EXISTS label text;
-ALTER TABLE lessie.snapshots ADD COLUMN IF NOT EXISTS git_sha text;
-ALTER TABLE lessie.snapshots ADD COLUMN IF NOT EXISTS runtime_instance text;
-ALTER TABLE lessie.snapshots ADD COLUMN IF NOT EXISTS host text;
-ALTER TABLE lessie.snapshots ADD COLUMN IF NOT EXISTS scope text;
-ALTER TABLE lessie.snapshots ADD COLUMN IF NOT EXISTS meta jsonb;
-
--- defaults netjes zetten (als kolom net toegevoegd is kan default nog null zijn in schema)
-ALTER TABLE lessie.snapshots ALTER COLUMN meta SET DEFAULT '{}'::jsonb;
-
--- SNAPSHOT_FILES
 CREATE TABLE IF NOT EXISTS lessie.snapshot_files (
   id bigserial PRIMARY KEY,
   snapshot_id bigint NOT NULL REFERENCES lessie.snapshots(id) ON DELETE CASCADE,
@@ -113,16 +118,20 @@ CREATE TABLE IF NOT EXISTS lessie.snapshot_files (
   n_lines int NOT NULL,
   head30 text,
   tail30 text,
-  content text,
+  content text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE lessie.snapshot_files ADD COLUMN IF NOT EXISTS bytes int;
-ALTER TABLE lessie.snapshot_files ADD COLUMN IF NOT EXISTS n_lines int;
-ALTER TABLE lessie.snapshot_files ADD COLUMN IF NOT EXISTS head30 text;
-ALTER TABLE lessie.snapshot_files ADD COLUMN IF NOT EXISTS tail30 text;
-ALTER TABLE lessie.snapshot_files ADD COLUMN IF NOT EXISTS content text;
-ALTER TABLE lessie.snapshot_files ADD COLUMN IF NOT EXISTS created_at timestamptz;
+-- Migraties (als tabellen al bestonden in oudere vorm)
+ALTER TABLE lessie.snapshot_files
+  ALTER COLUMN content SET DEFAULT '';
+
+UPDATE lessie.snapshot_files
+SET content = ''
+WHERE content IS NULL;
+
+ALTER TABLE lessie.snapshot_files
+  ALTER COLUMN content SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ix_snapshots_created_at
 ON lessie.snapshots(created_at DESC);
@@ -163,13 +172,14 @@ module.exports = function a09DevSnapshotsFactory() {
     const pinnedPaths = Array.isArray(body.pinnedPaths) ? body.pinnedPaths : [];
 
     const scope = String(body.scope || "all");
-    const createdBy = String(body.created_by || body.createdBy || "devhub");
+    const created_by = String(body.created_by || "devhub");
     const label = body.label != null ? String(body.label) : null;
-    const gitSha = body.git_sha != null ? String(body.git_sha) : (body.gitSha != null ? String(body.gitSha) : null);
-    const runtimeInstance = body.runtime_instance != null ? String(body.runtime_instance) : (body.runtimeInstance != null ? String(body.runtimeInstance) : null);
-    const host = body.host != null ? String(body.host) : (req.get("host") ? String(req.get("host")) : null);
-    const meta = body.meta && typeof body.meta === "object" ? body.meta : {};
 
+    const git_sha = body.git_sha != null ? String(body.git_sha) : null;
+    const runtime_instance = body.runtime_instance != null ? String(body.runtime_instance) : null;
+    const host = body.host != null ? String(body.host) : (req.get("host") ? String(req.get("host")) : null);
+
+    const meta = (body.meta && typeof body.meta === "object") ? body.meta : {};
     const includeContent = body.includeContent === true;
 
     if (!pinnedPaths.length) return res.status(400).json({ ok: false, error: "pinnedPaths required" });
@@ -187,7 +197,7 @@ module.exports = function a09DevSnapshotsFactory() {
           `INSERT INTO lessie.snapshots(created_by, label, git_sha, runtime_instance, host, scope, meta)
            VALUES ($1,$2,$3,$4,$5,$6,$7)
            RETURNING id, created_at`,
-          [createdBy, label, gitSha, runtimeInstance, host, scope, meta]
+          [created_by, label, git_sha, runtime_instance, host, scope, meta]
         );
         const snapshot = insSnap.rows[0];
 
@@ -197,14 +207,14 @@ module.exports = function a09DevSnapshotsFactory() {
           try {
             ({ norm, abs } = resolveSafe(repoRoot, raw));
           } catch (e) {
-            items.push({ path: normalizeRel(raw), ok: false, error: e && e.message ? e.message : String(e) });
+            items.push({ path: String(raw || ""), ok: false, error: e && e.message ? e.message : String(e) });
             continue;
           }
 
-          let buf = null;
+          let buf;
           try {
             buf = fs.readFileSync(abs);
-          } catch (e) {
+          } catch {
             items.push({ path: norm, ok: false, error: "not found" });
             continue;
           }
@@ -217,7 +227,9 @@ module.exports = function a09DevSnapshotsFactory() {
           const text = buf.toString("utf8");
           const h = sha256(text);
           const ht = headTail30(text);
-          const content = includeContent ? text : null;
+
+          // BELANGRIJK: content is NOT NULL in DB → als we niet includen, schrijf leeg.
+          const content = includeContent ? text : "";
 
           await client.query(
             `INSERT INTO lessie.snapshot_files(snapshot_id, path, sha256, bytes, n_lines, head30, tail30, content)
