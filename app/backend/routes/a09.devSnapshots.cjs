@@ -21,49 +21,28 @@ function headTail30(text) {
   return { head30: head, tail30: tail, n_lines: lines.length };
 }
 
-// In Cloud Run: process.cwd() is /app (repo root). Lokaal vaak .../app/backend.
-// We willen repoRoot = .../app zodat paden als "backend/server.cjs" veilig resolven.
+// RepoRoot is ALTIJD app/backend (stabiel in Cloud Run).
 function pickRepoRoot() {
-  const cwd = process.cwd();
-
-  // Als we in .../app/backend zitten: repoRoot = parent (..)
-  if (fs.existsSync(path.join(cwd, "routes")) && fs.existsSync(path.join(cwd, "services"))) {
-    return path.resolve(cwd, "..");
-  }
-
-  // Als we in repo root zitten (heeft app/backend): repoRoot = cwd
-  if (fs.existsSync(path.join(cwd, "app", "backend"))) {
-    return cwd;
-  }
-
-  // Fallback: cwd
-  return cwd;
+  return path.resolve(__dirname, "..");
 }
 
 function normalizeRel(p) {
   let s = String(p || "").trim();
-  s = s.replace(/^\/+/, "");
   s = s.replace(/\\/g, "/");
+  s = s.replace(/^\/+/, "");
   s = s.replace(/^\.\//, "");
 
-  // Sta toe dat callers "app/backend/..." of "backend/..." of "app/..." sturen
+  // tolerante prefixes (oude calls)
   if (s.startsWith("app/backend/")) s = s.slice("app/backend/".length);
   if (s.startsWith("backend/")) s = s.slice("backend/".length);
-  if (s.startsWith("app/")) s = s.slice("app/".length);
 
-  // Normaliseer naar backend-relatieve paden binnen repo: "backend/<file>"
-  // (we slaan in DB op als "<file>" om UI simpel te houden)
   return s;
 }
 
 function resolveSafe(repoRoot, rel) {
   const norm = normalizeRel(rel);
-
-  // Wij willen altijd lezen uit repoRoot/app/backend/<norm>
-  const base = path.join(repoRoot, "app", "backend");
-  const abs = path.resolve(base, norm);
-
-  const rr = path.resolve(base) + path.sep;
+  const abs = path.resolve(repoRoot, norm);
+  const rr = path.resolve(repoRoot) + path.sep;
   if (!abs.startsWith(rr)) {
     throw new Error("unsafe path (outside repoRoot)");
   }
@@ -90,8 +69,8 @@ function makePool() {
   });
 }
 
+// Align met jouw bestaande schema (created_by/label/meta etc.)
 async function ensureTables(pool) {
-  // Align met jouw huidige schema (created_at + created_by/label/etc) + snapshot_files.content NOT NULL
   const sql = `
 BEGIN;
 
@@ -118,20 +97,9 @@ CREATE TABLE IF NOT EXISTS lessie.snapshot_files (
   n_lines int NOT NULL,
   head30 text,
   tail30 text,
-  content text NOT NULL DEFAULT '',
+  content text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
--- Migraties (als tabellen al bestonden in oudere vorm)
-ALTER TABLE lessie.snapshot_files
-  ALTER COLUMN content SET DEFAULT '';
-
-UPDATE lessie.snapshot_files
-SET content = ''
-WHERE content IS NULL;
-
-ALTER TABLE lessie.snapshot_files
-  ALTER COLUMN content SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ix_snapshots_created_at
 ON lessie.snapshots(created_at DESC);
@@ -167,23 +135,42 @@ module.exports = function a09DevSnapshotsFactory() {
     }
   });
 
-  router.post("/dev/snapshot", express.json({ limit: "2mb" }), async (req, res) => {
+  router.post("/dev/snapshot", express.json({ limit: "4mb" }), async (req, res) => {
     const body = req.body || {};
-    const pinnedPaths = Array.isArray(body.pinnedPaths) ? body.pinnedPaths : [];
 
+    const pinnedPaths = Array.isArray(body.pinnedPaths) ? body.pinnedPaths : [];
     const scope = String(body.scope || "all");
-    const created_by = String(body.created_by || "devhub");
+    const createdBy = String(body.created_by || body.createdBy || "devhub");
     const label = body.label != null ? String(body.label) : null;
 
-    const git_sha = body.git_sha != null ? String(body.git_sha) : null;
-    const runtime_instance = body.runtime_instance != null ? String(body.runtime_instance) : null;
-    const host = body.host != null ? String(body.host) : (req.get("host") ? String(req.get("host")) : null);
+    const kind = String(body.kind || "manual");
+    const note = body.note != null ? String(body.note) : null;
 
-    const meta = (body.meta && typeof body.meta === "object") ? body.meta : {};
+    const host = body.host != null ? String(body.host) : (req.get("host") ? String(req.get("host")) : null);
     const includeContent = body.includeContent === true;
 
-    if (!pinnedPaths.length) return res.status(400).json({ ok: false, error: "pinnedPaths required" });
-    if (pinnedPaths.length > 40) return res.status(400).json({ ok: false, error: "too many pinnedPaths (max 40)" });
+    const gitSha =
+      body.git_sha != null ? String(body.git_sha) :
+      body.gitSha != null ? String(body.gitSha) :
+      null;
+
+    const runtimeInstance =
+      body.runtime_instance != null ? String(body.runtime_instance) :
+      body.runtimeInstance != null ? String(body.runtimeInstance) :
+      null;
+
+    const meta = Object.assign(
+      {},
+      (body.meta && typeof body.meta === "object" && !Array.isArray(body.meta)) ? body.meta : {},
+      { kind, note }
+    );
+
+    if (!pinnedPaths.length) {
+      return res.status(400).json({ ok: false, error: "pinnedPaths required" });
+    }
+    if (pinnedPaths.length > 100) {
+      return res.status(400).json({ ok: false, error: "too many pinnedPaths (max 100)" });
+    }
 
     try {
       const p = getPool();
@@ -197,8 +184,9 @@ module.exports = function a09DevSnapshotsFactory() {
           `INSERT INTO lessie.snapshots(created_by, label, git_sha, runtime_instance, host, scope, meta)
            VALUES ($1,$2,$3,$4,$5,$6,$7)
            RETURNING id, created_at`,
-          [created_by, label, git_sha, runtime_instance, host, scope, meta]
+          [createdBy, label, gitSha, runtimeInstance, host, scope, JSON.stringify(meta)]
         );
+
         const snapshot = insSnap.rows[0];
 
         const items = [];
@@ -207,7 +195,7 @@ module.exports = function a09DevSnapshotsFactory() {
           try {
             ({ norm, abs } = resolveSafe(repoRoot, raw));
           } catch (e) {
-            items.push({ path: String(raw || ""), ok: false, error: e && e.message ? e.message : String(e) });
+            items.push({ path: normalizeRel(raw), ok: false, error: e && e.message ? e.message : String(e) });
             continue;
           }
 
@@ -219,17 +207,15 @@ module.exports = function a09DevSnapshotsFactory() {
             continue;
           }
 
-          if (buf.length > 500_000) {
-            items.push({ path: norm, ok: false, error: "file too large (>500kb)" });
+          if (buf.length > 700_000) {
+            items.push({ path: norm, ok: false, error: "file too large (>700kb)" });
             continue;
           }
 
           const text = buf.toString("utf8");
           const h = sha256(text);
           const ht = headTail30(text);
-
-          // BELANGRIJK: content is NOT NULL in DB → als we niet includen, schrijf leeg.
-          const content = includeContent ? text : "";
+          const content = includeContent ? text : null;
 
           await client.query(
             `INSERT INTO lessie.snapshot_files(snapshot_id, path, sha256, bytes, n_lines, head30, tail30, content)
@@ -265,8 +251,9 @@ module.exports = function a09DevSnapshotsFactory() {
       await ensureTables(p);
 
       const r = await p.query(
-        `SELECT s.id AS snapshot_id, s.created_at, s.created_by, s.label, s.git_sha, s.runtime_instance, s.host, s.scope,
-                f.path, f.sha256, f.bytes, f.n_lines, f.head30, f.tail30
+        `SELECT
+           s.id AS snapshot_id, s.created_at, s.created_by, s.label, s.git_sha, s.runtime_instance, s.host, s.scope,
+           f.path, f.sha256, f.bytes, f.n_lines, f.head30, f.tail30
          FROM lessie.snapshot_files f
          JOIN lessie.snapshots s ON s.id = f.snapshot_id
          WHERE f.path = $1
@@ -287,7 +274,7 @@ module.exports = function a09DevSnapshotsFactory() {
       .split(",")
       .map(s => s.trim())
       .filter(Boolean)
-      .slice(0, 40)
+      .slice(0, 100)
       .map(normalizeRel);
 
     if (!paths.length) return res.status(400).json({ ok: false, error: "paths required (comma-separated)" });
@@ -320,6 +307,7 @@ module.exports = function a09DevSnapshotsFactory() {
   router.get("/dev/snapshots/file-content", async (req, res) => {
     const qpath = req.query.path ? String(req.query.path) : "";
     const snapshotId = req.query.snapshot_id ? Number(req.query.snapshot_id) : NaN;
+
     if (!qpath || !Number.isFinite(snapshotId)) {
       return res.status(400).json({ ok: false, error: "path and snapshot_id required" });
     }
