@@ -13,7 +13,6 @@ const PORT = process.env.PORT || 8081;
 app.use(cors());
 app.use(express.json({ limit: "4mb" }));
 
-// ✅ serve backend/app/backend/data/* as /static/*
 app.use("/static", express.static(path.join(__dirname, "data")));
 
 app.use((req, res, next) => {
@@ -21,10 +20,70 @@ app.use((req, res, next) => {
   next();
 });
 
+// -------------------- DEVHUB GATE --------------------
+// Zet LESSIE_DEVHUB=1 in .env (lokaal) of Cloud Run env vars (alleen als je ’m live wil).
+const DEVHUB_ON = String(process.env.LESSIE_DEVHUB || "") === "1";
+
+function isDevPath(req) {
+  const p = String(req.path || "");
+  return (
+    p === "/dev" ||
+    p.startsWith("/dev/") ||
+    p === "/api/dev" ||
+    p.startsWith("/api/dev/") ||
+    p === "/api/dev-tree" ||
+    p.startsWith("/api/dev-tree/")
+  );
+}
+
+// Als devhub uit staat: doe alsof routes niet bestaan (netjes 404).
+app.use((req, res, next) => {
+  if (!DEVHUB_ON && isDevPath(req)) {
+    res.status(404).json({ ok: false, error: "Route niet gevonden" });
+    return;
+  }
+  next();
+});
+// -----------------------------------------------------
+
 const healthRouterFactory = require("./routes/a01.health.cjs");
 app.use("/", healthRouterFactory());
 
+// DEV TREE (API + UI) -> DevHub tab "Tree"
+try {
+  const devTreeFactory = require("./routes/a02.devTree.cjs");
+  app.use("/api", devTreeFactory());
+  app.use("/", devTreeFactory());
+} catch (e) {
+  console.warn("[server] a02.devTree niet geladen:", e?.message || String(e));
+}
+
+// DEV DB STATUS (Postgres snapshot) -> /api/dev/db-status
+try {
+  const devDbStatusFactory = require("./routes/a04.devDbStatus.cjs");
+  app.use("/api", devDbStatusFactory());
+} catch (e) {
+  console.warn("[server] a04.devDbStatus niet geladen:", e?.message || String(e));
+}
+
+// DEV SNAPSHOTS (code backups) -> /api/dev/snapshot + /api/dev/snapshots/*
+try {
+  const devSnapshotsFactory = require("./routes/a09.devSnapshots.cjs");
+  app.use("/api", devSnapshotsFactory());
+} catch (e) {
+  console.warn("[server] a09.devSnapshots niet geladen:", e?.message || String(e));
+}
+
+// DEV HUB (1 link) -> /dev
+try {
+  const devHubFactory = require("./routes/a03.devHub.cjs");
+  app.use("/", devHubFactory());
+} catch (e) {
+  console.warn("[server] a03.devHub niet geladen:", e?.message || String(e));
+}
+
 app.use("/api", require("./routes/a06.chips.cjs"));
+app.use("/api", require("./routes/a07.usageEvents.cjs")());
 app.use("/api", require("./routes/a24.chipSuggest.cjs")());
 app.use("/api", require("./routes/a12.search.cjs"));
 app.use("/api", require("./routes/a13.searchPreset.cjs"));
@@ -32,12 +91,15 @@ app.use("/api", require("./routes/a22.thesaurus.cjs"));
 app.use("/api", require("./routes/a35.proposals-v2.cjs"));
 app.use("/api", require("./routes/lessonV2.refineConcept.cjs"));
 
-// ⬇️ DIT WAS DE BUG — factory MOET aangeroepen worden
 app.use("/api", require("./routes/a14.sourceDetail.cjs")());
-
 app.use("/api", require("./routes/a15.imageProxy.cjs")());
 app.use("/api", require("./routes/a16.questionGen.cjs")());
+app.use("/api", require("./routes/a17.contextGen.cjs")());
 app.use("/api", require("./routes/searchMatch.cjs")());
+
+app.use("/", require("./routes/searchMatchV2.cjs"));
+
+app.use("/api", require("./routes/a51.citoimg.cjs"));
 
 try {
   const { registerLessonV2Step1Routes } = require("./routes/lessonV2.step1.cjs");
