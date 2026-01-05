@@ -14,8 +14,7 @@ module.exports = function a03DevHubFactory() {
     (process.env.LESSIE_FRONTEND_BASE_QL || process.env.LESSIE_FRONTEND_BASE || "").trim();
 
   // ---------------- TOP20 (curated) ----------------
-  // Let op: paths zijn repo-root relatief zoals a09.devSnapshots verwacht (dus zonder "app/backend/").
-  // Jij wil geen "alle bestanden" dropdown. Alleen deze curated Top20 per scope.
+  // Paths zijn repo-root relatief zoals a09.devSnapshots verwacht (dus zonder "app/backend/").
   const TOP20_ALL = [
     "server.cjs",
     "routes/a01.health.cjs",
@@ -39,7 +38,6 @@ module.exports = function a03DevHubFactory() {
     "routes/lessonV2.step4.cjs",
   ];
 
-  // QL = focust set (QuestionLab / matching / dev tooling)
   const TOP20_QL = [
     "server.cjs",
     "routes/a03.devHub.cjs",
@@ -93,7 +91,7 @@ module.exports = function a03DevHubFactory() {
     .sep{width:1px;height:26px;background:#e5e7eb;margin:0 4px}
 
     .drawer{
-      position:fixed; top:0; right:0; height:100vh; width:min(720px, 96vw);
+      position:fixed; top:0; right:0; height:100vh; width:min(820px, 96vw);
       background:#ffffff; border-left:1px solid #e5e7eb;
       box-shadow:-12px 0 30px rgba(15,23,42,.10);
       transform:translateX(110%); transition:transform .18s ease;
@@ -119,18 +117,18 @@ module.exports = function a03DevHubFactory() {
     .row2{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     code{background:#f1f5f9;border:1px solid #e5e7eb;border-radius:8px;padding:1px 6px}
 
-    .fileCard{border:1px solid #e5e7eb;border-radius:14px;padding:10px 12px;margin:8px 0;background:#fff}
+    .fileCard{border:1px solid #e5e7eb;border-radius:14px;padding:10px 12px;margin:10px 0;background:#fff}
     .fileHead{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .filePath{font-weight:800}
-    .btn2{padding:7px 9px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font-weight:650;font-size:12px}
+    .filePath{font-weight:850}
+    .btn2{padding:7px 9px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font-weight:700;font-size:12px}
     .btn2:hover{background:#f8fafc}
     .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
     .pre{
-      white-space:pre; overflow:auto; max-height:52vh;
-      border:1px solid #e5e7eb; border-radius:12px; padding:10px 12px; background:#0b1220; color:#e5e7eb;
+      white-space:pre; overflow:auto; max-height:56vh;
+      border:1px solid #0b1220; border-radius:12px; padding:10px 12px; background:#0b1220; color:#e5e7eb;
       font-size:12px; line-height:1.45;
     }
-    .hr{height:1px;background:#e5e7eb;margin:10px 0}
+    .hr{height:1px;background:#e5e7eb;margin:12px 0}
   </style>
 </head>
 <body>
@@ -164,7 +162,6 @@ module.exports = function a03DevHubFactory() {
 
     <button class="btn" id="snapTopBtn">Top20 snapshot</button>
     <button class="btn" id="metricsBtn">Metrics</button>
-
     <button class="btn" id="openAll">Open all</button>
     <button class="btn" id="closeAll">Close all</button>
     <button class="btn" id="copyAll">Copy snapshot</button>
@@ -177,15 +174,15 @@ module.exports = function a03DevHubFactory() {
 
   <aside class="drawer" id="drawer">
     <div class="drawerHead">
-      <div class="drawerTitle" id="drawerTitle">Metrics</div>
+      <div class="drawerTitle" id="drawerTitle">Drawer</div>
       <span class="muted" id="drawerStamp"></span>
       <div class="spacer"></div>
       <button class="btn" id="drawerRefresh">Refresh</button>
       <button class="btn" id="drawerClose">Close</button>
     </div>
     <div class="drawerBody">
-      <div id="drawerIntro" class="muted">Live uit PostgreSQL + usage_events (top bronnen = event <code>source_selected</code>).</div>
-      <div id="drawerContent" class="small" style="margin-top:10px;">Klik <b>Refresh</b> of open <b>Metrics</b>.</div>
+      <div id="drawerIntro" class="muted"></div>
+      <div id="drawerContent" class="small" style="margin-top:10px;">—</div>
     </div>
   </aside>
 
@@ -213,6 +210,7 @@ module.exports = function a03DevHubFactory() {
   const btnClose = document.getElementById('closeAll');
 
   const snapTopBtn = document.getElementById('snapTopBtn');
+  const metricsBtn = document.getElementById('metricsBtn');
 
   const drawer = document.getElementById('drawer');
   const drawerTitle = document.getElementById('drawerTitle');
@@ -221,8 +219,6 @@ module.exports = function a03DevHubFactory() {
   const drawerRefresh = document.getElementById('drawerRefresh');
   const drawerContent = document.getElementById('drawerContent');
   const drawerIntro = document.getElementById('drawerIntro');
-
-  const metricsBtn = document.getElementById('metricsBtn');
 
   const ENV_OLD = ${JSON.stringify(FRONTEND_BASE_OLD)};
   const ENV_QL  = ${JSON.stringify(FRONTEND_BASE_QL)};
@@ -242,6 +238,8 @@ module.exports = function a03DevHubFactory() {
   const FRONTEND_QL  = baseFromEnvOrDefault(ENV_QL);
 
   let current = { mode: "map", scope: "all" };
+  let drawerMode = "metrics";
+  let drawerCtx = {};
 
   function setActive(button){
     btns.forEach(x => x.classList.remove('active'));
@@ -275,6 +273,10 @@ module.exports = function a03DevHubFactory() {
     return FRONTEND_OLD + "/";
   }
 
+  function topListForScope(scope){
+    return (String(scope) === "ql") ? TOP20_QL : TOP20_ALL;
+  }
+
   btns.forEach(b => b.addEventListener('click', () => {
     const mode = b.dataset.mode;
     if (mode === "map") {
@@ -293,14 +295,14 @@ module.exports = function a03DevHubFactory() {
 
   updatePill();
 
-  async function fetchText(url){
-    const r = await fetch(url, { cache: "no-store" });
+  async function fetchText(url, options){
+    const r = await fetch(url, Object.assign({ cache: "no-store" }, options || {}));
     const t = await r.text();
     return { ok: r.ok, status: r.status, text: t };
   }
 
-  async function fetchJson(url, opts){
-    const r = await fetch(url, Object.assign({ cache: "no-store" }, opts || {}));
+  async function fetchJson(url, options){
+    const r = await fetch(url, Object.assign({ cache: "no-store" }, options || {}));
     const t = await r.text();
     let j = null;
     try { j = JSON.parse(t); } catch {}
@@ -410,19 +412,31 @@ module.exports = function a03DevHubFactory() {
     ).join('') + '</div>';
   }
 
-  function openDrawer(title, introHtml){
-    drawerTitle.textContent = title;
+  function openDrawer(title, introHtml, mode, ctx){
+    drawerMode = mode || "metrics";
+    drawerCtx = ctx || {};
+    drawerTitle.textContent = title || "Drawer";
     drawerIntro.innerHTML = introHtml || "";
+    drawerContent.innerHTML = "<div class='small'>loading…</div>";
+    drawerStamp.textContent = "";
     drawer.classList.add("open");
   }
+
   function closeDrawer(){
     drawer.classList.remove("open");
   }
-  drawerClose.addEventListener('click', closeDrawer);
 
-  // ---------- METRICS ----------
+  drawerClose.addEventListener("click", closeDrawer);
+
+  drawerRefresh.addEventListener("click", () => {
+    if (drawerMode === "metrics") loadMetrics().catch(() => { drawerContent.textContent = "metrics failed"; });
+    else if (drawerMode === "snapshot") rerenderSnapshotLatest().catch(() => { drawerContent.textContent = "refresh failed"; });
+    else if (drawerMode === "history") loadFileHistory(drawerCtx.path).catch(() => { drawerContent.textContent = "history failed"; });
+    else if (drawerMode === "view") loadFileContent(drawerCtx.path, drawerCtx.snapshot_id).catch(() => { drawerContent.textContent = "view failed"; });
+  });
+
   async function loadMetrics(){
-    drawerStamp.textContent = "";
+    drawerIntro.innerHTML = "Live uit PostgreSQL + usage_events (top bronnen = event <code>source_selected</code>).";
     drawerContent.textContent = "loading…";
 
     const summary = await fetchJson("/api/dev/metrics/summary");
@@ -468,14 +482,181 @@ module.exports = function a03DevHubFactory() {
     drawerStamp.textContent = "updated " + new Date().toLocaleTimeString("nl-NL");
   }
 
-  metricsBtn.addEventListener('click', () => {
-    openDrawer("Metrics", 'Live uit PostgreSQL + usage_events (top bronnen = event <code>source_selected</code>).');
-    loadMetrics().catch(() => { drawerContent.textContent = "metrics failed"; });
+  metricsBtn.addEventListener("click", () => {
+    if (drawer.classList.contains("open") && drawerMode === "metrics") closeDrawer();
+    else {
+      openDrawer("Metrics", "Live uit PostgreSQL + usage_events (top bronnen = event <code>source_selected</code>).", "metrics", {});
+      loadMetrics().catch(() => { drawerContent.textContent = "metrics failed"; });
+    }
   });
 
-  // ---------- SNAPSHOTS (Top20) ----------
-  function topListForScope(scope){
-    return (String(scope||"all") === "ql") ? TOP20_QL : TOP20_ALL;
+  function mkBtn(text, onClick){
+    const b = document.createElement("button");
+    b.className = "btn2";
+    b.textContent = text;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  async function copyToClipboard(text){
+    await navigator.clipboard.writeText(String(text || ""));
+    statusEl.textContent = "copied ✓";
+    setTimeout(() => { statusEl.textContent = ""; }, 1400);
+  }
+
+  async function loadFileContent(path, snapshotId){
+    const url = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(path) + "&snapshot_id=" + encodeURIComponent(String(snapshotId));
+    const r = await fetchJson(url);
+    if (!r.ok || !r.json || !r.json.ok) {
+      drawerContent.textContent = "file-content failed: " + (r.json && r.json.error ? r.json.error : r.text);
+      return;
+    }
+    const item = r.json.item || {};
+    const content = (item.content != null) ? String(item.content) : "";
+    const meta = "sha256 " + escHtml(item.sha256 || "-") + " • " + escHtml(String(item.bytes || "-")) + " bytes • " + escHtml(String(item.n_lines || "-")) + " lines";
+    const html =
+      "<div class='muted'>"+meta+"</div>"
+      + "<div class='hr'></div>"
+      + "<button class='btn2' id='copyCodeBtn'>Copy code</button>"
+      + "<div style='height:8px'></div>"
+      + "<div class='pre mono' id='codeBox'></div>";
+    drawerContent.innerHTML = html;
+    const codeBox = document.getElementById("codeBox");
+    if (codeBox) codeBox.textContent = content || (item.head30 || "");
+    const copyBtn = document.getElementById("copyCodeBtn");
+    if (copyBtn) copyBtn.addEventListener("click", () => copyToClipboard(content || ""));
+    drawerStamp.textContent = "loaded " + new Date().toLocaleTimeString("nl-NL");
+  }
+
+  async function loadFileHistory(path){
+    const url = "/api/dev/snapshots/file?path=" + encodeURIComponent(path);
+    const r = await fetchJson(url);
+    if (!r.ok || !r.json || !r.json.ok) {
+      drawerContent.textContent = "history failed: " + (r.json && r.json.error ? r.json.error : r.text);
+      return;
+    }
+    const items = Array.isArray(r.json.items) ? r.json.items : [];
+    if (!items.length) {
+      drawerContent.innerHTML = "<div class='small'>Nog geen snapshots voor <code>"+escHtml(path)+"</code>.</div>";
+      return;
+    }
+    let html = "";
+    html += "<div class='muted'>History voor <code>"+escHtml(path)+"</code> (nieuwste eerst)</div>";
+    html += "<table class='tbl'><thead><tr><th>when</th><th>snapshot</th><th>kind</th><th>scope</th><th>view</th></tr></thead><tbody>";
+    html += items.map(it => {
+      const sid = it.snapshot_id;
+      const when = it.created_at || "";
+      const kind = it.kind || "";
+      const scope = it.scope || "";
+      return "<tr>"
+        + "<td>"+escHtml(when)+"</td>"
+        + "<td>#"+escHtml(sid)+"</td>"
+        + "<td>"+escHtml(kind)+"</td>"
+        + "<td>"+escHtml(scope)+"</td>"
+        + "<td><button class='btn2' data-view='1' data-path='"+escHtml(path)+"' data-sid='"+escHtml(String(sid))+"'>View</button></td>"
+        + "</tr>";
+    }).join("");
+    html += "</tbody></table>";
+    drawerContent.innerHTML = html;
+
+    Array.from(drawerContent.querySelectorAll("button[data-view='1']")).forEach(btn => {
+      btn.addEventListener("click", () => {
+        const p = btn.getAttribute("data-path");
+        const sid = Number(btn.getAttribute("data-sid"));
+        openDrawer("Code view", "<div class='muted'><code>"+escHtml(p)+"</code> • snapshot <code>#"+escHtml(String(sid))+"</code></div>", "view", { path: p, snapshot_id: sid });
+        loadFileContent(p, sid).catch(() => { drawerContent.textContent = "view failed"; });
+      });
+    });
+
+    drawerStamp.textContent = "updated " + new Date().toLocaleTimeString("nl-NL");
+  }
+
+  function renderSnapshotResult(snapshot, savedItems, scope){
+    const sid = snapshot && snapshot.id ? snapshot.id : "?";
+    const createdAt = snapshot && snapshot.created_at ? snapshot.created_at : "";
+    const paths = topListForScope(scope);
+
+    let html = "";
+    html += "<div class='muted'>Snapshot <code>#"+escHtml(String(sid))+"</code> • "+escHtml(createdAt)+" • scope <code>"+escHtml(scope)+"</code></div>";
+    html += "<div class='hr'></div>";
+
+    const savedMap = {};
+    (Array.isArray(savedItems) ? savedItems : []).forEach(x => {
+      if (x && x.path) savedMap[String(x.path)] = x;
+    });
+
+    paths.forEach(p => {
+      const s = savedMap[p];
+      const ok = s && s.ok === true;
+
+      html += "<div class='fileCard'>";
+      html += "<div class='fileHead'>";
+      html += "<div class='filePath mono'>"+escHtml(p)+"</div>";
+      html += "<span class='pill'>"+(ok ? "saved" : "missing")+"</span>";
+      if (s && s.error) html += "<span class='small'>"+escHtml(String(s.error))+"</span>";
+      html += "</div>";
+
+      html += "<div style='height:8px'></div>";
+      html += "<div class='row2'>";
+      html += "<button class='btn2' data-action='view' data-path='"+escHtml(p)+"' data-sid='"+escHtml(String(sid))+"'>View code</button>";
+      html += "<button class='btn2' data-action='copy' data-path='"+escHtml(p)+"' data-sid='"+escHtml(String(sid))+"'>Copy code</button>";
+      html += "<button class='btn2' data-action='history' data-path='"+escHtml(p)+"'>History</button>";
+      html += "</div>";
+
+      html += "</div>";
+    });
+
+    drawerContent.innerHTML = html;
+
+    Array.from(drawerContent.querySelectorAll("button[data-action='view']")).forEach(btn => {
+      btn.addEventListener("click", () => {
+        const p = btn.getAttribute("data-path");
+        const sid2 = Number(btn.getAttribute("data-sid"));
+        openDrawer("Code view", "<div class='muted'><code>"+escHtml(p)+"</code> • snapshot <code>#"+escHtml(String(sid2))+"</code></div>", "view", { path: p, snapshot_id: sid2 });
+        loadFileContent(p, sid2).catch(() => { drawerContent.textContent = "view failed"; });
+      });
+    });
+
+    Array.from(drawerContent.querySelectorAll("button[data-action='copy']")).forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const p = btn.getAttribute("data-path");
+        const sid2 = Number(btn.getAttribute("data-sid"));
+        const url = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(p) + "&snapshot_id=" + encodeURIComponent(String(sid2));
+        const r = await fetchJson(url);
+        if (!r.ok || !r.json || !r.json.ok) {
+          statusEl.textContent = "copy failed";
+          setTimeout(() => { statusEl.textContent = ""; }, 1400);
+          return;
+        }
+        const content = (r.json.item && r.json.item.content != null) ? String(r.json.item.content) : "";
+        await copyToClipboard(content || "");
+      });
+    });
+
+    Array.from(drawerContent.querySelectorAll("button[data-action='history']")).forEach(btn => {
+      btn.addEventListener("click", () => {
+        const p = btn.getAttribute("data-path");
+        openDrawer("History", "<div class='muted'><code>"+escHtml(p)+"</code></div>", "history", { path: p });
+        loadFileHistory(p).catch(() => { drawerContent.textContent = "history failed"; });
+      });
+    });
+  }
+
+  async function rerenderSnapshotLatest(){
+    if (drawerMode !== "snapshot" || !drawerCtx || !drawerCtx.scope || !drawerCtx.snapshot_id) return;
+    const scope = drawerCtx.scope;
+    const sid = drawerCtx.snapshot_id;
+    openDrawer("Top20 snapshot", "<div class='muted'>Scope <code>"+escHtml(scope)+"</code> • Snapshot <code>#"+escHtml(String(sid))+"</code></div>", "snapshot", drawerCtx);
+
+    const paths = topListForScope(scope);
+    const url = "/api/dev/snapshots/latest?paths=" + encodeURIComponent(paths.join(","));
+    const r = await fetchJson(url);
+    if (!r.ok || !r.json || !r.json.ok) {
+      drawerContent.textContent = "latest failed: " + (r.json && r.json.error ? r.json.error : r.text);
+      return;
+    }
+    drawerContent.innerHTML = "<div class='small'>Gebruik de knoppen per bestand (view/copy/history).</div>";
+    renderSnapshotResult({ id: sid, created_at: "" }, (r.json.items || []).map(x => ({ path: x.path, ok: true })), scope);
   }
 
   async function snapshotTop20(){
@@ -506,268 +687,30 @@ module.exports = function a03DevHubFactory() {
         throw new Error(msg || "snapshot failed");
       }
 
-      openDrawer("Top20 snapshot", `
-        <div class="muted">
-          Scope: <code>${escHtml(scope)}</code> • Snapshot: <code>#${escHtml(r.json.snapshot.id)}</code> • ${escHtml(r.json.snapshot.created_at)}
-        </div>
-      `);
+      const sid = r.json.snapshot && r.json.snapshot.id ? r.json.snapshot.id : "?";
+      const createdAt = r.json.snapshot && r.json.snapshot.created_at ? r.json.snapshot.created_at : "";
+
+      openDrawer(
+        "Top20 snapshot",
+        "<div class='muted'>Scope: <code>"+escHtml(scope)+"</code> • Snapshot: <code>#"+escHtml(String(sid))+"</code> • "+escHtml(createdAt)+"</div>",
+        "snapshot",
+        { scope: scope, snapshot_id: sid }
+      );
 
       renderSnapshotResult(r.json.snapshot, r.json.saved, scope);
       drawerStamp.textContent = "saved " + new Date().toLocaleTimeString("nl-NL");
       statusEl.textContent = "Top20 saved ✓";
     } catch (e) {
-      statusEl.textContent = "snapshot failed: " + (e?.message || String(e));
-      openDrawer("Top20 snapshot", "<div class='muted'>Snapshot failed.</div>");
-      drawerContent.textContent = String(e?.message || e);
+      statusEl.textContent = "snapshot failed: " + (e && e.message ? e.message : String(e));
+      openDrawer("Top20 snapshot", "<div class='muted'>Snapshot failed.</div>", "snapshot", { scope: scope });
+      drawerContent.textContent = String(e && e.message ? e.message : e);
     } finally {
       snapTopBtn.disabled = false;
       setTimeout(() => { statusEl.textContent = ""; }, 8000);
     }
   }
 
-  function mkBtn(text, onClick){
-    const b = document.createElement("button");
-    b.className = "btn2";
-    b.textContent = text;
-    b.addEventListener("click", onClick);
-    return b;
-  }
-
-  async function copyToClipboard(text){
-    await navigator.clipboard.writeText(String(text || ""));
-    statusEl.textContent = "copied ✓";
-    setTimeout(() => { statusEl.textContent = ""; }, 1400);
-  }
-
-  async function loadFileContent(path, snapshotId){
-    const url = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(path) + "&snapshot_id=" + encodeURIComponent(snapshotId);
-    const r = await fetchJson(url);
-    if (!r.ok || !r.json || !r.json.ok) {
-      throw new Error((r.json && r.json.error) ? r.json.error : r.text);
-    }
-    const item = r.json.item || {};
-    // content kan null zijn als includeContent=false (maar Top20 = true)
-    return item.content ?? (item.head30 ?? "") + "\\n...\\n" + (item.tail30 ?? "");
-  }
-
-  async function loadHistory(path){
-    const url = "/api/dev/snapshots/file?path=" + encodeURIComponent(path);
-    const r = await fetchJson(url);
-    if (!r.ok || !r.json || !r.json.ok) {
-      throw new Error((r.json && r.json.error) ? r.json.error : r.text);
-    }
-    return r.json.items || [];
-  }
-
-  function renderSnapshotResult(snapshot, saved, scope){
-    const okItems = (saved || []).filter(x => x && x.ok);
-    const badItems = (saved || []).filter(x => x && x.ok === false);
-
-    let html = "";
-    html += "<div class='hr'></div>";
-    html += "<div class='row2'><span class='pill'>Bestanden</span><span class='small'>per bestand: View • Copy • History</span></div>";
-
-    if (badItems.length) {
-      html += "<div class='small' style='margin:8px 0'><b>Let op:</b> sommige files niet gesaved:</div>";
-      html += "<ul class='small'>" + badItems.map(x => "<li><span class='mono'>"+escHtml(x.path)+"</span> — "+escHtml(x.error||"error")+"</li>").join("") + "</ul>";
-      html += "<div class='hr'></div>";
-    }
-
-    const container = document.createElement("div");
-    container.innerHTML = html;
-
-    const list = document.createElement("div");
-
-    okItems.forEach(it => {
-      const card = document.createElement("div");
-      card.className = "fileCard";
-
-      const head = document.createElement("div");
-      head.className = "fileHead";
-
-      const p = document.createElement("div");
-      p.className = "filePath mono";
-      p.textContent = it.path;
-
-      const meta = document.createElement("div");
-      meta.className = "small";
-      meta.textContent = (it.bytes ? (it.bytes + " bytes") : "") + (it.n_lines ? (" • " + it.n_lines + " lines") : "");
-
-      const viewBtn = mkBtn("View code", async () => {
-        try {
-          statusEl.textContent = "loading code…";
-          const text = await loadFileContent(it.path, snapshot.id);
-          showCodeView(it.path, text, snapshot.id);
-        } catch (e) {
-          statusEl.textContent = "view failed: " + (e?.message || String(e));
-        } finally {
-          setTimeout(() => { statusEl.textContent = ""; }, 2000);
-        }
-      });
-
-      const copyBtn = mkBtn("Copy code", async () => {
-        try {
-          const text = await loadFileContent(it.path, snapshot.id);
-          await copyToClipboard(text);
-        } catch (e) {
-          statusEl.textContent = "copy failed: " + (e?.message || String(e));
-          setTimeout(() => { statusEl.textContent = ""; }, 2200);
-        }
-      });
-
-      const histBtn = mkBtn("History", async () => {
-        try {
-          statusEl.textContent = "loading history…";
-          const items = await loadHistory(it.path);
-          showHistory(it.path, items);
-        } catch (e) {
-          statusEl.textContent = "history failed: " + (e?.message || String(e));
-          setTimeout(() => { statusEl.textContent = ""; }, 2200);
-        } finally {
-          setTimeout(() => { statusEl.textContent = ""; }, 1200);
-        }
-      });
-
-      head.appendChild(p);
-      head.appendChild(meta);
-      head.appendChild(viewBtn);
-      head.appendChild(copyBtn);
-      head.appendChild(histBtn);
-
-      card.appendChild(head);
-
-      list.appendChild(card);
-    });
-
-    container.appendChild(list);
-
-    drawerContent.innerHTML = "";
-    drawerContent.appendChild(container);
-  }
-
-  function showCodeView(path, text, snapshotId){
-    const wrap = document.createElement("div");
-    wrap.innerHTML = `
-      <div class="row2">
-        <span class="pill">Code</span>
-        <span class="small mono">${escHtml(path)}</span>
-        <span class="small">snapshot #${escHtml(snapshotId)}</span>
-      </div>
-      <div class="row2" style="margin-top:8px;">
-        <button class="btn2" id="copyNow">Copy</button>
-      </div>
-      <div class="pre mono" id="pre"></div>
-    `;
-    wrap.querySelector("#pre").textContent = String(text || "");
-    wrap.querySelector("#copyNow").addEventListener("click", async () => {
-      await copyToClipboard(text);
-    });
-    drawerContent.innerHTML = "";
-    drawerContent.appendChild(wrap);
-  }
-
-  function showHistory(path, items){
-    const wrap = document.createElement("div");
-    const title = document.createElement("div");
-    title.className = "row2";
-    title.innerHTML = '<span class="pill">History</span><span class="small mono">'+escHtml(path)+'</span><span class="small">('+escHtml(items.length)+')</span>';
-    wrap.appendChild(title);
-
-    if (!items.length) {
-      const m = document.createElement("div");
-      m.className = "small";
-      m.style.marginTop = "10px";
-      m.textContent = "Geen snapshots gevonden voor dit bestand.";
-      wrap.appendChild(m);
-      drawerContent.innerHTML = "";
-      drawerContent.appendChild(wrap);
-      return;
-    }
-
-    const tbl = document.createElement("table");
-    tbl.className = "tbl";
-    tbl.innerHTML = "<thead><tr><th>tijd</th><th>label</th><th>snapshot</th><th>acties</th></tr></thead>";
-    const tb = document.createElement("tbody");
-
-    items.forEach(row => {
-      const tr = document.createElement("tr");
-
-      const tdT = document.createElement("td");
-      tdT.className = "small";
-      tdT.textContent = row.created_at || "";
-
-      const tdL = document.createElement("td");
-      tdL.className = "small";
-      tdL.textContent = row.label || row.note || row.kind || "";
-
-      const tdS = document.createElement("td");
-      tdS.className = "small mono";
-      tdS.textContent = "#" + (row.snapshot_id || row.id || "?");
-
-      const tdA = document.createElement("td");
-
-      const view = document.createElement("button");
-      view.className = "btn2";
-      view.textContent = "View";
-      view.addEventListener("click", async () => {
-        try {
-          const sid = Number(row.snapshot_id || row.id);
-          const text = await loadFileContent(path, sid);
-          showCodeView(path, text, sid);
-        } catch (e) {
-          statusEl.textContent = "view failed: " + (e?.message || String(e));
-          setTimeout(() => { statusEl.textContent = ""; }, 2200);
-        }
-      });
-
-      const copy = document.createElement("button");
-      copy.className = "btn2";
-      copy.textContent = "Copy";
-      copy.style.marginLeft = "6px";
-      copy.addEventListener("click", async () => {
-        try {
-          const sid = Number(row.snapshot_id || row.id);
-          const text = await loadFileContent(path, sid);
-          await copyToClipboard(text);
-        } catch (e) {
-          statusEl.textContent = "copy failed: " + (e?.message || String(e));
-          setTimeout(() => { statusEl.textContent = ""; }, 2200);
-        }
-      });
-
-      tdA.appendChild(view);
-      tdA.appendChild(copy);
-
-      tr.appendChild(tdT);
-      tr.appendChild(tdL);
-      tr.appendChild(tdS);
-      tr.appendChild(tdA);
-      tb.appendChild(tr);
-    });
-
-    tbl.appendChild(tb);
-    wrap.appendChild(tbl);
-
-    drawerContent.innerHTML = "";
-    drawerContent.appendChild(wrap);
-  }
-
-  snapTopBtn.addEventListener("click", () => {
-    openDrawer("Top20 snapshot", "<div class='muted'>Maakt een snapshot (met volledige code) van de curated Top20 voor de huidige scope.</div>");
-    drawerContent.textContent = "ready…";
-    snapshotTop20().catch(() => {});
-  });
-
-  drawerRefresh.addEventListener("click", () => {
-    // Refresh betekent: als Metrics drawer open is -> metrics reload.
-    // Als Top20 drawer open is -> geen automatische refresh (je klikt opnieuw op Top20 snapshot).
-    if (drawerTitle.textContent === "Metrics") {
-      loadMetrics().catch(() => { drawerContent.textContent = "metrics failed"; });
-    } else {
-      drawerStamp.textContent = "no refresh (use Top20 snapshot)";
-      setTimeout(() => { drawerStamp.textContent = ""; }, 1200);
-    }
-  });
+  snapTopBtn.addEventListener("click", () => snapshotTop20().catch(() => {}));
 </script>
 </body>
 </html>`;
