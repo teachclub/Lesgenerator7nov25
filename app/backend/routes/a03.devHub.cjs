@@ -13,6 +13,57 @@ module.exports = function a03DevHubFactory() {
   const FRONTEND_BASE_QL =
     (process.env.LESSIE_FRONTEND_BASE_QL || process.env.LESSIE_FRONTEND_BASE || "").trim();
 
+  // ---------------- TOP20 (curated) ----------------
+  // Let op: paths zijn repo-root relatief zoals a09.devSnapshots verwacht (dus zonder "app/backend/").
+  // Jij wil geen "alle bestanden" dropdown. Alleen deze curated Top20 per scope.
+  const TOP20_ALL = [
+    "server.cjs",
+    "routes/a01.health.cjs",
+    "routes/a02.devTree.cjs",
+    "routes/a03.devHub.cjs",
+    "routes/a04.devDbStatus.cjs",
+    "routes/a06.chips.cjs",
+    "routes/a07.usageEvents.cjs",
+    "routes/a09.devSnapshots.cjs",
+    "routes/a12.search.cjs",
+    "routes/a13.searchPreset.cjs",
+    "routes/a14.sourceDetail.cjs",
+    "routes/a15.imageProxy.cjs",
+    "routes/a16.questionGen.cjs",
+    "routes/a17.contextGen.cjs",
+    "routes/searchMatch.cjs",
+    "routes/searchMatchV2.cjs",
+    "routes/a35.proposals-v2.cjs",
+    "routes/lessonV2.step1.cjs",
+    "routes/lessonV2.step2.cjs",
+    "routes/lessonV2.step4.cjs",
+  ];
+
+  // QL = focust set (QuestionLab / matching / dev tooling)
+  const TOP20_QL = [
+    "server.cjs",
+    "routes/a03.devHub.cjs",
+    "routes/a02.devTree.cjs",
+    "routes/a09.devSnapshots.cjs",
+    "routes/a04.devDbStatus.cjs",
+    "routes/a07.usageEvents.cjs",
+    "routes/a14.sourceDetail.cjs",
+    "routes/a15.imageProxy.cjs",
+    "routes/a16.questionGen.cjs",
+    "routes/a17.contextGen.cjs",
+    "routes/searchMatch.cjs",
+    "routes/searchMatchV2.cjs",
+    "routes/a12.search.cjs",
+    "routes/a13.searchPreset.cjs",
+    "routes/a35.proposals-v2.cjs",
+    "routes/a22.thesaurus.cjs",
+    "routes/a24.chipSuggest.cjs",
+    "routes/a50.dbBrowser.cjs",
+    "routes/a06.chips.cjs",
+    "routes/a01.health.cjs",
+  ];
+  // ------------------------------------------------
+
   router.get("/dev", (req, res) => {
     const html = `<!doctype html>
 <html>
@@ -34,31 +85,15 @@ module.exports = function a03DevHubFactory() {
     .spacer{flex:1}
     .status{font-size:12px;color:#334155;min-height:16px;max-width:72ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     main{padding:0}
-    iframe{width:100%;height:calc(100vh - 158px);border:0}
+    iframe{width:100%;height:calc(100vh - 112px);border:0}
     .ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .ctl label{font-size:12px;color:#334155}
     select,input[type="checkbox"]{cursor:pointer}
     .pill{font-size:12px;color:#0f172a;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px}
     .sep{width:1px;height:26px;background:#e5e7eb;margin:0 4px}
 
-    .snapbar{
-      padding:10px 14px;border-bottom:1px solid #e5e7eb;
-      display:flex;gap:10px;align-items:center;flex-wrap:wrap
-    }
-    .snapbar .label{font-size:12px;color:#334155;font-weight:700}
-    .snapbar select{min-width:min(620px, 92vw); padding:8px;border:1px solid #cbd5e1;border-radius:10px}
-    .mini{font-size:12px;color:#475569}
-    .list{
-      padding:10px 14px;border-bottom:1px solid #e5e7eb; display:none;
-    }
-    .list.open{display:block}
-    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px dashed #e5e7eb}
-    .row:last-child{border-bottom:0}
-    .path{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;color:#0f172a;max-width:72ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .row .btn{padding:6px 8px;border-radius:10px;font-weight:700;font-size:12px}
-
     .drawer{
-      position:fixed; top:0; right:0; height:100vh; width:min(560px, 92vw);
+      position:fixed; top:0; right:0; height:100vh; width:min(720px, 96vw);
       background:#ffffff; border-left:1px solid #e5e7eb;
       box-shadow:-12px 0 30px rgba(15,23,42,.10);
       transform:translateX(110%); transition:transform .18s ease;
@@ -67,7 +102,7 @@ module.exports = function a03DevHubFactory() {
     .drawer.open{ transform:translateX(0); }
     .drawerHead{
       padding:12px 14px; border-bottom:1px solid #e5e7eb;
-      display:flex; align-items:center; gap:10px;
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
     }
     .drawerTitle{ font-weight:800; }
     .drawerBody{ padding:12px 14px; overflow:auto; }
@@ -83,7 +118,19 @@ module.exports = function a03DevHubFactory() {
     .small{ font-size:12px; color:#475569; }
     .row2{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     code{background:#f1f5f9;border:1px solid #e5e7eb;border-radius:8px;padding:1px 6px}
-    pre{white-space:pre-wrap;word-break:break-word}
+
+    .fileCard{border:1px solid #e5e7eb;border-radius:14px;padding:10px 12px;margin:8px 0;background:#fff}
+    .fileHead{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .filePath{font-weight:800}
+    .btn2{padding:7px 9px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font-weight:650;font-size:12px}
+    .btn2:hover{background:#f8fafc}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+    .pre{
+      white-space:pre; overflow:auto; max-height:52vh;
+      border:1px solid #e5e7eb; border-radius:12px; padding:10px 12px; background:#0b1220; color:#e5e7eb;
+      font-size:12px; line-height:1.45;
+    }
+    .hr{height:1px;background:#e5e7eb;margin:10px 0}
   </style>
 </head>
 <body>
@@ -115,23 +162,14 @@ module.exports = function a03DevHubFactory() {
 
     <div class="spacer"></div>
 
+    <button class="btn" id="snapTopBtn">Top20 snapshot</button>
     <button class="btn" id="metricsBtn">Metrics</button>
+
     <button class="btn" id="openAll">Open all</button>
     <button class="btn" id="closeAll">Close all</button>
     <button class="btn" id="copyAll">Copy snapshot</button>
     <span class="status" id="status"></span>
   </header>
-
-  <div class="snapbar">
-    <span class="label">Snapshot selectie (max 20)</span>
-    <select id="filePick" multiple size="6"></select>
-    <label class="mini"><input type="checkbox" id="includeFullCode" checked /> full code</label>
-    <input id="snapLabel" style="padding:8px;border:1px solid #cbd5e1;border-radius:10px" placeholder="label (bv: ql-safe)" />
-    <button class="btn" id="takeSnap">Snapshot</button>
-    <span class="mini" id="pickInfo"></span>
-  </div>
-
-  <div class="list" id="snapList"></div>
 
   <main>
     <iframe id="frame" src="/api/dev/sitemap?scope=all"></iframe>
@@ -139,15 +177,15 @@ module.exports = function a03DevHubFactory() {
 
   <aside class="drawer" id="drawer">
     <div class="drawerHead">
-      <div class="drawerTitle">Metrics</div>
-      <span class="muted" id="metricsStamp"></span>
+      <div class="drawerTitle" id="drawerTitle">Metrics</div>
+      <span class="muted" id="drawerStamp"></span>
       <div class="spacer"></div>
-      <button class="btn" id="metricsRefresh">Refresh</button>
-      <button class="btn" id="metricsClose">Close</button>
+      <button class="btn" id="drawerRefresh">Refresh</button>
+      <button class="btn" id="drawerClose">Close</button>
     </div>
     <div class="drawerBody">
-      <div class="muted">Live uit PostgreSQL + usage_events (top bronnen = event <code>source_selected</code>).</div>
-      <div id="metricsContent" class="small" style="margin-top:10px;">Klik <b>Refresh</b> of open <b>Metrics</b>.</div>
+      <div id="drawerIntro" class="muted">Live uit PostgreSQL + usage_events (top bronnen = event <code>source_selected</code>).</div>
+      <div id="drawerContent" class="small" style="margin-top:10px;">Klik <b>Refresh</b> of open <b>Metrics</b>.</div>
     </div>
   </aside>
 
@@ -174,23 +212,24 @@ module.exports = function a03DevHubFactory() {
   const btnOpen = document.getElementById('openAll');
   const btnClose = document.getElementById('closeAll');
 
-  const filePick = document.getElementById("filePick");
-  const pickInfo = document.getElementById("pickInfo");
-  const includeFullCode = document.getElementById("includeFullCode");
-  const snapLabel = document.getElementById("snapLabel");
-  const takeSnap = document.getElementById("takeSnap");
-  const snapList = document.getElementById("snapList");
+  const snapTopBtn = document.getElementById('snapTopBtn');
+
+  const drawer = document.getElementById('drawer');
+  const drawerTitle = document.getElementById('drawerTitle');
+  const drawerStamp = document.getElementById('drawerStamp');
+  const drawerClose = document.getElementById('drawerClose');
+  const drawerRefresh = document.getElementById('drawerRefresh');
+  const drawerContent = document.getElementById('drawerContent');
+  const drawerIntro = document.getElementById('drawerIntro');
 
   const metricsBtn = document.getElementById('metricsBtn');
-  const drawer = document.getElementById('drawer');
-  const metricsClose = document.getElementById('metricsClose');
-  const metricsRefresh = document.getElementById('metricsRefresh');
-  const metricsContent = document.getElementById('metricsContent');
-  const metricsStamp = document.getElementById('metricsStamp');
 
   const ENV_OLD = ${JSON.stringify(FRONTEND_BASE_OLD)};
   const ENV_QL  = ${JSON.stringify(FRONTEND_BASE_QL)};
   const DEFAULT_RUNAPP = ${JSON.stringify(isRunAppDefault)};
+
+  const TOP20_ALL = ${JSON.stringify(TOP20_ALL)};
+  const TOP20_QL  = ${JSON.stringify(TOP20_QL)};
 
   function baseFromEnvOrDefault(envVal){
     const v = (envVal || "").trim();
@@ -203,7 +242,6 @@ module.exports = function a03DevHubFactory() {
   const FRONTEND_QL  = baseFromEnvOrDefault(ENV_QL);
 
   let current = { mode: "map", scope: "all" };
-  let allFilesCache = { all: [], ql: [] };
 
   function setActive(button){
     btns.forEach(x => x.classList.remove('active'));
@@ -242,11 +280,9 @@ module.exports = function a03DevHubFactory() {
     if (mode === "map") {
       current = { mode: "map", scope: b.dataset.scope || "all" };
       frame.src = livingMapUrl(current.scope);
-      refreshFileDropdown().catch(()=>{});
     } else if (mode === "tree") {
       current = { mode: "tree", scope: b.dataset.scope || "ql" };
       frame.src = treeUiUrl(current.scope);
-      refreshFileDropdown().catch(()=>{});
     } else if (mode === "live") {
       current = { mode: "live", scope: "-" };
       frame.src = liveUrl(b.dataset.target || "old");
@@ -263,8 +299,8 @@ module.exports = function a03DevHubFactory() {
     return { ok: r.ok, status: r.status, text: t };
   }
 
-  async function fetchJson(url, opt){
-    const r = await fetch(url, Object.assign({ cache: "no-store" }, opt || {}));
+  async function fetchJson(url, opts){
+    const r = await fetch(url, Object.assign({ cache: "no-store" }, opts || {}));
     const t = await r.text();
     let j = null;
     try { j = JSON.parse(t); } catch {}
@@ -354,167 +390,6 @@ module.exports = function a03DevHubFactory() {
     }
   });
 
-  function walkCollectFiles(x, out){
-    if (!x) return;
-    if (Array.isArray(x)) {
-      x.forEach(v => walkCollectFiles(v, out));
-      return;
-    }
-    if (typeof x === "object") {
-      const path = typeof x.path === "string" ? x.path : "";
-      const kind = typeof x.kind === "string" ? x.kind : (typeof x.type === "string" ? x.type : "");
-      if (path && (kind === "file" || kind === "leaf" || kind === "source" || kind === "code")) {
-        out.push(path);
-      }
-      for (const k of Object.keys(x)) walkCollectFiles(x[k], out);
-    }
-  }
-
-  async function loadFilesForScope(scope){
-    const r = await fetchJson(treeJsonUrl(scope || "all", true));
-    if (!r.ok || !r.json) return [];
-    const out = [];
-    walkCollectFiles(r.json, out);
-    const uniq = Array.from(new Set(out.map(s => String(s).trim()).filter(Boolean)));
-    uniq.sort((a,b) => a.localeCompare(b));
-    return uniq;
-  }
-
-  function selectedPaths(){
-    return Array.from(filePick.selectedOptions).map(o => o.value).slice(0, 20);
-  }
-
-  function renderPickInfo(){
-    const n = Array.from(filePick.selectedOptions).length;
-    pickInfo.textContent = n + "/20 geselecteerd";
-    if (n > 20) pickInfo.textContent = "teveel geselecteerd";
-  }
-
-  async function refreshFileDropdown(){
-    const scope = (current.scope === "ql") ? "ql" : "all";
-    if (!allFilesCache[scope].length) {
-      statusEl.textContent = "loading files…";
-      const files = await loadFilesForScope(scope);
-      allFilesCache[scope] = files;
-      statusEl.textContent = "";
-    }
-
-    const files = allFilesCache[scope];
-    filePick.innerHTML = files.map(p => '<option value="'+escHtml(p)+'">'+escHtml(p)+'</option>').join("");
-
-    renderPickInfo();
-  }
-
-  filePick.addEventListener("change", () => {
-    const opts = Array.from(filePick.options);
-    let picked = opts.filter(o => o.selected);
-    if (picked.length > 20) {
-      picked.slice(20).forEach(o => o.selected = false);
-    }
-    renderPickInfo();
-  });
-
-  async function openCode(snapshotId, path){
-    const u = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(path) + "&snapshot_id=" + encodeURIComponent(String(snapshotId));
-    window.open(u, "_blank", "noopener");
-  }
-
-  async function copyCode(snapshotId, path){
-    const u = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(path) + "&snapshot_id=" + encodeURIComponent(String(snapshotId));
-    const r = await fetchJson(u);
-    if (!r.ok || !r.json || !r.json.ok) {
-      statusEl.textContent = "copy failed: " + (r.json && r.json.error ? r.json.error : r.text);
-      setTimeout(()=>statusEl.textContent="", 5000);
-      return;
-    }
-    const content = (r.json.item && typeof r.json.item.content === "string") ? r.json.item.content : "";
-    await navigator.clipboard.writeText(content);
-    statusEl.textContent = "copied ✓ " + path;
-    setTimeout(()=>statusEl.textContent="", 2500);
-  }
-
-  function historyUrl(path){
-    return "/api/dev/snapshots/file?path=" + encodeURIComponent(path);
-  }
-
-  function renderSnapButtons(snapshotId, saved){
-    const okItems = (saved || []).filter(x => x && x.ok === true && x.path);
-    if (!okItems.length) {
-      snapList.classList.add("open");
-      snapList.innerHTML = '<div class="mini">Geen files opgeslagen (check paths).</div>';
-      return;
-    }
-    snapList.classList.add("open");
-    snapList.innerHTML =
-      '<div class="mini">Snapshot #' + escHtml(snapshotId) + ' — per bestand: code / kopie / history</div>'
-      + okItems.map(it => {
-        const p = it.path;
-        return '<div class="row">'
-          + '<div class="path" title="'+escHtml(p)+'">'+escHtml(p)+'</div>'
-          + '<button class="btn" data-act="open" data-path="'+escHtml(p)+'" data-sid="'+escHtml(snapshotId)+'">Code</button>'
-          + '<button class="btn" data-act="copy" data-path="'+escHtml(p)+'" data-sid="'+escHtml(snapshotId)+'">Copy</button>'
-          + '<a class="btn link" style="text-decoration:none" target="_blank" rel="noopener" href="'+historyUrl(p)+'">History</a>'
-          + '</div>';
-      }).join("");
-
-    snapList.querySelectorAll("button[data-act]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const act = btn.getAttribute("data-act");
-        const p = btn.getAttribute("data-path");
-        const sid = btn.getAttribute("data-sid");
-        if (!p || !sid) return;
-        if (act === "open") await openCode(sid, p);
-        if (act === "copy") await copyCode(sid, p);
-      });
-    });
-  }
-
-  takeSnap.addEventListener("click", async () => {
-    const scope = (current.scope === "ql") ? "ql" : "all";
-    const paths = selectedPaths();
-    if (!paths.length) {
-      statusEl.textContent = "selecteer 1–20 files";
-      setTimeout(()=>statusEl.textContent="", 3000);
-      return;
-    }
-
-    takeSnap.disabled = true;
-    statusEl.textContent = "snapshot…";
-
-    try {
-      const payload = {
-        scope,
-        label: (snapLabel.value || "").trim() || ("manual-" + scope),
-        pinnedPaths: paths,
-        includeContent: includeFullCode.checked === true
-      };
-      const r = await fetchJson("/api/dev/snapshot", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      if (!r.ok || !r.json || !r.json.ok) {
-        statusEl.textContent = "snapshot failed: " + (r.json && r.json.error ? r.json.error : r.text);
-        return;
-      }
-
-      const sid = r.json.snapshot && r.json.snapshot.id ? r.json.snapshot.id : "?";
-      renderSnapButtons(sid, r.json.saved || []);
-      statusEl.textContent = "saved ✓ snapshot #" + sid;
-      setTimeout(()=>statusEl.textContent="", 5000);
-    } catch (e) {
-      statusEl.textContent = "snapshot failed: " + (e && e.message ? e.message : String(e));
-    } finally {
-      takeSnap.disabled = false;
-    }
-  });
-
-  async function boot(){
-    await refreshFileDropdown().catch(()=>{});
-  }
-  boot();
-
   function fmtInt(x){
     const n = Number(x);
     if (!Number.isFinite(n)) return String(x);
@@ -535,13 +410,24 @@ module.exports = function a03DevHubFactory() {
     ).join('') + '</div>';
   }
 
+  function openDrawer(title, introHtml){
+    drawerTitle.textContent = title;
+    drawerIntro.innerHTML = introHtml || "";
+    drawer.classList.add("open");
+  }
+  function closeDrawer(){
+    drawer.classList.remove("open");
+  }
+  drawerClose.addEventListener('click', closeDrawer);
+
+  // ---------- METRICS ----------
   async function loadMetrics(){
-    metricsStamp.textContent = "";
-    metricsContent.textContent = "loading…";
+    drawerStamp.textContent = "";
+    drawerContent.textContent = "loading…";
 
     const summary = await fetchJson("/api/dev/metrics/summary");
     if (!summary.ok || !summary.json || !summary.json.ok) {
-      metricsContent.textContent = "summary failed: " + (summary.json && summary.json.error ? summary.json.error : summary.text);
+      drawerContent.textContent = "summary failed: " + (summary.json && summary.json.error ? summary.json.error : summary.text);
       return;
     }
 
@@ -578,24 +464,310 @@ module.exports = function a03DevHubFactory() {
         + '</tbody></table>';
     }
 
-    metricsContent.innerHTML = html;
-    metricsStamp.textContent = "updated " + new Date().toLocaleTimeString("nl-NL");
-  }
-
-  function openDrawer(){
-    drawer.classList.add("open");
-    loadMetrics().catch(() => { metricsContent.textContent = "metrics failed"; });
-  }
-  function closeDrawer(){
-    drawer.classList.remove("open");
+    drawerContent.innerHTML = html;
+    drawerStamp.textContent = "updated " + new Date().toLocaleTimeString("nl-NL");
   }
 
   metricsBtn.addEventListener('click', () => {
-    if (drawer.classList.contains("open")) closeDrawer();
-    else openDrawer();
+    openDrawer("Metrics", 'Live uit PostgreSQL + usage_events (top bronnen = event <code>source_selected</code>).');
+    loadMetrics().catch(() => { drawerContent.textContent = "metrics failed"; });
   });
-  metricsClose.addEventListener('click', closeDrawer);
-  metricsRefresh.addEventListener('click', () => loadMetrics().catch(() => { metricsContent.textContent = "metrics failed"; }));
+
+  // ---------- SNAPSHOTS (Top20) ----------
+  function topListForScope(scope){
+    return (String(scope||"all") === "ql") ? TOP20_QL : TOP20_ALL;
+  }
+
+  async function snapshotTop20(){
+    const scope = (current.mode === "tree" || current.mode === "map") ? (current.scope || "all") : "all";
+    const paths = topListForScope(scope);
+
+    statusEl.textContent = "Top20 snapshot…";
+    snapTopBtn.disabled = true;
+
+    const label = (scope === "ql") ? "top20-ql" : "top20-all";
+    const payload = {
+      scope,
+      kind: "top20",
+      note: label,
+      pinnedPaths: paths,
+      includeContent: true
+    };
+
+    try {
+      const r = await fetchJson("/api/dev/snapshot", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!r.ok || !r.json || !r.json.ok) {
+        const msg = (r.json && r.json.error) ? r.json.error : r.text;
+        throw new Error(msg || "snapshot failed");
+      }
+
+      openDrawer("Top20 snapshot", `
+        <div class="muted">
+          Scope: <code>${escHtml(scope)}</code> • Snapshot: <code>#${escHtml(r.json.snapshot.id)}</code> • ${escHtml(r.json.snapshot.created_at)}
+        </div>
+      `);
+
+      renderSnapshotResult(r.json.snapshot, r.json.saved, scope);
+      drawerStamp.textContent = "saved " + new Date().toLocaleTimeString("nl-NL");
+      statusEl.textContent = "Top20 saved ✓";
+    } catch (e) {
+      statusEl.textContent = "snapshot failed: " + (e?.message || String(e));
+      openDrawer("Top20 snapshot", "<div class='muted'>Snapshot failed.</div>");
+      drawerContent.textContent = String(e?.message || e);
+    } finally {
+      snapTopBtn.disabled = false;
+      setTimeout(() => { statusEl.textContent = ""; }, 8000);
+    }
+  }
+
+  function mkBtn(text, onClick){
+    const b = document.createElement("button");
+    b.className = "btn2";
+    b.textContent = text;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  async function copyToClipboard(text){
+    await navigator.clipboard.writeText(String(text || ""));
+    statusEl.textContent = "copied ✓";
+    setTimeout(() => { statusEl.textContent = ""; }, 1400);
+  }
+
+  async function loadFileContent(path, snapshotId){
+    const url = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(path) + "&snapshot_id=" + encodeURIComponent(snapshotId);
+    const r = await fetchJson(url);
+    if (!r.ok || !r.json || !r.json.ok) {
+      throw new Error((r.json && r.json.error) ? r.json.error : r.text);
+    }
+    const item = r.json.item || {};
+    // content kan null zijn als includeContent=false (maar Top20 = true)
+    return item.content ?? (item.head30 ?? "") + "\\n...\\n" + (item.tail30 ?? "");
+  }
+
+  async function loadHistory(path){
+    const url = "/api/dev/snapshots/file?path=" + encodeURIComponent(path);
+    const r = await fetchJson(url);
+    if (!r.ok || !r.json || !r.json.ok) {
+      throw new Error((r.json && r.json.error) ? r.json.error : r.text);
+    }
+    return r.json.items || [];
+  }
+
+  function renderSnapshotResult(snapshot, saved, scope){
+    const okItems = (saved || []).filter(x => x && x.ok);
+    const badItems = (saved || []).filter(x => x && x.ok === false);
+
+    let html = "";
+    html += "<div class='hr'></div>";
+    html += "<div class='row2'><span class='pill'>Bestanden</span><span class='small'>per bestand: View • Copy • History</span></div>";
+
+    if (badItems.length) {
+      html += "<div class='small' style='margin:8px 0'><b>Let op:</b> sommige files niet gesaved:</div>";
+      html += "<ul class='small'>" + badItems.map(x => "<li><span class='mono'>"+escHtml(x.path)+"</span> — "+escHtml(x.error||"error")+"</li>").join("") + "</ul>";
+      html += "<div class='hr'></div>";
+    }
+
+    const container = document.createElement("div");
+    container.innerHTML = html;
+
+    const list = document.createElement("div");
+
+    okItems.forEach(it => {
+      const card = document.createElement("div");
+      card.className = "fileCard";
+
+      const head = document.createElement("div");
+      head.className = "fileHead";
+
+      const p = document.createElement("div");
+      p.className = "filePath mono";
+      p.textContent = it.path;
+
+      const meta = document.createElement("div");
+      meta.className = "small";
+      meta.textContent = (it.bytes ? (it.bytes + " bytes") : "") + (it.n_lines ? (" • " + it.n_lines + " lines") : "");
+
+      const viewBtn = mkBtn("View code", async () => {
+        try {
+          statusEl.textContent = "loading code…";
+          const text = await loadFileContent(it.path, snapshot.id);
+          showCodeView(it.path, text, snapshot.id);
+        } catch (e) {
+          statusEl.textContent = "view failed: " + (e?.message || String(e));
+        } finally {
+          setTimeout(() => { statusEl.textContent = ""; }, 2000);
+        }
+      });
+
+      const copyBtn = mkBtn("Copy code", async () => {
+        try {
+          const text = await loadFileContent(it.path, snapshot.id);
+          await copyToClipboard(text);
+        } catch (e) {
+          statusEl.textContent = "copy failed: " + (e?.message || String(e));
+          setTimeout(() => { statusEl.textContent = ""; }, 2200);
+        }
+      });
+
+      const histBtn = mkBtn("History", async () => {
+        try {
+          statusEl.textContent = "loading history…";
+          const items = await loadHistory(it.path);
+          showHistory(it.path, items);
+        } catch (e) {
+          statusEl.textContent = "history failed: " + (e?.message || String(e));
+          setTimeout(() => { statusEl.textContent = ""; }, 2200);
+        } finally {
+          setTimeout(() => { statusEl.textContent = ""; }, 1200);
+        }
+      });
+
+      head.appendChild(p);
+      head.appendChild(meta);
+      head.appendChild(viewBtn);
+      head.appendChild(copyBtn);
+      head.appendChild(histBtn);
+
+      card.appendChild(head);
+
+      list.appendChild(card);
+    });
+
+    container.appendChild(list);
+
+    drawerContent.innerHTML = "";
+    drawerContent.appendChild(container);
+  }
+
+  function showCodeView(path, text, snapshotId){
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `
+      <div class="row2">
+        <span class="pill">Code</span>
+        <span class="small mono">${escHtml(path)}</span>
+        <span class="small">snapshot #${escHtml(snapshotId)}</span>
+      </div>
+      <div class="row2" style="margin-top:8px;">
+        <button class="btn2" id="copyNow">Copy</button>
+      </div>
+      <div class="pre mono" id="pre"></div>
+    `;
+    wrap.querySelector("#pre").textContent = String(text || "");
+    wrap.querySelector("#copyNow").addEventListener("click", async () => {
+      await copyToClipboard(text);
+    });
+    drawerContent.innerHTML = "";
+    drawerContent.appendChild(wrap);
+  }
+
+  function showHistory(path, items){
+    const wrap = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "row2";
+    title.innerHTML = '<span class="pill">History</span><span class="small mono">'+escHtml(path)+'</span><span class="small">('+escHtml(items.length)+')</span>';
+    wrap.appendChild(title);
+
+    if (!items.length) {
+      const m = document.createElement("div");
+      m.className = "small";
+      m.style.marginTop = "10px";
+      m.textContent = "Geen snapshots gevonden voor dit bestand.";
+      wrap.appendChild(m);
+      drawerContent.innerHTML = "";
+      drawerContent.appendChild(wrap);
+      return;
+    }
+
+    const tbl = document.createElement("table");
+    tbl.className = "tbl";
+    tbl.innerHTML = "<thead><tr><th>tijd</th><th>label</th><th>snapshot</th><th>acties</th></tr></thead>";
+    const tb = document.createElement("tbody");
+
+    items.forEach(row => {
+      const tr = document.createElement("tr");
+
+      const tdT = document.createElement("td");
+      tdT.className = "small";
+      tdT.textContent = row.created_at || "";
+
+      const tdL = document.createElement("td");
+      tdL.className = "small";
+      tdL.textContent = row.label || row.note || row.kind || "";
+
+      const tdS = document.createElement("td");
+      tdS.className = "small mono";
+      tdS.textContent = "#" + (row.snapshot_id || row.id || "?");
+
+      const tdA = document.createElement("td");
+
+      const view = document.createElement("button");
+      view.className = "btn2";
+      view.textContent = "View";
+      view.addEventListener("click", async () => {
+        try {
+          const sid = Number(row.snapshot_id || row.id);
+          const text = await loadFileContent(path, sid);
+          showCodeView(path, text, sid);
+        } catch (e) {
+          statusEl.textContent = "view failed: " + (e?.message || String(e));
+          setTimeout(() => { statusEl.textContent = ""; }, 2200);
+        }
+      });
+
+      const copy = document.createElement("button");
+      copy.className = "btn2";
+      copy.textContent = "Copy";
+      copy.style.marginLeft = "6px";
+      copy.addEventListener("click", async () => {
+        try {
+          const sid = Number(row.snapshot_id || row.id);
+          const text = await loadFileContent(path, sid);
+          await copyToClipboard(text);
+        } catch (e) {
+          statusEl.textContent = "copy failed: " + (e?.message || String(e));
+          setTimeout(() => { statusEl.textContent = ""; }, 2200);
+        }
+      });
+
+      tdA.appendChild(view);
+      tdA.appendChild(copy);
+
+      tr.appendChild(tdT);
+      tr.appendChild(tdL);
+      tr.appendChild(tdS);
+      tr.appendChild(tdA);
+      tb.appendChild(tr);
+    });
+
+    tbl.appendChild(tb);
+    wrap.appendChild(tbl);
+
+    drawerContent.innerHTML = "";
+    drawerContent.appendChild(wrap);
+  }
+
+  snapTopBtn.addEventListener("click", () => {
+    openDrawer("Top20 snapshot", "<div class='muted'>Maakt een snapshot (met volledige code) van de curated Top20 voor de huidige scope.</div>");
+    drawerContent.textContent = "ready…";
+    snapshotTop20().catch(() => {});
+  });
+
+  drawerRefresh.addEventListener("click", () => {
+    // Refresh betekent: als Metrics drawer open is -> metrics reload.
+    // Als Top20 drawer open is -> geen automatische refresh (je klikt opnieuw op Top20 snapshot).
+    if (drawerTitle.textContent === "Metrics") {
+      loadMetrics().catch(() => { drawerContent.textContent = "metrics failed"; });
+    } else {
+      drawerStamp.textContent = "no refresh (use Top20 snapshot)";
+      setTimeout(() => { drawerStamp.textContent = ""; }, 1200);
+    }
+  });
 </script>
 </body>
 </html>`;
