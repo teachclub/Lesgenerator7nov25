@@ -1,7 +1,6 @@
 "use strict";
 
 const express = require("express");
-const { TOP20_ALL, TOP20_QL } = require("./devhub.pins.cjs");
 
 module.exports = function a03DevHubFactory() {
   const router = express.Router();
@@ -35,12 +34,28 @@ module.exports = function a03DevHubFactory() {
     .spacer{flex:1}
     .status{font-size:12px;color:#334155;min-height:16px;max-width:72ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     main{padding:0}
-    iframe{width:100%;height:calc(100vh - 112px);border:0}
+    iframe{width:100%;height:calc(100vh - 158px);border:0}
     .ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .ctl label{font-size:12px;color:#334155}
     select,input[type="checkbox"]{cursor:pointer}
     .pill{font-size:12px;color:#0f172a;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px}
     .sep{width:1px;height:26px;background:#e5e7eb;margin:0 4px}
+
+    .snapbar{
+      padding:10px 14px;border-bottom:1px solid #e5e7eb;
+      display:flex;gap:10px;align-items:center;flex-wrap:wrap
+    }
+    .snapbar .label{font-size:12px;color:#334155;font-weight:700}
+    .snapbar select{min-width:min(620px, 92vw); padding:8px;border:1px solid #cbd5e1;border-radius:10px}
+    .mini{font-size:12px;color:#475569}
+    .list{
+      padding:10px 14px;border-bottom:1px solid #e5e7eb; display:none;
+    }
+    .list.open{display:block}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px dashed #e5e7eb}
+    .row:last-child{border-bottom:0}
+    .path{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;color:#0f172a;max-width:72ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .row .btn{padding:6px 8px;border-radius:10px;font-weight:700;font-size:12px}
 
     .drawer{
       position:fixed; top:0; right:0; height:100vh; width:min(560px, 92vw);
@@ -68,6 +83,7 @@ module.exports = function a03DevHubFactory() {
     .small{ font-size:12px; color:#475569; }
     .row2{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     code{background:#f1f5f9;border:1px solid #e5e7eb;border-radius:8px;padding:1px 6px}
+    pre{white-space:pre-wrap;word-break:break-word}
   </style>
 </head>
 <body>
@@ -95,10 +111,6 @@ module.exports = function a03DevHubFactory() {
       <label><input type="checkbox" id="withHints" checked /> hints</label>
       <label><input type="checkbox" id="withNotes" checked /> notes</label>
       <label><input type="checkbox" id="includeMin" /> +tree(min)</label>
-      <span class="sep"></span>
-      <label><input type="checkbox" id="includeFullCode" checked /> snapshot: full code</label>
-      <button class="btn" id="snapTop20All">Snapshot Top20 ALL</button>
-      <button class="btn" id="snapTop20Ql">Snapshot Top20 QL</button>
     </div>
 
     <div class="spacer"></div>
@@ -109,6 +121,17 @@ module.exports = function a03DevHubFactory() {
     <button class="btn" id="copyAll">Copy snapshot</button>
     <span class="status" id="status"></span>
   </header>
+
+  <div class="snapbar">
+    <span class="label">Snapshot selectie (max 20)</span>
+    <select id="filePick" multiple size="6"></select>
+    <label class="mini"><input type="checkbox" id="includeFullCode" checked /> full code</label>
+    <input id="snapLabel" style="padding:8px;border:1px solid #cbd5e1;border-radius:10px" placeholder="label (bv: ql-safe)" />
+    <button class="btn" id="takeSnap">Snapshot</button>
+    <span class="mini" id="pickInfo"></span>
+  </div>
+
+  <div class="list" id="snapList"></div>
 
   <main>
     <iframe id="frame" src="/api/dev/sitemap?scope=all"></iframe>
@@ -145,15 +168,18 @@ module.exports = function a03DevHubFactory() {
   const withHints = document.getElementById('withHints');
   const withNotes = document.getElementById('withNotes');
   const includeMin = document.getElementById('includeMin');
-  const includeFullCode = document.getElementById('includeFullCode');
   const pill = document.getElementById('pill');
 
   const btnCopy = document.getElementById('copyAll');
   const btnOpen = document.getElementById('openAll');
   const btnClose = document.getElementById('closeAll');
 
-  const snapTop20All = document.getElementById('snapTop20All');
-  const snapTop20Ql = document.getElementById('snapTop20Ql');
+  const filePick = document.getElementById("filePick");
+  const pickInfo = document.getElementById("pickInfo");
+  const includeFullCode = document.getElementById("includeFullCode");
+  const snapLabel = document.getElementById("snapLabel");
+  const takeSnap = document.getElementById("takeSnap");
+  const snapList = document.getElementById("snapList");
 
   const metricsBtn = document.getElementById('metricsBtn');
   const drawer = document.getElementById('drawer');
@@ -166,9 +192,6 @@ module.exports = function a03DevHubFactory() {
   const ENV_QL  = ${JSON.stringify(FRONTEND_BASE_QL)};
   const DEFAULT_RUNAPP = ${JSON.stringify(isRunAppDefault)};
 
-  const PIN_TOP20_ALL = ${JSON.stringify(TOP20_ALL)};
-  const PIN_TOP20_QL  = ${JSON.stringify(TOP20_QL)};
-
   function baseFromEnvOrDefault(envVal){
     const v = (envVal || "").trim();
     if (v) return v.replace(/\\/$/, "");
@@ -180,6 +203,7 @@ module.exports = function a03DevHubFactory() {
   const FRONTEND_QL  = baseFromEnvOrDefault(ENV_QL);
 
   let current = { mode: "map", scope: "all" };
+  let allFilesCache = { all: [], ql: [] };
 
   function setActive(button){
     btns.forEach(x => x.classList.remove('active'));
@@ -218,9 +242,11 @@ module.exports = function a03DevHubFactory() {
     if (mode === "map") {
       current = { mode: "map", scope: b.dataset.scope || "all" };
       frame.src = livingMapUrl(current.scope);
+      refreshFileDropdown().catch(()=>{});
     } else if (mode === "tree") {
       current = { mode: "tree", scope: b.dataset.scope || "ql" };
       frame.src = treeUiUrl(current.scope);
+      refreshFileDropdown().catch(()=>{});
     } else if (mode === "live") {
       current = { mode: "live", scope: "-" };
       frame.src = liveUrl(b.dataset.target || "old");
@@ -278,54 +304,6 @@ module.exports = function a03DevHubFactory() {
     postTreeCmd("closeAll");
   });
 
-  async function runPinnedSnapshot(pinnedPaths, label, scope){
-    statusEl.textContent = "snapshot…";
-    snapTop20All.disabled = true;
-    snapTop20Ql.disabled = true;
-
-    try {
-      const payload = {
-        scope: scope || "all",
-        label: label || "pinned",
-        pinnedPaths: pinnedPaths || [],
-        includeContent: includeFullCode.checked === true,
-      };
-      const r = await fetchJson("/api/dev/snapshot", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!r.ok || !r.json || !r.json.ok) {
-        statusEl.textContent = "snapshot failed: " + (r.json && r.json.error ? r.json.error : r.text);
-        return;
-      }
-
-      const snapId = r.json.snapshot && r.json.snapshot.id ? r.json.snapshot.id : "?";
-      const saved = Array.isArray(r.json.saved) ? r.json.saved : [];
-      const nOk = saved.filter(x => x && x.ok === true).length;
-      const nBad = saved.length - nOk;
-
-      statusEl.textContent = "saved ✓ snapshot #" + snapId + " (ok " + nOk + ", fail " + nBad + ")";
-
-      const base = location.origin;
-      const firstOk = saved.find(x => x && x.ok === true);
-      if (firstOk && firstOk.path) {
-        const u = base + "/api/dev/snapshots/file?path=" + encodeURIComponent(firstOk.path);
-        setTimeout(() => { window.open(u, "_blank", "noopener"); }, 150);
-      }
-    } catch (e) {
-      statusEl.textContent = "snapshot failed: " + (e && e.message ? e.message : String(e));
-    } finally {
-      snapTop20All.disabled = false;
-      snapTop20Ql.disabled = false;
-      setTimeout(() => { statusEl.textContent = ""; }, 8000);
-    }
-  }
-
-  snapTop20All.addEventListener("click", () => runPinnedSnapshot(PIN_TOP20_ALL, "top20-all", "all"));
-  snapTop20Ql.addEventListener("click",  () => runPinnedSnapshot(PIN_TOP20_QL,  "top20-ql",  "ql"));
-
   btnCopy.addEventListener('click', async () => {
     statusEl.textContent = "building snapshot…";
     btnCopy.disabled = true;
@@ -375,6 +353,167 @@ module.exports = function a03DevHubFactory() {
       setTimeout(() => { statusEl.textContent = ""; }, 8000);
     }
   });
+
+  function walkCollectFiles(x, out){
+    if (!x) return;
+    if (Array.isArray(x)) {
+      x.forEach(v => walkCollectFiles(v, out));
+      return;
+    }
+    if (typeof x === "object") {
+      const path = typeof x.path === "string" ? x.path : "";
+      const kind = typeof x.kind === "string" ? x.kind : (typeof x.type === "string" ? x.type : "");
+      if (path && (kind === "file" || kind === "leaf" || kind === "source" || kind === "code")) {
+        out.push(path);
+      }
+      for (const k of Object.keys(x)) walkCollectFiles(x[k], out);
+    }
+  }
+
+  async function loadFilesForScope(scope){
+    const r = await fetchJson(treeJsonUrl(scope || "all", true));
+    if (!r.ok || !r.json) return [];
+    const out = [];
+    walkCollectFiles(r.json, out);
+    const uniq = Array.from(new Set(out.map(s => String(s).trim()).filter(Boolean)));
+    uniq.sort((a,b) => a.localeCompare(b));
+    return uniq;
+  }
+
+  function selectedPaths(){
+    return Array.from(filePick.selectedOptions).map(o => o.value).slice(0, 20);
+  }
+
+  function renderPickInfo(){
+    const n = Array.from(filePick.selectedOptions).length;
+    pickInfo.textContent = n + "/20 geselecteerd";
+    if (n > 20) pickInfo.textContent = "teveel geselecteerd";
+  }
+
+  async function refreshFileDropdown(){
+    const scope = (current.scope === "ql") ? "ql" : "all";
+    if (!allFilesCache[scope].length) {
+      statusEl.textContent = "loading files…";
+      const files = await loadFilesForScope(scope);
+      allFilesCache[scope] = files;
+      statusEl.textContent = "";
+    }
+
+    const files = allFilesCache[scope];
+    filePick.innerHTML = files.map(p => '<option value="'+escHtml(p)+'">'+escHtml(p)+'</option>').join("");
+
+    renderPickInfo();
+  }
+
+  filePick.addEventListener("change", () => {
+    const opts = Array.from(filePick.options);
+    let picked = opts.filter(o => o.selected);
+    if (picked.length > 20) {
+      picked.slice(20).forEach(o => o.selected = false);
+    }
+    renderPickInfo();
+  });
+
+  async function openCode(snapshotId, path){
+    const u = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(path) + "&snapshot_id=" + encodeURIComponent(String(snapshotId));
+    window.open(u, "_blank", "noopener");
+  }
+
+  async function copyCode(snapshotId, path){
+    const u = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(path) + "&snapshot_id=" + encodeURIComponent(String(snapshotId));
+    const r = await fetchJson(u);
+    if (!r.ok || !r.json || !r.json.ok) {
+      statusEl.textContent = "copy failed: " + (r.json && r.json.error ? r.json.error : r.text);
+      setTimeout(()=>statusEl.textContent="", 5000);
+      return;
+    }
+    const content = (r.json.item && typeof r.json.item.content === "string") ? r.json.item.content : "";
+    await navigator.clipboard.writeText(content);
+    statusEl.textContent = "copied ✓ " + path;
+    setTimeout(()=>statusEl.textContent="", 2500);
+  }
+
+  function historyUrl(path){
+    return "/api/dev/snapshots/file?path=" + encodeURIComponent(path);
+  }
+
+  function renderSnapButtons(snapshotId, saved){
+    const okItems = (saved || []).filter(x => x && x.ok === true && x.path);
+    if (!okItems.length) {
+      snapList.classList.add("open");
+      snapList.innerHTML = '<div class="mini">Geen files opgeslagen (check paths).</div>';
+      return;
+    }
+    snapList.classList.add("open");
+    snapList.innerHTML =
+      '<div class="mini">Snapshot #' + escHtml(snapshotId) + ' — per bestand: code / kopie / history</div>'
+      + okItems.map(it => {
+        const p = it.path;
+        return '<div class="row">'
+          + '<div class="path" title="'+escHtml(p)+'">'+escHtml(p)+'</div>'
+          + '<button class="btn" data-act="open" data-path="'+escHtml(p)+'" data-sid="'+escHtml(snapshotId)+'">Code</button>'
+          + '<button class="btn" data-act="copy" data-path="'+escHtml(p)+'" data-sid="'+escHtml(snapshotId)+'">Copy</button>'
+          + '<a class="btn link" style="text-decoration:none" target="_blank" rel="noopener" href="'+historyUrl(p)+'">History</a>'
+          + '</div>';
+      }).join("");
+
+    snapList.querySelectorAll("button[data-act]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const act = btn.getAttribute("data-act");
+        const p = btn.getAttribute("data-path");
+        const sid = btn.getAttribute("data-sid");
+        if (!p || !sid) return;
+        if (act === "open") await openCode(sid, p);
+        if (act === "copy") await copyCode(sid, p);
+      });
+    });
+  }
+
+  takeSnap.addEventListener("click", async () => {
+    const scope = (current.scope === "ql") ? "ql" : "all";
+    const paths = selectedPaths();
+    if (!paths.length) {
+      statusEl.textContent = "selecteer 1–20 files";
+      setTimeout(()=>statusEl.textContent="", 3000);
+      return;
+    }
+
+    takeSnap.disabled = true;
+    statusEl.textContent = "snapshot…";
+
+    try {
+      const payload = {
+        scope,
+        label: (snapLabel.value || "").trim() || ("manual-" + scope),
+        pinnedPaths: paths,
+        includeContent: includeFullCode.checked === true
+      };
+      const r = await fetchJson("/api/dev/snapshot", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!r.ok || !r.json || !r.json.ok) {
+        statusEl.textContent = "snapshot failed: " + (r.json && r.json.error ? r.json.error : r.text);
+        return;
+      }
+
+      const sid = r.json.snapshot && r.json.snapshot.id ? r.json.snapshot.id : "?";
+      renderSnapButtons(sid, r.json.saved || []);
+      statusEl.textContent = "saved ✓ snapshot #" + sid;
+      setTimeout(()=>statusEl.textContent="", 5000);
+    } catch (e) {
+      statusEl.textContent = "snapshot failed: " + (e && e.message ? e.message : String(e));
+    } finally {
+      takeSnap.disabled = false;
+    }
+  });
+
+  async function boot(){
+    await refreshFileDropdown().catch(()=>{});
+  }
+  boot();
 
   function fmtInt(x){
     const n = Number(x);
