@@ -15,7 +15,8 @@ module.exports = function a03DevHubFactory() {
 
   // ---------------- TOP20 (curated) ----------------
   // Paths zijn repo-root relatief zoals a09.devSnapshots verwacht (dus zonder "app/backend/").
-  const TOP20_ALL = [
+  // 1) Lessie 2000 (brede set)
+  const TOP20_LESSIE2000 = [
     "server.cjs",
     "routes/a01.health.cjs",
     "routes/a02.devTree.cjs",
@@ -38,6 +39,7 @@ module.exports = function a03DevHubFactory() {
     "routes/lessonV2.step4.cjs",
   ];
 
+  // 2) Lessie QL (QuestionLab / matching / dev tooling focus)
   const TOP20_QL = [
     "server.cjs",
     "routes/a03.devHub.cjs",
@@ -224,7 +226,7 @@ module.exports = function a03DevHubFactory() {
   const ENV_QL  = ${JSON.stringify(FRONTEND_BASE_QL)};
   const DEFAULT_RUNAPP = ${JSON.stringify(isRunAppDefault)};
 
-  const TOP20_ALL = ${JSON.stringify(TOP20_ALL)};
+  const TOP20_LESSIE2000 = ${JSON.stringify(TOP20_LESSIE2000)};
   const TOP20_QL  = ${JSON.stringify(TOP20_QL)};
 
   function baseFromEnvOrDefault(envVal){
@@ -248,6 +250,11 @@ module.exports = function a03DevHubFactory() {
 
   function updatePill(){
     pill.textContent = "scope=" + (current.scope || "-") + "  mode=" + current.mode;
+  }
+
+  function updateSnapBtnLabel(){
+    const scope = (current.mode === "tree" || current.mode === "map") ? (current.scope || "all") : "all";
+    snapTopBtn.textContent = (String(scope) === "ql") ? "Top20 snapshot (QL)" : "Top20 snapshot (Lessie2000)";
   }
 
   function stamp(){ return new Date().toISOString(); }
@@ -274,7 +281,7 @@ module.exports = function a03DevHubFactory() {
   }
 
   function topListForScope(scope){
-    return (String(scope) === "ql") ? TOP20_QL : TOP20_ALL;
+    return (String(scope) === "ql") ? TOP20_QL : TOP20_LESSIE2000;
   }
 
   btns.forEach(b => b.addEventListener('click', () => {
@@ -291,9 +298,11 @@ module.exports = function a03DevHubFactory() {
     }
     setActive(b);
     updatePill();
+    updateSnapBtnLabel();
   }));
 
   updatePill();
+  updateSnapBtnLabel();
 
   async function fetchText(url, options){
     const r = await fetch(url, Object.assign({ cache: "no-store" }, options || {}));
@@ -430,7 +439,6 @@ module.exports = function a03DevHubFactory() {
 
   drawerRefresh.addEventListener("click", () => {
     if (drawerMode === "metrics") loadMetrics().catch(() => { drawerContent.textContent = "metrics failed"; });
-    else if (drawerMode === "snapshot") rerenderSnapshotLatest().catch(() => { drawerContent.textContent = "refresh failed"; });
     else if (drawerMode === "history") loadFileHistory(drawerCtx.path).catch(() => { drawerContent.textContent = "history failed"; });
     else if (drawerMode === "view") loadFileContent(drawerCtx.path, drawerCtx.snapshot_id).catch(() => { drawerContent.textContent = "view failed"; });
   });
@@ -489,14 +497,6 @@ module.exports = function a03DevHubFactory() {
       loadMetrics().catch(() => { drawerContent.textContent = "metrics failed"; });
     }
   });
-
-  function mkBtn(text, onClick){
-    const b = document.createElement("button");
-    b.className = "btn2";
-    b.textContent = text;
-    b.addEventListener("click", onClick);
-    return b;
-  }
 
   async function copyToClipboard(text){
     await navigator.clipboard.writeText(String(text || ""));
@@ -642,23 +642,6 @@ module.exports = function a03DevHubFactory() {
     });
   }
 
-  async function rerenderSnapshotLatest(){
-    if (drawerMode !== "snapshot" || !drawerCtx || !drawerCtx.scope || !drawerCtx.snapshot_id) return;
-    const scope = drawerCtx.scope;
-    const sid = drawerCtx.snapshot_id;
-    openDrawer("Top20 snapshot", "<div class='muted'>Scope <code>"+escHtml(scope)+"</code> • Snapshot <code>#"+escHtml(String(sid))+"</code></div>", "snapshot", drawerCtx);
-
-    const paths = topListForScope(scope);
-    const url = "/api/dev/snapshots/latest?paths=" + encodeURIComponent(paths.join(","));
-    const r = await fetchJson(url);
-    if (!r.ok || !r.json || !r.json.ok) {
-      drawerContent.textContent = "latest failed: " + (r.json && r.json.error ? r.json.error : r.text);
-      return;
-    }
-    drawerContent.innerHTML = "<div class='small'>Gebruik de knoppen per bestand (view/copy/history).</div>";
-    renderSnapshotResult({ id: sid, created_at: "" }, (r.json.items || []).map(x => ({ path: x.path, ok: true })), scope);
-  }
-
   async function snapshotTop20(){
     const scope = (current.mode === "tree" || current.mode === "map") ? (current.scope || "all") : "all";
     const paths = topListForScope(scope);
@@ -666,7 +649,7 @@ module.exports = function a03DevHubFactory() {
     statusEl.textContent = "Top20 snapshot…";
     snapTopBtn.disabled = true;
 
-    const label = (scope === "ql") ? "top20-ql" : "top20-all";
+    const label = (scope === "ql") ? "top20-ql" : "top20-lessie2000";
     const payload = {
       scope,
       kind: "top20",
@@ -691,7 +674,7 @@ module.exports = function a03DevHubFactory() {
       const createdAt = r.json.snapshot && r.json.snapshot.created_at ? r.json.snapshot.created_at : "";
 
       openDrawer(
-        "Top20 snapshot",
+        (String(scope) === "ql") ? "Top20 snapshot (QL)" : "Top20 snapshot (Lessie2000)",
         "<div class='muted'>Scope: <code>"+escHtml(scope)+"</code> • Snapshot: <code>#"+escHtml(String(sid))+"</code> • "+escHtml(createdAt)+"</div>",
         "snapshot",
         { scope: scope, snapshot_id: sid }
