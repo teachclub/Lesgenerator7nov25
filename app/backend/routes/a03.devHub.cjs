@@ -13,7 +13,8 @@ module.exports = function a03DevHubFactory() {
   const FRONTEND_BASE_QL =
     (process.env.LESSIE_FRONTEND_BASE_QL || process.env.LESSIE_FRONTEND_BASE || "").trim();
 
-  // Top20 Lessie 2000 (ALL)
+  // Top20 Lessie 2000 (ALL) + Top20 QL (curated)
+  // Paths zijn repo-root relatief zoals a09.devSnapshots verwacht (dus zonder "app/backend/").
   const TOP20_ALL = [
     "server.cjs",
     "routes/a01.health.cjs",
@@ -37,7 +38,6 @@ module.exports = function a03DevHubFactory() {
     "routes/lessonV2.step4.cjs",
   ];
 
-  // Top20 Lessie QL
   const TOP20_QL = [
     "server.cjs",
     "routes/a03.devHub.cjs",
@@ -71,26 +71,26 @@ module.exports = function a03DevHubFactory() {
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0}
     header{padding:12px 14px;border-bottom:1px solid #e5e7eb;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .brand{font-weight:850}
+    .brand{font-weight:900}
     .group{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
     .btn{
       padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;
-      background:#fff;cursor:pointer;font-weight:700
+      background:#fff;cursor:pointer;font-weight:750
     }
     .btn:hover{background:#f8fafc}
     .btn.active{background:#e2e8f0;border-color:#94a3b8}
     .spacer{flex:1}
-    .status{font-size:12px;color:#334155;min-height:16px;max-width:80ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .status{font-size:12px;color:#334155;min-height:16px;max-width:72ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     main{padding:0}
-    iframe{width:100%;height:calc(100vh - 122px);border:0}
+    iframe{width:100%;height:calc(100vh - 118px);border:0}
     .ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .ctl label{font-size:12px;color:#334155}
-    select,input[type="checkbox"]{cursor:pointer}
+    input[type="checkbox"]{cursor:pointer}
     .pill{font-size:12px;color:#0f172a;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px}
     .sep{width:1px;height:26px;background:#e5e7eb;margin:0 4px}
 
     .drawer{
-      position:fixed; top:0; right:0; height:100vh; width:min(880px, 96vw);
+      position:fixed; top:0; right:0; height:100vh; width:min(920px, 96vw);
       background:#ffffff; border-left:1px solid #e5e7eb;
       box-shadow:-12px 0 30px rgba(15,23,42,.10);
       transform:translateX(110%); transition:transform .18s ease;
@@ -101,7 +101,7 @@ module.exports = function a03DevHubFactory() {
       padding:12px 14px; border-bottom:1px solid #e5e7eb;
       display:flex; align-items:center; gap:10px; flex-wrap:wrap;
     }
-    .drawerTitle{ font-weight:850; }
+    .drawerTitle{ font-weight:900; }
     .drawerBody{ padding:12px 14px; overflow:auto; }
     .muted{ color:#475569; font-size:12px; }
     .small{ font-size:12px; color:#475569; }
@@ -110,12 +110,12 @@ module.exports = function a03DevHubFactory() {
 
     .fileCard{border:1px solid #e5e7eb;border-radius:14px;padding:10px 12px;margin:10px 0;background:#fff}
     .fileHead{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .filePath{font-weight:850}
+    .filePath{font-weight:900}
     .btn2{padding:7px 9px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font-weight:800;font-size:12px}
     .btn2:hover{background:#f8fafc}
     .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
     .pre{
-      white-space:pre; overflow:auto; max-height:56vh;
+      white-space:pre; overflow:auto; max-height:62vh;
       border:1px solid #0b1220; border-radius:12px; padding:10px 12px; background:#0b1220; color:#e5e7eb;
       font-size:12px; line-height:1.45;
     }
@@ -151,12 +151,13 @@ module.exports = function a03DevHubFactory() {
 
     <div class="spacer"></div>
 
-    <button class="btn" id="snapAllBtn">Top20 Lessie 2000 snapshot</button>
-    <button class="btn" id="snapQlBtn">Top20 Lessie QL snapshot</button>
-    <button class="btn" id="metricsBtn">Metrics</button>
+    <button class="btn" id="snapAllBtn">Top20 snapshot — Lessie 2000</button>
+    <button class="btn" id="snapQlBtn">Top20 snapshot — QL</button>
+
     <button class="btn" id="openAll">Open all</button>
     <button class="btn" id="closeAll">Close all</button>
     <button class="btn" id="copyAll">Copy snapshot</button>
+
     <span class="status" id="status"></span>
   </header>
 
@@ -203,7 +204,6 @@ module.exports = function a03DevHubFactory() {
 
   const snapAllBtn = document.getElementById('snapAllBtn');
   const snapQlBtn = document.getElementById('snapQlBtn');
-  const metricsBtn = document.getElementById('metricsBtn');
 
   const drawer = document.getElementById('drawer');
   const drawerTitle = document.getElementById('drawerTitle');
@@ -231,7 +231,7 @@ module.exports = function a03DevHubFactory() {
   const FRONTEND_QL  = baseFromEnvOrDefault(ENV_QL);
 
   let current = { mode: "map", scope: "all" };
-  let drawerMode = "metrics";
+  let drawerMode = "snapshot";
   let drawerCtx = {};
 
   function setActive(button){
@@ -382,7 +382,7 @@ module.exports = function a03DevHubFactory() {
   });
 
   function openDrawer(title, introHtml, mode, ctx){
-    drawerMode = mode || "metrics";
+    drawerMode = mode || "snapshot";
     drawerCtx = ctx || {};
     drawerTitle.textContent = title || "Drawer";
     drawerIntro.innerHTML = introHtml || "";
@@ -398,18 +398,9 @@ module.exports = function a03DevHubFactory() {
   drawerClose.addEventListener("click", closeDrawer);
 
   drawerRefresh.addEventListener("click", () => {
-    if (drawerMode === "metrics") loadMetrics().catch(() => { drawerContent.textContent = "metrics failed"; });
-    else if (drawerMode === "history") loadFileHistory(drawerCtx.path).catch(() => { drawerContent.textContent = "history failed"; });
+    if (drawerMode === "history") loadFileHistory(drawerCtx.path).catch(() => { drawerContent.textContent = "history failed"; });
     else if (drawerMode === "view") loadFileContent(drawerCtx.path, drawerCtx.snapshot_id).catch(() => { drawerContent.textContent = "view failed"; });
   });
-
-  function mkBtn(text, onClick){
-    const b = document.createElement("button");
-    b.className = "btn2";
-    b.textContent = text;
-    b.addEventListener("click", onClick);
-    return b;
-  }
 
   async function copyToClipboard(text){
     await navigator.clipboard.writeText(String(text || ""));
@@ -432,7 +423,7 @@ module.exports = function a03DevHubFactory() {
       + "<div class='hr'></div>"
       + "<button class='btn2' id='copyCodeBtn'>Copy code</button>"
       + "<div style='height:8px'></div>"
-      + "<div class='pre mono' id='codeBox'></div>";
+      + "<div class='pre' id='codeBox'></div>";
     drawerContent.innerHTML = html;
     const codeBox = document.getElementById("codeBox");
     if (codeBox) codeBox.textContent = content || (item.head30 || "");
@@ -555,37 +546,18 @@ module.exports = function a03DevHubFactory() {
     });
   }
 
-  async function loadMetrics(){
-    drawerIntro.innerHTML = "Live uit PostgreSQL + usage_events (top bronnen = event <code>source_selected</code>).";
-    drawerContent.textContent = "loading…";
-    const r = await fetchJson("/api/dev/metrics/summary");
-    if (!r.ok || !r.json || !r.json.ok) {
-      drawerContent.textContent = "metrics failed: " + (r.json && r.json.error ? r.json.error : r.text);
-      return;
-    }
-    drawerContent.innerHTML = "<pre class='pre mono'>"+escHtml(JSON.stringify(r.json, null, 2))+"</pre>";
-    drawerStamp.textContent = "updated " + new Date().toLocaleTimeString("nl-NL");
-  }
-
-  metricsBtn.addEventListener("click", () => {
-    if (drawer.classList.contains("open") && drawerMode === "metrics") closeDrawer();
-    else {
-      openDrawer("Metrics", "Live uit PostgreSQL + usage_events.", "metrics", {});
-      loadMetrics().catch(() => { drawerContent.textContent = "metrics failed"; });
-    }
-  });
-
   async function snapshotTop20(scope){
     const paths = (String(scope) === "ql") ? TOP20_QL : TOP20_ALL;
 
-    statusEl.textContent = "Top20 snapshot ("+scope+")…";
+    statusEl.textContent = "Top20 snapshot (" + scope + ")…";
     snapAllBtn.disabled = true;
     snapQlBtn.disabled = true;
 
+    const label = (scope === "ql") ? "top20-ql" : "top20-all";
     const payload = {
       scope,
       kind: "top20",
-      note: (scope === "ql" ? "top20-ql" : "top20-all"),
+      note: label,
       pinnedPaths: paths,
       includeContent: true
     };
@@ -614,7 +586,7 @@ module.exports = function a03DevHubFactory() {
 
       renderSnapshotResult(r.json.snapshot, r.json.saved, scope);
       drawerStamp.textContent = "saved " + new Date().toLocaleTimeString("nl-NL");
-      statusEl.textContent = "Top20 saved ✓";
+      statusEl.textContent = "Top20 saved ✓ (" + scope + ")";
     } catch (e) {
       statusEl.textContent = "snapshot failed: " + (e && e.message ? e.message : String(e));
       openDrawer("Top20 snapshot", "<div class='muted'>Snapshot failed.</div>", "snapshot", { scope: scope });
@@ -628,6 +600,19 @@ module.exports = function a03DevHubFactory() {
 
   snapAllBtn.addEventListener("click", () => snapshotTop20("all").catch(() => {}));
   snapQlBtn.addEventListener("click", () => snapshotTop20("ql").catch(() => {}));
+
+  // Brug: Tree-UI kan dit sturen om per bestand direct view/copy/history te openen:
+  // window.parent.postMessage({kind:"LESSIE_TREE_FILE", path:"routes/a16.questionGen.cjs"}, "*")
+  window.addEventListener("message", (ev) => {
+    try {
+      const d = ev && ev.data ? ev.data : null;
+      if (!d || d.kind !== "LESSIE_TREE_FILE" || !d.path) return;
+      const p = String(d.path);
+      openDrawer("History", "<div class='muted'><code>"+escHtml(p)+"</code></div>", "history", { path: p });
+      loadFileHistory(p).catch(() => { drawerContent.textContent = "history failed"; });
+    } catch {}
+  });
+
 </script>
 </body>
 </html>`;
