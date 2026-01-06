@@ -19,11 +19,11 @@ function normalizeRel(p) {
   return s;
 }
 
-// Belangrijk: detecteer repoRoot correct voor Cloud Run (deploy vanuit app/backend)
+// Belangrijk: detecteer repoRoot correct voor Cloud Run
 function detectRepoRoot() {
   const cwd = process.cwd();
 
-  // Cloud Run: cwd = app/backend  (verwacht dat routes hier bestaan)
+  // Cloud Run: meestal /app met routes/ aanwezig
   const cloudRunSentinel = path.join(cwd, "routes");
   if (fs.existsSync(cloudRunSentinel)) return cwd;
 
@@ -51,9 +51,6 @@ function defaultScopeRoots(scope, repoRoot) {
   const s = String(scope || "ql").toLowerCase();
   const root = path.resolve(repoRoot);
 
-  // In jouw setup is repoRoot meestal app/backend (Cloud Run) of monorepo root (lokaal).
-  // We tonen bewust “backend” als hoofdmap niet; we werken repoRoot-relatief.
-  // QL: vooral routes/services/prompts/data (je kunt dit later cureren)
   if (s === "ql") {
     const dirs = ["routes", "services", "prompts", "data", "sql", "tools"];
     return dirs
@@ -61,15 +58,15 @@ function defaultScopeRoots(scope, repoRoot) {
       .filter((abs) => fs.existsSync(abs));
   }
 
-  // ALL: heel repoRoot (maar we filteren rommel)
   return [root];
 }
 
 function shouldSkip(rel) {
   const s = String(rel || "");
-  if (!s) return true;
 
-  // rommel / groot / secrets
+  // CRUCIAAL: root mag NOOIT geskipt worden (anders tree=null bij scope=all)
+  if (s === "") return false;
+
   if (s.includes("/node_modules/")) return true;
   if (s.includes("/.git/")) return true;
   if (s.includes("/dist/")) return true;
@@ -80,6 +77,7 @@ function shouldSkip(rel) {
 
   if (s.endsWith(".map")) return true;
   if (s.endsWith(".log")) return true;
+
   if (s.endsWith(".png") || s.endsWith(".jpg") || s.endsWith(".jpeg") || s.endsWith(".webp")) return true;
   if (s.endsWith(".zip") || s.endsWith(".7z") || s.endsWith(".tar") || s.endsWith(".gz")) return true;
 
@@ -114,7 +112,6 @@ function buildDirNode(abs, rel, name, opts, depth) {
   const relBase = normalizeRel(rel);
   if (shouldSkip(relBase)) return null;
 
-  // depth guard (veiligheid)
   if (depth > 16) {
     const note = opts.notesMap[relBase] || null;
     return { type: "dir", name, rel: relBase, mtime: st.mtime, note, children: [] };
@@ -125,7 +122,7 @@ function buildDirNode(abs, rel, name, opts, depth) {
   const children = [];
   for (const ent of entries) {
     const childAbs = path.join(abs, ent.name);
-    const childRel = path.join(relBase, ent.name);
+    const childRel = relBase ? path.join(relBase, ent.name) : ent.name;
 
     if (ent.isDirectory()) {
       const dn = buildDirNode(childAbs, childRel, ent.name, opts, depth + 1);
@@ -136,7 +133,6 @@ function buildDirNode(abs, rel, name, opts, depth) {
     }
   }
 
-  // sort: dirs first, then files; alpha
   children.sort((a, b) => {
     if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
     return String(a.name).localeCompare(String(b.name));
@@ -150,21 +146,17 @@ function buildTree(scope, withHints, withNotes) {
   const repoRoot = detectRepoRoot();
   const roots = defaultScopeRoots(scope, repoRoot);
 
-  // Hints/Notes kun je later “echt” vullen (bijv. vanuit je Living Map output).
-  // Voor nu: tree blijft werken, maar zonder extra meta als je het niet koppelt.
   const opts = {
     hintsMap: withHints ? {} : {},
     notesMap: withNotes ? {} : {},
   };
 
   if (roots.length === 1 && path.resolve(roots[0]) === path.resolve(repoRoot)) {
-    // single-root “all”: toon repoRoot als dir
     const rootName = path.basename(path.resolve(repoRoot)) || "repo";
     const node = buildDirNode(path.resolve(repoRoot), "", rootName, opts, 0);
     return { repoRoot, root: node };
   }
 
-  // multi-root (ql): maak een synthetic root met children
   const root = {
     type: "dir",
     name: "repo",
@@ -188,7 +180,6 @@ function buildTree(scope, withHints, withNotes) {
 module.exports = function a02DevTreeFactory() {
   const router = express.Router();
 
-  // JSON: /api/dev/tree
   router.get("/api/dev/tree", (req, res) => {
     try {
       res.set("Cache-Control", "no-store");
@@ -209,7 +200,7 @@ module.exports = function a02DevTreeFactory() {
     }
   });
 
-  // UI: /dev/tree/ui  (met buttons: Snapshot / View / Copy / History)
+  // UI met per-file buttons (Snapshot / View / Copy / History) via a09.devSnapshots endpoints
   router.get("/dev/tree/ui", (req, res) => {
     res.set("Cache-Control", "no-store");
     res.type("html").send(`<!doctype html>
@@ -221,15 +212,15 @@ module.exports = function a02DevTreeFactory() {
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#fff}
     header{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid #e5e7eb;background:#f8fafc}
-    .brand{font-weight:800}
+    .brand{font-weight:900}
     .sp{flex:1}
     .ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .ctl label{font-size:12px;color:#334155;display:flex;gap:6px;align-items:center}
     select,input{cursor:pointer}
-    .btn{padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font-weight:650}
+    .btn{padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font-weight:700}
     .btn:hover{background:#f1f5f9}
-    .btn2{padding:6px 8px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font-weight:700;font-size:12px}
-    .btn2:hover{background:#f1f5f9}
+    .btn2{padding:6px 8px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font-weight:800;font-size:12px}
+    .btn2:hover{background:#f8fafc}
     .status{font-size:12px;color:#334155;max-width:60ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     main{padding:10px 12px}
     .row{display:flex;gap:8px;align-items:flex-start;padding:4px 0}
@@ -237,21 +228,20 @@ module.exports = function a02DevTreeFactory() {
     .twisty{border:0;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;border-radius:6px}
     .twisty:hover{background:#e2e8f0}
     .ic{width:18px;display:inline-block}
-    .name{font-weight:650}
+    .name{font-weight:700}
     .rel{font-size:12px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52vw}
     .children{padding-left:22px;border-left:1px dashed #e5e7eb;margin-left:6px}
-    .metaWrap{margin-left:30px;margin-top:2px;display:flex;flex-direction:column;gap:6px}
+    .metaWrap{margin-left:30px;margin-top:2px;display:flex;flex-direction:column;gap:4px}
     .meta{font-size:12px;color:#0f172a;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;padding:6px 8px;max-width:100%}
-    .meta .k{font-weight:800;margin-right:6px;color:#334155}
+    .meta .k{font-weight:900;margin-right:6px;color:#334155}
     .meta.hint{background:#eff6ff;border-color:#bfdbfe}
     .meta.note{background:#f5f3ff;border-color:#ddd6fe}
     .muted{color:#64748b}
     .pill{font-size:12px;color:#0f172a;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px}
-    code{background:#f1f5f9;border:1px solid #e5e7eb;border-radius:8px;padding:1px 6px}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
 
-    .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .drawer{
-      position:fixed; top:0; right:0; height:100vh; width:min(820px, 96vw);
+      position:fixed; top:0; right:0; height:100vh; width:min(860px, 96vw);
       background:#ffffff; border-left:1px solid #e5e7eb;
       box-shadow:-12px 0 30px rgba(15,23,42,.10);
       transform:translateX(110%); transition:transform .18s ease;
@@ -262,15 +252,14 @@ module.exports = function a02DevTreeFactory() {
       padding:12px 14px; border-bottom:1px solid #e5e7eb;
       display:flex; align-items:center; gap:10px; flex-wrap:wrap;
     }
-    .drawerTitle{ font-weight:850; }
+    .drawerTitle{ font-weight:900; }
     .drawerBody{ padding:12px 14px; overflow:auto; }
-    .hr{height:1px;background:#e5e7eb;margin:12px 0}
-    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
     .pre{
       white-space:pre; overflow:auto; max-height:62vh;
-      border:1px solid #0b1220; border-radius:12px; padding:10px 12px; background:#0b1220; color:#e5e7eb;
-      font-size:12px; line-height:1.45;
+      border:1px solid #0b1220; border-radius:12px; padding:10px 12px;
+      background:#0b1220; color:#e5e7eb; font-size:12px; line-height:1.45;
     }
+    .hr{height:1px;background:#e5e7eb;margin:12px 0}
     .tbl{ width:100%; border-collapse:collapse; margin:8px 0 14px; }
     .tbl th,.tbl td{ text-align:left; padding:8px 6px; border-bottom:1px solid #e5e7eb; font-size:13px; vertical-align:top; }
     .tbl th{ font-size:12px; color:#334155; }
@@ -289,10 +278,12 @@ module.exports = function a02DevTreeFactory() {
         </select>
       </label>
 
-      <label><input type="checkbox" id="showHints" checked /> toon hints</label>
-      <label><input type="checkbox" id="showNotes" checked /> toon notes</label>
+      <label><input type="checkbox" id="showHints" checked /> hints</label>
+      <label><input type="checkbox" id="showNotes" checked /> notes</label>
 
       <button class="btn" id="reload">Reload</button>
+      <button class="btn" id="openAll">Open all</button>
+      <button class="btn" id="closeAll">Close all</button>
     </div>
 
     <div class="sp"></div>
@@ -305,14 +296,14 @@ module.exports = function a02DevTreeFactory() {
 
   <aside class="drawer" id="drawer">
     <div class="drawerHead">
-      <div class="drawerTitle" id="drawerTitle">Code</div>
+      <div class="drawerTitle" id="drawerTitle">Drawer</div>
       <span class="muted" id="drawerStamp"></span>
       <div class="sp"></div>
       <button class="btn" id="drawerClose">Close</button>
     </div>
     <div class="drawerBody">
       <div id="drawerIntro" class="muted"></div>
-      <div id="drawerContent" style="margin-top:10px;">—</div>
+      <div id="drawerContent" class="muted" style="margin-top:10px;">—</div>
     </div>
   </aside>
 
@@ -323,6 +314,8 @@ module.exports = function a02DevTreeFactory() {
   const showHints = document.getElementById('showHints');
   const showNotes = document.getElementById('showNotes');
   const btnReload = document.getElementById('reload');
+  const btnOpenAll = document.getElementById('openAll');
+  const btnCloseAll = document.getElementById('closeAll');
   const pill = document.getElementById('pill');
 
   const drawer = document.getElementById('drawer');
@@ -331,15 +324,6 @@ module.exports = function a02DevTreeFactory() {
   const drawerIntro = document.getElementById('drawerIntro');
   const drawerContent = document.getElementById('drawerContent');
   const drawerClose = document.getElementById('drawerClose');
-
-  function escHtml(s){
-    return String(s ?? "")
-      .replaceAll("&","&amp;")
-      .replaceAll("<","&lt;")
-      .replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;")
-      .replaceAll("'","&#39;");
-  }
 
   function qs(name){
     const u = new URL(location.href);
@@ -353,23 +337,37 @@ module.exports = function a02DevTreeFactory() {
 
   function updatePill(){
     pill.textContent = "scope=" + scopeSel.value
-      + "  hints=" + (showHints.checked ? "1" : "0")
-      + "  notes=" + (showNotes.checked ? "1" : "0");
+      + " hints=" + (showHints.checked ? "1" : "0")
+      + " notes=" + (showNotes.checked ? "1" : "0");
   }
 
-  async function fetchText(url, options){
-    const r = await fetch(url, Object.assign({ cache: "no-store" }, options || {}));
-    const t = await r.text();
-    return { ok: r.ok, status: r.status, text: t };
+  function esc(s){
+    return String(s==null?"":s)
+      .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;").replaceAll("'","&#39;");
   }
 
-  async function fetchJson(url, options){
-    const r = await fetch(url, Object.assign({ cache: "no-store" }, options || {}));
+  async function fetchJson(url, opts){
+    const r = await fetch(url, Object.assign({ cache: "no-store" }, opts || {}));
     const t = await r.text();
     let j = null;
     try { j = JSON.parse(t); } catch {}
     return { ok: r.ok, status: r.status, text: t, json: j };
   }
+
+  function openDrawer(title, introHtml){
+    drawerTitle.textContent = title || "Drawer";
+    drawerIntro.innerHTML = introHtml || "";
+    drawerContent.textContent = "loading…";
+    drawerStamp.textContent = "";
+    drawer.classList.add("open");
+  }
+
+  function closeDrawer(){
+    drawer.classList.remove("open");
+  }
+
+  drawerClose.addEventListener("click", closeDrawer);
 
   function buildUrl(){
     const scope = scopeSel.value || "ql";
@@ -378,123 +376,6 @@ module.exports = function a02DevTreeFactory() {
     return "/api/dev/tree?scope=" + encodeURIComponent(scope)
       + "&withHints=" + hints
       + "&notes=" + notes;
-  }
-
-  function openDrawer(title, introHtml){
-    drawerTitle.textContent = title || "Code";
-    drawerIntro.innerHTML = introHtml || "";
-    drawerContent.innerHTML = "<div class='muted'>loading…</div>";
-    drawerStamp.textContent = "";
-    drawer.classList.add("open");
-  }
-
-  function closeDrawer(){ drawer.classList.remove("open"); }
-  drawerClose.addEventListener("click", closeDrawer);
-
-  async function copyToClipboard(text){
-    await navigator.clipboard.writeText(String(text || ""));
-    statusEl.textContent = "copied ✓";
-    setTimeout(() => { statusEl.textContent = ""; }, 1400);
-  }
-
-  async function loadFileHistory(path){
-    const url = "/api/dev/snapshots/file?path=" + encodeURIComponent(path);
-    const r = await fetchJson(url);
-    if (!r.ok || !r.json || !r.json.ok) {
-      drawerContent.textContent = "history failed: " + (r.json && r.json.error ? r.json.error : r.text);
-      return;
-    }
-    const items = Array.isArray(r.json.items) ? r.json.items : [];
-    if (!items.length) {
-      drawerContent.innerHTML = "<div class='muted'>Nog geen snapshots voor <code>"+escHtml(path)+"</code>.</div>";
-      return;
-    }
-    let html = "";
-    html += "<div class='muted'>History voor <code>"+escHtml(path)+"</code> (nieuwste eerst)</div>";
-    html += "<table class='tbl'><thead><tr><th>when</th><th>snapshot</th><th>kind</th><th>scope</th><th></th></tr></thead><tbody>";
-    html += items.map(it => {
-      const sid = it.snapshot_id;
-      return "<tr>"
-        + "<td>"+escHtml(it.created_at || "")+"</td>"
-        + "<td>#"+escHtml(String(sid))+"</td>"
-        + "<td>"+escHtml(it.kind || "")+"</td>"
-        + "<td>"+escHtml(it.scope || "")+"</td>"
-        + "<td><button class='btn2' data-view='1' data-path='"+escHtml(path)+"' data-sid='"+escHtml(String(sid))+"'>View</button></td>"
-        + "</tr>";
-    }).join("");
-    html += "</tbody></table>";
-    drawerContent.innerHTML = html;
-
-    Array.from(drawerContent.querySelectorAll("button[data-view='1']")).forEach(btn => {
-      btn.addEventListener("click", () => {
-        const p = btn.getAttribute("data-path");
-        const sid = Number(btn.getAttribute("data-sid"));
-        openDrawer("Code view", "<div class='muted'><code>"+escHtml(p)+"</code> • snapshot <code>#"+escHtml(String(sid))+"</code></div>");
-        loadFileContent(p, sid).catch(() => { drawerContent.textContent = "view failed"; });
-      });
-    });
-
-    drawerStamp.textContent = "updated " + new Date().toLocaleTimeString("nl-NL");
-  }
-
-  async function loadFileContent(path, snapshotId){
-    const url = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(path) + "&snapshot_id=" + encodeURIComponent(String(snapshotId));
-    const r = await fetchJson(url);
-    if (!r.ok || !r.json || !r.json.ok) {
-      drawerContent.textContent = "file-content failed: " + (r.json && r.json.error ? r.json.error : r.text);
-      return;
-    }
-    const item = r.json.item || {};
-    const content = (item.content != null) ? String(item.content) : "";
-    const meta = "sha256 " + escHtml(item.sha256 || "-") + " • " + escHtml(String(item.bytes || "-")) + " bytes • " + escHtml(String(item.n_lines || "-")) + " lines";
-    drawerContent.innerHTML =
-      "<div class='muted'>"+meta+"</div>"
-      + "<div class='hr'></div>"
-      + "<div class='actions'>"
-      + "<button class='btn2' id='copyCodeBtn'>Copy code</button>"
-      + "</div>"
-      + "<div style='height:10px'></div>"
-      + "<div class='pre mono' id='codeBox'></div>";
-
-    const codeBox = document.getElementById("codeBox");
-    if (codeBox) codeBox.textContent = content || (item.head30 || "");
-    const copyBtn = document.getElementById("copyCodeBtn");
-    if (copyBtn) copyBtn.addEventListener("click", () => copyToClipboard(content || ""));
-    drawerStamp.textContent = "loaded " + new Date().toLocaleTimeString("nl-NL");
-  }
-
-  async function latestSnapshotIdForPath(path){
-    const url = "/api/dev/snapshots/file?path=" + encodeURIComponent(path);
-    const r = await fetchJson(url);
-    if (!r.ok || !r.json || !r.json.ok) return null;
-    const items = Array.isArray(r.json.items) ? r.json.items : [];
-    if (!items.length) return null;
-    return Number(items[0].snapshot_id);
-  }
-
-  async function snapshotOne(path){
-    statusEl.textContent = "snapshot…";
-    const payload = {
-      scope: scopeSel.value || "ql",
-      kind: "tree",
-      note: "tree-one",
-      pinnedPaths: [path],
-      includeContent: true
-    };
-    const r = await fetchJson("/api/dev/snapshot", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    if (!r.ok || !r.json || !r.json.ok) {
-      const msg = (r.json && r.json.error) ? r.json.error : r.text;
-      statusEl.textContent = "snapshot failed: " + (msg || "");
-      setTimeout(() => { statusEl.textContent = ""; }, 6000);
-      return null;
-    }
-    statusEl.textContent = "saved ✓ (#" + String(r.json.snapshot.id) + ")";
-    setTimeout(() => { statusEl.textContent = ""; }, 2000);
-    return r.json.snapshot.id;
   }
 
   function attachRowHandlers(){
@@ -508,68 +389,6 @@ module.exports = function a02DevTreeFactory() {
         kids.style.display = open ? "none" : "block";
         btn.textContent = open ? "▸" : "▾";
         btn.setAttribute('data-open', open ? "0" : "1");
-      });
-    });
-
-    document.querySelectorAll("button[data-act='snapshot']").forEach(btn => {
-      btn.addEventListener("click", async (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const p = btn.getAttribute("data-path") || "";
-        const sid = await snapshotOne(p);
-        if (sid) {
-          openDrawer("Snapshot saved", "<div class='muted'><code>"+escHtml(p)+"</code> • snapshot <code>#"+escHtml(String(sid))+"</code></div>");
-          loadFileContent(p, sid).catch(() => { drawerContent.textContent = "view failed"; });
-        }
-      });
-    });
-
-    document.querySelectorAll("button[data-act='view']").forEach(btn => {
-      btn.addEventListener("click", async (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const p = btn.getAttribute("data-path") || "";
-        const sid = await latestSnapshotIdForPath(p);
-        if (!sid) {
-          openDrawer("No snapshots", "<div class='muted'>Nog geen snapshots voor <code>"+escHtml(p)+"</code>.</div>");
-          drawerContent.innerHTML = "<div class='muted'>Klik eerst <b>Snapshot</b> op dit bestand.</div>";
-          return;
-        }
-        openDrawer("Code view", "<div class='muted'><code>"+escHtml(p)+"</code> • latest snapshot <code>#"+escHtml(String(sid))+"</code></div>");
-        loadFileContent(p, sid).catch(() => { drawerContent.textContent = "view failed"; });
-      });
-    });
-
-    document.querySelectorAll("button[data-act='copy']").forEach(btn => {
-      btn.addEventListener("click", async (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const p = btn.getAttribute("data-path") || "";
-        const sid = await latestSnapshotIdForPath(p);
-        if (!sid) {
-          statusEl.textContent = "no snapshot yet";
-          setTimeout(() => { statusEl.textContent = ""; }, 1400);
-          return;
-        }
-        const url = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(p) + "&snapshot_id=" + encodeURIComponent(String(sid));
-        const r = await fetchJson(url);
-        if (!r.ok || !r.json || !r.json.ok) {
-          statusEl.textContent = "copy failed";
-          setTimeout(() => { statusEl.textContent = ""; }, 1400);
-          return;
-        }
-        const content = (r.json.item && r.json.item.content != null) ? String(r.json.item.content) : "";
-        await copyToClipboard(content || "");
-      });
-    });
-
-    document.querySelectorAll("button[data-act='history']").forEach(btn => {
-      btn.addEventListener("click", (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const p = btn.getAttribute("data-path") || "";
-        openDrawer("History", "<div class='muted'><code>"+escHtml(p)+"</code></div>");
-        loadFileHistory(p).catch(() => { drawerContent.textContent = "history failed"; });
       });
     });
   }
@@ -586,101 +405,296 @@ module.exports = function a02DevTreeFactory() {
     });
   }
 
-  window.addEventListener("message", (ev) => {
-    const d = ev && ev.data ? ev.data : null;
-    if (!d || d.kind !== "LESSIE_TREE_CMD") return;
-    if (d.cmd === "openAll") setAll(true);
-    if (d.cmd === "closeAll") setAll(false);
-  });
+  btnOpenAll.addEventListener("click", () => setAll(true));
+  btnCloseAll.addEventListener("click", () => setAll(false));
+
+  async function snapshotOne(pathRel){
+    const payload = {
+      scope: scopeSel.value || "ql",
+      kind: "tree",
+      note: "tree-single",
+      pinnedPaths: [pathRel],
+      includeContent: true
+    };
+
+    statusEl.textContent = "snapshot… " + pathRel;
+    const r = await fetchJson("/api/dev/snapshot", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    if (!r.ok || !r.json || !r.json.ok) {
+      const msg = (r.json && r.json.error) ? r.json.error : r.text;
+      throw new Error(msg || "snapshot failed");
+    }
+    return r.json;
+  }
+
+  async function loadHistory(pathRel){
+    const r = await fetchJson("/api/dev/snapshots/file?path=" + encodeURIComponent(pathRel));
+    if (!r.ok || !r.json || !r.json.ok) {
+      const msg = (r.json && r.json.error) ? r.json.error : r.text;
+      throw new Error(msg || "history failed");
+    }
+    return Array.isArray(r.json.items) ? r.json.items : [];
+  }
+
+  async function loadContent(pathRel, snapshotId){
+    const url = "/api/dev/snapshots/file-content?path=" + encodeURIComponent(pathRel)
+      + "&snapshot_id=" + encodeURIComponent(String(snapshotId));
+    const r = await fetchJson(url);
+    if (!r.ok || !r.json || !r.json.ok) {
+      const msg = (r.json && r.json.error) ? r.json.error : r.text;
+      throw new Error(msg || "file-content failed");
+    }
+    return r.json.item || {};
+  }
+
+  async function copyToClipboard(text){
+    await navigator.clipboard.writeText(String(text || ""));
+    statusEl.textContent = "copied ✓";
+    setTimeout(() => { statusEl.textContent = ""; }, 1200);
+  }
+
+  function renderHistoryTable(pathRel, items){
+    if (!items.length) {
+      drawerContent.innerHTML = "<div class='muted'>Nog geen snapshots voor <code>"+esc(pathRel)+"</code>.</div>";
+      return;
+    }
+    let html = "";
+    html += "<div class='muted'>History voor <code>"+esc(pathRel)+"</code> (nieuwste eerst)</div>";
+    html += "<table class='tbl'><thead><tr><th>when</th><th>snapshot</th><th>kind</th><th>scope</th><th>view</th></tr></thead><tbody>";
+    html += items.map(it => {
+      const sid = it.snapshot_id;
+      const when = it.created_at || "";
+      const kind = it.kind || "";
+      const scope = it.scope || "";
+      return "<tr>"
+        + "<td>"+esc(when)+"</td>"
+        + "<td>#"+esc(sid)+"</td>"
+        + "<td>"+esc(kind)+"</td>"
+        + "<td>"+esc(scope)+"</td>"
+        + "<td><button class='btn2' data-view='1' data-path='"+esc(pathRel)+"' data-sid='"+esc(String(sid))+"'>View</button></td>"
+        + "</tr>";
+    }).join("");
+    html += "</tbody></table>";
+    drawerContent.innerHTML = html;
+
+    Array.from(drawerContent.querySelectorAll("button[data-view='1']")).forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const p = btn.getAttribute("data-path");
+        const sid = Number(btn.getAttribute("data-sid"));
+        openDrawer("Code view", "<div class='muted'><code>"+esc(p)+"</code> • snapshot <code>#"+esc(String(sid))+"</code></div>");
+        try {
+          const item = await loadContent(p, sid);
+          const content = (item.content != null) ? String(item.content) : "";
+          drawerContent.innerHTML =
+            "<button class='btn2' id='copyBtn'>Copy code</button>"
+            + "<div class='hr'></div>"
+            + "<div class='pre mono' id='codeBox'></div>";
+          document.getElementById("codeBox").textContent = content || "";
+          document.getElementById("copyBtn").addEventListener("click", () => copyToClipboard(content || ""));
+          drawerStamp.textContent = "loaded " + new Date().toLocaleTimeString("nl-NL");
+        } catch (e) {
+          drawerContent.textContent = String(e && e.message ? e.message : e);
+        }
+      });
+    });
+  }
+
+  async function showFileActions(pathRel){
+    openDrawer("File", "<div class='muted'><code>"+esc(pathRel)+"</code></div>");
+    drawerContent.innerHTML =
+      "<div class='row2'>"
+      + "<button class='btn2' id='snapBtn'>Snapshot</button> "
+      + "<button class='btn2' id='histBtn'>History</button>"
+      + "</div>"
+      + "<div class='hr'></div>"
+      + "<div class='muted'>Tip: klik eerst Snapshot om zeker te zijn dat er full code in DB staat.</div>";
+
+    document.getElementById("snapBtn").addEventListener("click", async () => {
+      try {
+        const j = await snapshotOne(pathRel);
+        const sid = j.snapshot && j.snapshot.id ? j.snapshot.id : "?";
+        openDrawer("Snapshot saved", "<div class='muted'><code>"+esc(pathRel)+"</code> • snapshot <code>#"+esc(String(sid))+"</code></div>");
+        drawerContent.innerHTML =
+          "<button class='btn2' id='viewBtn'>View</button> "
+          + "<button class='btn2' id='copyBtn'>Copy</button> "
+          + "<button class='btn2' id='histBtn2'>History</button>"
+          + "<div class='hr'></div>"
+          + "<div class='muted'>Saved ✓</div>";
+
+        document.getElementById("histBtn2").addEventListener("click", async () => {
+          openDrawer("History", "<div class='muted'><code>"+esc(pathRel)+"</code></div>");
+          try {
+            const items = await loadHistory(pathRel);
+            renderHistoryTable(pathRel, items);
+          } catch (e) {
+            drawerContent.textContent = String(e && e.message ? e.message : e);
+          }
+        });
+
+        document.getElementById("viewBtn").addEventListener("click", async () => {
+          openDrawer("Code view", "<div class='muted'><code>"+esc(pathRel)+"</code> • snapshot <code>#"+esc(String(sid))+"</code></div>");
+          try {
+            const item = await loadContent(pathRel, sid);
+            const content = (item.content != null) ? String(item.content) : "";
+            drawerContent.innerHTML =
+              "<button class='btn2' id='copyBtn3'>Copy code</button>"
+              + "<div class='hr'></div>"
+              + "<div class='pre mono' id='codeBox'></div>";
+            document.getElementById("codeBox").textContent = content || "";
+            document.getElementById("copyBtn3").addEventListener("click", () => copyToClipboard(content || ""));
+          } catch (e) {
+            drawerContent.textContent = String(e && e.message ? e.message : e);
+          }
+        });
+
+        document.getElementById("copyBtn").addEventListener("click", async () => {
+          try {
+            const item = await loadContent(pathRel, sid);
+            const content = (item.content != null) ? String(item.content) : "";
+            await copyToClipboard(content || "");
+          } catch (e) {
+            statusEl.textContent = "copy failed";
+            setTimeout(() => { statusEl.textContent = ""; }, 1400);
+          }
+        });
+
+        drawerStamp.textContent = "saved " + new Date().toLocaleTimeString("nl-NL");
+        statusEl.textContent = "saved ✓";
+        setTimeout(() => { statusEl.textContent = ""; }, 1500);
+      } catch (e) {
+        drawerContent.textContent = String(e && e.message ? e.message : e);
+        statusEl.textContent = "snapshot failed";
+        setTimeout(() => { statusEl.textContent = ""; }, 2000);
+      }
+    });
+
+    document.getElementById("histBtn").addEventListener("click", async () => {
+      openDrawer("History", "<div class='muted'><code>"+esc(pathRel)+"</code></div>");
+      try {
+        const items = await loadHistory(pathRel);
+        renderHistoryTable(pathRel, items);
+        drawerStamp.textContent = "loaded " + new Date().toLocaleTimeString("nl-NL");
+      } catch (e) {
+        drawerContent.textContent = String(e && e.message ? e.message : e);
+      }
+    });
+  }
+
+  function mkMeta(item){
+    const bits = [];
+    if (showHints.checked && item.hint) bits.push('<div class="meta hint"><span class="k">hint</span>' + esc(item.hint) + '</div>');
+    if (showNotes.checked && item.note) bits.push('<div class="meta note"><span class="k">note</span>' + esc(item.note) + '</div>');
+    return bits.join("");
+  }
+
+  function row(item){
+    const rel = esc(item.rel||"");
+    const nm = esc(item.name||"");
+    const relTxt = esc(item.rel||"");
+    const isDir = item.type === "dir";
+
+    let html = '';
+    if (isDir) {
+      html += '<div class="row dir" data-rel="'+relTxt+'">';
+      html += '  <div class="label">';
+      html += '    <button class="twisty" data-open="1">▾</button>';
+      html += '    <span class="ic">📁</span>';
+      html += '    <span class="name">'+nm+'</span>';
+      html += '    <span class="rel mono">'+relTxt+'</span>';
+      html += '  </div>';
+      html += '</div>';
+    } else {
+      html += '<div class="row file" data-rel="'+relTxt+'">';
+      html += '  <div class="label">';
+      html += '    <span class="ic">📄</span>';
+      html += '    <span class="name">'+nm+'</span>';
+      html += '    <span class="rel mono">'+relTxt+'</span>';
+      html += '  </div>';
+      html += '  <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">';
+      html += '    <button class="btn2" data-file-actions="1" data-path="'+relTxt+'">Snapshot/View/History</button>';
+      html += '  </div>';
+      html += '</div>';
+    }
+
+    const meta = mkMeta(item);
+    if (meta) {
+      html += '<div class="metaWrap">' + meta + '</div>';
+    }
+
+    if (isDir) {
+      const kids = Array.isArray(item.children) ? item.children : [];
+      html += '<div class="children" data-parent="'+relTxt+'">';
+      html += kids.map(child => render(child)).join('');
+      html += '</div>';
+    }
+    return html;
+  }
+
+  function render(item){
+    return row(item);
+  }
+
+  function attachFileButtons(){
+    Array.from(document.querySelectorAll("button[data-file-actions='1']")).forEach(btn => {
+      btn.addEventListener("click", () => {
+        const p = btn.getAttribute("data-path") || "";
+        showFileActions(p).catch(()=>{});
+      });
+    });
+  }
 
   async function load(){
     updatePill();
     statusEl.textContent = "loading…";
     try {
       const url = buildUrl();
-      const treeRes = await fetchJson(url);
-      if (!treeRes.ok || !treeRes.json || !treeRes.json.ok) {
-        out.classList.add("muted");
-        out.textContent = "tree failed: " + (treeRes.json && treeRes.json.error ? treeRes.json.error : treeRes.text);
+      const r = await fetchJson(url);
+      if (!r.ok || !r.json || !r.json.ok) throw new Error((r.json && r.json.error) ? r.json.error : r.text);
+
+      const tree = r.json.tree;
+      out.innerHTML = "";
+      out.classList.remove("muted");
+
+      if (!tree) {
+        out.innerHTML = "<div class='muted'>tree=null (scope="+esc(scopeSel.value)+")</div>";
         statusEl.textContent = "";
         return;
       }
 
-      const tree = treeRes.json.tree;
-
-      out.innerHTML = "";
-      out.classList.remove("muted");
-
-      function mkMeta(item){
-        const bits = [];
-        if (showHints.checked && item.hint) bits.push('<div class="meta hint"><span class="k">hint</span>' + escHtml(item.hint) + '</div>');
-        if (showNotes.checked && item.note) bits.push('<div class="meta note"><span class="k">note</span>' + escHtml(item.note) + '</div>');
-        return bits.join("");
-      }
-
-      function row(item){
-        const rel = escHtml(item.rel||"");
-        const nm = escHtml(item.name||"");
-        const isDir = item.type === "dir";
-        const twisty = isDir ? '<button class="twisty" data-open="0">▸</button>' : '<span class="ic"></span>';
-        const icon = isDir ? "📁" : "📄";
-        const meta = mkMeta(item);
-        const actions = (!isDir)
-          ? ('<div class="actions">'
-              + '<button class="btn2" data-act="snapshot" data-path="'+rel+'">Snapshot</button>'
-              + '<button class="btn2" data-act="view" data-path="'+rel+'">View</button>'
-              + '<button class="btn2" data-act="copy" data-path="'+rel+'">Copy</button>'
-              + '<button class="btn2" data-act="history" data-path="'+rel+'">History</button>'
-            + '</div>')
-          : '';
-
-        return '<div class="row '+(isDir?'dir':'file')+'" data-rel="'+rel+'">'
-          + '<div class="label">'
-            + twisty
-            + '<span class="ic">'+icon+'</span>'
-            + '<span class="name">'+nm+'</span>'
-            + '<span class="rel">'+rel+'</span>'
-          + '</div>'
-          + (actions ? '<div class="sp"></div>'+actions : '')
-          + (meta ? ('<div class="metaWrap">'+meta+'</div>') : '')
-        + '</div>';
-      }
-
-      function render(node){
-        let html = row(node);
-        if (node.type === "dir") {
-          const rel = escHtml(node.rel||"");
-          html += '<div class="children" data-parent="'+rel+'" style="display:none">';
-          const kids = Array.isArray(node.children) ? node.children : [];
-          for (const k of kids) html += render(k);
-          html += '</div>';
-        }
-        return html;
-      }
-
       out.innerHTML = render(tree);
+
       attachRowHandlers();
-      statusEl.textContent = "";
+      attachFileButtons();
+      setAll(true);
+
+      statusEl.textContent = "ok";
+      setTimeout(() => { statusEl.textContent = ""; }, 1200);
     } catch (e) {
       out.classList.add("muted");
-      out.textContent = "error: " + (e && e.message ? e.message : String(e));
-      statusEl.textContent = "";
+      out.textContent = "load failed: " + (e && e.message ? e.message : String(e));
+      statusEl.textContent = "failed";
     }
   }
 
+  btnReload.addEventListener("click", () => load().catch(()=>{}));
+  showHints.addEventListener("change", () => load().catch(()=>{}));
+  showNotes.addEventListener("change", () => load().catch(()=>{}));
+  scopeSel.addEventListener("change", () => load().catch(()=>{}));
+
   setFromQs();
-  updatePill();
-
-  btnReload.addEventListener("click", () => load());
-  scopeSel.addEventListener("change", () => load());
-  showHints.addEventListener("change", () => load());
-  showNotes.addEventListener("change", () => load());
-
-  load();
+  load().catch(()=>{});
 </script>
 </body>
 </html>`);
   });
+
+  return router;
+};
+`);
 
   return router;
 };
