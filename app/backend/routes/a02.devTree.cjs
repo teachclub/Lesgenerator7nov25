@@ -9,7 +9,7 @@ module.exports = function a02DevTreeFactory() {
   const router = express.Router();
 
   function pickBackendRoot() {
-    const cwd = process.cwd(); // Cloud Run: "/app"
+    const cwd = process.cwd();
     const candidates = [
       path.join(cwd, "app", "backend"),
       path.join(cwd, "backend"),
@@ -46,18 +46,18 @@ module.exports = function a02DevTreeFactory() {
   async function readHint(fileAbs) {
     try {
       const fh = await fsp.open(fileAbs, "r");
-      const buf = Buffer.alloc(2048);
+      const buf = Buffer.alloc(2400);
       const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
       await fh.close();
       const txt = buf.slice(0, bytesRead).toString("utf8");
-      const lines = txt.split(/\r?\n/).slice(0, 12).map((s) => s.trim());
+      const lines = txt.split(/\r?\n/).slice(0, 14).map((s) => s.trim()).filter(Boolean);
       const hit =
         lines.find((l) => l.startsWith("// hint:")) ||
         lines.find((l) => l.startsWith("// ---")) ||
         lines.find((l) => l.startsWith("/*")) ||
         lines.find((l) => l.startsWith("//"));
       if (!hit) return "";
-      return hit.replace(/^\/\//, "").trim().slice(0, 140);
+      return hit.replace(/^\/\//, "").trim().slice(0, 180);
     } catch (_) {
       return "";
     }
@@ -131,7 +131,7 @@ module.exports = function a02DevTreeFactory() {
     try {
       const scope = String(req.query.scope || "all");
       const withHints = String(req.query.withHints || "0") === "1";
-      const withNotes = String(req.query.withNotes || "0") === "1"; // compatibel, nu niet gebruikt
+      const withNotes = String(req.query.withNotes || "0") === "1";
       const maxDepth = Math.max(1, Math.min(12, Number(req.query.maxDepth || 8)));
 
       const startAbs = scopeStartDir(scope);
@@ -160,47 +160,65 @@ module.exports = function a02DevTreeFactory() {
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Dev Tree UI</title>
+  <title>Dev Tree</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:14px}
-    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+    :root{color-scheme:light}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0}
+    .bar{
+      position:sticky;top:0;z-index:10;
+      background:#fff;border-bottom:1px solid #e5e7eb;
+      padding:10px 12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center
+    }
     .btn{
       padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;font-weight:750;cursor:pointer
     }
     .btn:hover{background:#f8fafc}
-    select{padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;font-weight:650}
+    select,input[type="text"]{padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;font-weight:650}
     label{font-size:13px;color:#334155;display:flex;gap:6px;align-items:center}
-    pre{white-space:pre-wrap;word-break:break-word;border:1px solid #e5e7eb;border-radius:12px;padding:12px;background:#f8fafc}
-    .muted{font-size:12px;color:#64748b}
-    .sep{width:1px;height:26px;background:#e5e7eb;margin:0 4px}
+    .pill{font-size:12px;color:#0f172a;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px}
+    .spacer{flex:1}
+    .status{font-size:12px;color:#334155;min-height:16px;max-width:72ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .wrap{padding:12px}
+    .tree{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:12px}
+    details{margin-left:14px}
+    summary{cursor:pointer;user-select:none}
+    .file{margin-left:28px;display:flex;gap:10px;align-items:baseline}
+    .meta{color:#64748b}
+    .hint{color:#0f172a;opacity:.75}
+    .err{color:#b91c1c}
+    a{color:#0f172a}
+    .small{font-size:12px;color:#64748b}
   </style>
 </head>
 <body>
-  <div class="row">
+  <div class="bar">
     <button class="btn" id="btnAll">Tree ALL</button>
     <button class="btn" id="btnQl">Tree QL</button>
-    <span class="sep"></span>
 
-    <select id="scope">
-      <option value="all">scope=all</option>
-      <option value="ql">scope=ql</option>
-    </select>
+    <span class="pill" id="pill">scope=all</span>
 
     <label><input type="checkbox" id="hints" /> hints</label>
     <label><input type="checkbox" id="notes" /> notes</label>
+    <label class="small">depth <select id="depth">
+      <option>4</option><option>6</option><option selected>8</option><option>10</option><option>12</option>
+    </select></label>
 
-    <button class="btn" id="load">Load</button>
-    <span class="muted" id="msg"></span>
+    <input type="text" id="filter" placeholder="filter (bijv. a03)" />
+
+    <button class="btn" id="reload">Reload</button>
+    <button class="btn" id="raw">Raw JSON</button>
+
+    <span class="spacer"></span>
+    <span class="status" id="status"></span>
   </div>
 
-  <pre id="out">(klik Load)</pre>
+  <div class="wrap">
+    <div class="tree" id="tree"></div>
+  </div>
 
 <script>
 (function(){
-  var out = document.getElementById('out');
-  var msg = document.getElementById('msg');
-
   function qs(){
     var p = {};
     var s = (location.search || '').replace(/^\\?/, '');
@@ -217,58 +235,158 @@ module.exports = function a02DevTreeFactory() {
   }
 
   var q = qs();
+  var elTree = document.getElementById('tree');
+  var elStatus = document.getElementById('status');
+  var elPill = document.getElementById('pill');
+  var elHints = document.getElementById('hints');
+  var elNotes = document.getElementById('notes');
+  var elDepth = document.getElementById('depth');
+  var elFilter = document.getElementById('filter');
 
-  function setUi(scope, hints, notes){
-    document.getElementById('scope').value = scope || 'all';
-    document.getElementById('hints').checked = hints === true;
-    document.getElementById('notes').checked = notes === true;
+  var scope = (q.scope || 'all').toLowerCase();
+  if (scope !== 'all' && scope !== 'ql') scope = 'all';
+
+  elHints.checked = (q.withHints === '1' || q.hints === '1');
+  elNotes.checked = (q.withNotes === '1' || q.notes === '1');
+  if (q.maxDepth) elDepth.value = String(q.maxDepth);
+
+  function setStatus(s){ elStatus.textContent = String(s || ''); }
+  function setPill(){ elPill.textContent = 'scope=' + scope; }
+
+  function clear(node){
+    while(node.firstChild) node.removeChild(node.firstChild);
   }
 
-  async function load(){
-    msg.textContent = 'loading…';
-    var scope = document.getElementById('scope').value;
-    var hints = document.getElementById('hints').checked ? '1' : '0';
-    var notes = document.getElementById('notes').checked ? '1' : '0';
-    var url = '/api/dev/tree?scope=' + encodeURIComponent(scope)
-      + '&withHints=' + hints
-      + '&withNotes=' + notes
-      + '&cachebust=' + Date.now();
-    try{
-      var r = await fetch(url, { cache: 'no-store' });
-      var t = await r.text();
-      out.textContent = t;
-      msg.textContent = r.ok ? 'ok' : ('HTTP ' + r.status);
-    }catch(e){
-      msg.textContent = 'error';
-      out.textContent = String(e && e.message ? e.message : e);
+  function fmtBytes(n){
+    n = Number(n||0);
+    if (n < 1024) return n + 'b';
+    if (n < 1024*1024) return (n/1024).toFixed(1) + 'kb';
+    return (n/(1024*1024)).toFixed(1) + 'mb';
+  }
+
+  function matchesFilter(text, f){
+    if (!f) return true;
+    return String(text||'').toLowerCase().indexOf(f.toLowerCase()) !== -1;
+  }
+
+  function renderNode(node, container, filterText){
+    if (!node) return;
+
+    if (node.type === 'dir') {
+      var details = document.createElement('details');
+      details.open = true;
+
+      var sum = document.createElement('summary');
+      var label = (node.name || node.path || '(dir)');
+      sum.textContent = '📁 ' + label;
+      details.appendChild(sum);
+
+      if (node.error) {
+        var err = document.createElement('div');
+        err.className = 'err';
+        err.textContent = node.error;
+        details.appendChild(err);
+      }
+
+      var kids = Array.isArray(node.children) ? node.children : [];
+      var any = false;
+
+      for (var i=0;i<kids.length;i++){
+        var k = kids[i];
+        var hay = (k.path || k.name || '');
+        if (k.type === 'file') hay += ' ' + (k.hint || '');
+        if (k.type === 'dir') hay += ' ' + (k.name || '');
+        if (!matchesFilter(hay, filterText)) continue;
+        any = true;
+        renderNode(k, details, filterText);
+      }
+
+      if (any) container.appendChild(details);
+      return;
+    }
+
+    if (node.type === 'file') {
+      var row = document.createElement('div');
+      row.className = 'file';
+
+      var a = document.createElement('span');
+      a.textContent = '📄 ' + (node.name || node.path || '(file)');
+      row.appendChild(a);
+
+      var meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = (node.size != null ? fmtBytes(node.size) : '') + (node.mtime ? ('  ' + node.mtime.slice(0,19).replace('T',' ')) : '');
+      row.appendChild(meta);
+
+      if (node.hint) {
+        var h = document.createElement('span');
+        h.className = 'hint';
+        h.textContent = node.hint;
+        row.appendChild(h);
+      }
+
+      if (node.error) {
+        var e = document.createElement('span');
+        e.className = 'err';
+        e.textContent = node.error;
+        row.appendChild(e);
+      }
+
+      container.appendChild(row);
     }
   }
 
-  document.getElementById('load').addEventListener('click', load);
-
-  document.getElementById('btnAll').addEventListener('click', function(){
-    setUi('all', document.getElementById('hints').checked, document.getElementById('notes').checked);
-    load();
-  });
-
-  document.getElementById('btnQl').addEventListener('click', function(){
-    setUi('ql', document.getElementById('hints').checked, document.getElementById('notes').checked);
-    load();
-  });
-
-  // query params support (voor DevHub-knoppen straks)
-  var initScope = (q.scope || '').toLowerCase();
-  if (initScope !== 'all' && initScope !== 'ql') initScope = 'all';
-
-  var initHints = (q.withHints === '1' || q.hints === '1');
-  var initNotes = (q.withNotes === '1' || q.notes === '1');
-
-  setUi(initScope, initHints, initNotes);
-
-  // auto-load als ?auto=1 of ?hub=1
-  if (q.auto === '1' || q.hub === '1') {
-    load();
+  function apiUrl(){
+    var hints = elHints.checked ? '1' : '0';
+    var notes = elNotes.checked ? '1' : '0';
+    var depth = encodeURIComponent(elDepth.value || '8');
+    return '/api/dev/tree?scope=' + encodeURIComponent(scope)
+      + '&withHints=' + hints
+      + '&withNotes=' + notes
+      + '&maxDepth=' + depth
+      + '&cachebust=' + Date.now();
   }
+
+  async function load(){
+    setPill();
+    setStatus('loading…');
+    clear(elTree);
+
+    var url = apiUrl();
+    try{
+      var r = await fetch(url, { cache: 'no-store' });
+      var j = await r.json();
+
+      if (!r.ok || !j || !j.ok) {
+        setStatus('error');
+        var pre = document.createElement('pre');
+        pre.textContent = JSON.stringify(j || { ok:false, status:r.status }, null, 2);
+        elTree.appendChild(pre);
+        return;
+      }
+
+      var filterText = (elFilter.value || '').trim();
+      renderNode(j.tree, elTree, filterText);
+      setStatus('ok');
+    }catch(e){
+      setStatus('error');
+      var pre2 = document.createElement('pre');
+      pre2.textContent = String(e && e.message ? e.message : e);
+      elTree.appendChild(pre2);
+    }
+  }
+
+  document.getElementById('btnAll').addEventListener('click', function(){ scope='all'; load(); });
+  document.getElementById('btnQl').addEventListener('click', function(){ scope='ql'; load(); });
+  document.getElementById('reload').addEventListener('click', load);
+  elFilter.addEventListener('input', function(){ load(); });
+
+  document.getElementById('raw').addEventListener('click', function(){
+    window.open(apiUrl(), '_blank');
+  });
+
+  if (q.auto === '1' || q.hub === '1') load();
+  else setPill();
 })();
 </script>
 </body>
