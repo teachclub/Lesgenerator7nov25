@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const { Pool } = require("pg");
 
 function sha256(s) {
-  return crypto.createHash("sha256").update(s).digest("hex");
+  return crypto.createHash("sha256").update(String(s || ""), "utf8").digest("hex");
 }
 
 function splitLines(text) {
@@ -21,7 +21,6 @@ function headTail30(text) {
   return { head30: head, tail30: tail, n_lines: lines.length };
 }
 
-// RepoRoot is ALTIJD app/backend (stabiel in Cloud Run).
 function pickRepoRoot() {
   return path.resolve(__dirname, "..");
 }
@@ -31,11 +30,8 @@ function normalizeRel(p) {
   s = s.replace(/\\/g, "/");
   s = s.replace(/^\/+/, "");
   s = s.replace(/^\.\//, "");
-
-  // tolerante prefixes (oude calls)
   if (s.startsWith("app/backend/")) s = s.slice("app/backend/".length);
   if (s.startsWith("backend/")) s = s.slice("backend/".length);
-
   return s;
 }
 
@@ -43,9 +39,7 @@ function resolveSafe(repoRoot, rel) {
   const norm = normalizeRel(rel);
   const abs = path.resolve(repoRoot, norm);
   const rr = path.resolve(repoRoot) + path.sep;
-  if (!abs.startsWith(rr)) {
-    throw new Error("unsafe path (outside repoRoot)");
-  }
+  if (!abs.startsWith(rr)) throw new Error("unsafe path (outside repoRoot)");
   return { norm, abs };
 }
 
@@ -69,7 +63,6 @@ function makePool() {
   });
 }
 
-// Align met jouw bestaande schema (created_by/label/meta etc.)
 async function ensureTables(pool) {
   const sql = `
 BEGIN;
@@ -115,8 +108,30 @@ COMMIT;
   await pool.query(sql);
 }
 
+function asText(v) {
+  if (v == null) return "";
+  return String(v);
+}
+
+function pickFirstNonEmpty(...vals) {
+  for (const v of vals) {
+    const s = asText(v).trim();
+    if (s) return s;
+  }
+  return "";
+}
+
+function toPathArray(v) {
+  if (Array.isArray(v)) return v.map(String).map(s => s.trim()).filter(Boolean);
+  if (typeof v === "string") {
+    return v.split(",").map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 module.exports = function a09DevSnapshotsFactory() {
   const router = express.Router();
+
   const repoRoot = pickRepoRoot();
   let pool = null;
 
@@ -138,26 +153,41 @@ module.exports = function a09DevSnapshotsFactory() {
   router.post("/dev/snapshot", express.json({ limit: "4mb" }), async (req, res) => {
     const body = req.body || {};
 
-    const pinnedPaths = Array.isArray(body.pinnedPaths) ? body.pinnedPaths : [];
-    const scope = String(body.scope || "all");
-    const createdBy = String(body.created_by || body.createdBy || "devhub");
-    const label = body.label != null ? String(body.label) : null;
+    const pinnedPaths =
+      toPathArray(body.pinnedPaths).length ? toPathArray(body.pinnedPaths) :
+      toPathArray(body.paths);
 
-    const kind = String(body.kind || "manual");
-    const note = body.note != null ? String(body.note) : null;
+    const scope = pickFirstNonEmpty(body.scope, "all");
+    const createdBy = pickFirstNonEmpty(body.created_by, body.createdBy, "devhub");
 
-    const host = body.host != null ? String(body.host) : (req.get("host") ? String(req.get("host")) : null);
+    const label = asText(body.label); // maak NOT-NULL-proof voor oudere schema’s
+    const kind = pickFirstNonEmpty(body.kind, "manual");
+    const note = asText(body.note);
+
+    const host = pickFirstNonEmpty(
+      body.host,
+      req.get("x-forwarded-host"),
+      req.get("host"),
+      ""
+    );
+
+    const gitSha = pickFirstNonEmpty(
+      body.git_sha,
+      body.gitSha,
+      process.env.GIT_SHA,
+      process.env.K_REVISION,
+      ""
+    );
+
+    const runtimeInstance = pickFirstNonEmpty(
+      body.runtime_instance,
+      body.runtimeInstance,
+      process.env.HOSTNAME,
+      process.env.K_REVISION,
+      ""
+    );
+
     const includeContent = body.includeContent === true;
-
-    const gitSha =
-      body.git_sha != null ? String(body.git_sha) :
-      body.gitSha != null ? String(body.gitSha) :
-      null;
-
-    const runtimeInstance =
-      body.runtime_instance != null ? String(body.runtime_instance) :
-      body.runtimeInstance != null ? String(body.runtimeInstance) :
-      null;
 
     const meta = Object.assign(
       {},
@@ -166,7 +196,7 @@ module.exports = function a09DevSnapshotsFactory() {
     );
 
     if (!pinnedPaths.length) {
-      return res.status(400).json({ ok: false, error: "pinnedPaths required" });
+      return res.status(400).json({ ok: false, error: "pinnedPaths (or paths) required" });
     }
     if (pinnedPaths.length > 100) {
       return res.status(400).json({ ok: false, error: "too many pinnedPaths (max 100)" });
@@ -184,7 +214,15 @@ module.exports = function a09DevSnapshotsFactory() {
           `INSERT INTO lessie.snapshots(created_by, label, git_sha, runtime_instance, host, scope, meta)
            VALUES ($1,$2,$3,$4,$5,$6,$7)
            RETURNING id, created_at`,
-          [createdBy, label, gitSha, runtimeInstance, host, scope, JSON.stringify(meta)]
+          [
+            createdBy,
+            label,
+            gitSha,
+            runtimeInstance,
+            host,
+            scope,
+            JSON.stringify(meta),
+          ]
         );
 
         const snapshot = insSnap.rows[0];
@@ -268,7 +306,7 @@ module.exports = function a09DevSnapshotsFactory() {
     }
   });
 
-  router.get("/dev/snapshots/latest", async (req, res) => {
+  async function latestHandler(req, res) {
     const pathsRaw = req.query.paths ? String(req.query.paths) : "";
     const paths = pathsRaw
       .split(",")
@@ -302,7 +340,10 @@ module.exports = function a09DevSnapshotsFactory() {
     } catch (e) {
       res.status(500).json({ ok: false, error: e && e.message ? e.message : String(e) });
     }
-  });
+  }
+
+  router.get("/dev/snapshots/latest", latestHandler);
+  router.get("/dev/snapshot/latest", latestHandler);
 
   router.get("/dev/snapshots/file-content", async (req, res) => {
     const qpath = req.query.path ? String(req.query.path) : "";
