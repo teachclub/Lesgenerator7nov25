@@ -13,7 +13,6 @@ module.exports = function a03DevHubFactory() {
   const FRONTEND_BASE_QL =
     (process.env.LESSIE_FRONTEND_BASE_QL || process.env.LESSIE_FRONTEND_BASE || "").trim();
 
-  // Paths zijn repo-root relatief zoals a09.devSnapshots verwacht (dus zonder "app/backend/").
   const TOP20_ALL = [
     "server.cjs",
     "routes/a01.health.cjs",
@@ -160,12 +159,15 @@ module.exports = function a03DevHubFactory() {
     return "/api/dev/sitemap?scope=" + encodeURIComponent(scope || "all");
   }
 
-  function treeJsonUrl(scope, min){
+  function treeUiUrl(scope){
+    var min = document.getElementById('includeMin').checked;
     var hints = document.getElementById('withHints').checked ? "1" : "0";
     var notes = document.getElementById('withNotes').checked ? "1" : "0";
-    return "/api/dev/tree?scope=" + encodeURIComponent(scope || "ql")
-      + "&withHints=" + (min ? "0" : hints)
-      + "&withNotes=" + (min ? "0" : notes)
+    if (min) { hints = "0"; notes = "0"; }
+    return "/dev/tree/ui?hub=1&auto=1"
+      + "&scope=" + encodeURIComponent(scope || "all")
+      + "&withHints=" + hints
+      + "&withNotes=" + notes
       + "&cachebust=" + Date.now();
   }
 
@@ -213,8 +215,8 @@ module.exports = function a03DevHubFactory() {
     }
 
     if (currentMode === "tree") {
-      setStatus("tree=json");
-      frame.src = treeJsonUrl(currentScope, document.getElementById('includeMin').checked);
+      setStatus("tree=ui");
+      frame.src = treeUiUrl(currentScope);
       return;
     }
 
@@ -246,8 +248,8 @@ module.exports = function a03DevHubFactory() {
   document.getElementById('snapAllBtn').addEventListener("click", async function(){
     try {
       setStatus("snapshot…");
-      var j = await postJson("/api/dev/snapshot", { scope: "all", paths: TOP20_ALL });
-      setStatus("snapshot ok: " + (j.snapshotId || "(no id)"));
+      var j = await postJson("/api/dev/snapshot", { scope: "all", pinnedPaths: TOP20_ALL });
+      setStatus("snapshot ok");
     } catch (e) {
       setStatus("snapshot error");
       alert(String(e && e.message ? e.message : e));
@@ -257,8 +259,8 @@ module.exports = function a03DevHubFactory() {
   document.getElementById('snapQlBtn').addEventListener("click", async function(){
     try {
       setStatus("snapshot…");
-      var j = await postJson("/api/dev/snapshot", { scope: "ql", paths: TOP20_QL });
-      setStatus("snapshot ok: " + (j.snapshotId || "(no id)"));
+      var j = await postJson("/api/dev/snapshot", { scope: "ql", pinnedPaths: TOP20_QL });
+      setStatus("snapshot ok");
     } catch (e) {
       setStatus("snapshot error");
       alert(String(e && e.message ? e.message : e));
@@ -267,7 +269,9 @@ module.exports = function a03DevHubFactory() {
 
   document.getElementById('copyAll').addEventListener("click", async function(){
     try {
-      var r = await fetch("/api/dev/snapshots/latest", { cache: "no-store" });
+      var list = (currentScope === "ql") ? TOP20_QL : TOP20_ALL;
+      var url = "/api/dev/snapshots/latest?paths=" + encodeURIComponent(list.join(","));
+      var r = await fetch(url, { cache: "no-store" });
       var t = await r.text();
       await navigator.clipboard.writeText(t);
       setStatus("copied");
