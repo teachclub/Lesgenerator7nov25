@@ -9,6 +9,7 @@ const dotenvPath = path.join(__dirname, ".env");
 require("dotenv").config({ path: dotenvPath });
 
 const app = express();
+const api = express.Router();
 const PORT = process.env.PORT || 8081;
 
 app.use(cors());
@@ -22,9 +23,28 @@ app.use((req, res, next) => {
 });
 
 // -------------------- DB POOL (shared) --------------------
-const pool = new Pool(
-  process.env.DATABASE_URL ? { connectionString: process.env.DATABASE_URL } : {}
-);
+function makePoolConfig() {
+  if (process.env.DATABASE_URL) return { connectionString: process.env.DATABASE_URL };
+
+  const hasPgEnv =
+    Boolean(process.env.PGHOST) ||
+    Boolean(process.env.PGPORT) ||
+    Boolean(process.env.PGUSER) ||
+    Boolean(process.env.PGPASSWORD) ||
+    Boolean(process.env.PGDATABASE);
+
+  if (!hasPgEnv) return {};
+
+  return {
+    host: process.env.PGHOST || undefined,
+    port: process.env.PGPORT ? Number(process.env.PGPORT) : undefined,
+    user: process.env.PGUSER || undefined,
+    password: process.env.PGPASSWORD || undefined,
+    database: process.env.PGDATABASE || undefined,
+  };
+}
+
+const pool = new Pool(makePoolConfig());
 
 pool.on("error", (err) => {
   console.error("[pg] pool error:", err);
@@ -111,55 +131,68 @@ try {
   console.warn("[server] a19.dbInsights niet geladen:", e?.message || String(e));
 }
 
-app.use("/api", require("./routes/a06.chips.cjs"));
-app.use("/api", require("./routes/a07.usageEvents.cjs")());
-app.use("/api", require("./routes/a24.chipSuggest.cjs")());
-app.use("/api", require("./routes/a12.search.cjs"));
-app.use("/api", require("./routes/a13.searchPreset.cjs"));
-app.use("/api", require("./routes/a22.thesaurus.cjs"));
-app.use("/api", require("./routes/a35.proposals-v2.cjs"));
-app.use("/api", require("./routes/lessonV2.refineConcept.cjs"));
+// ✅ DEV INSIGHTS QUALITY (onder /api/dev/insights/*)
+try {
+  const devInsightsQuality = require("./routes/a20.devInsightsQuality.cjs");
+  devInsightsQuality.mount(app, { basePath: "/api/dev/insights" });
+} catch (e) {
+  console.warn("[server] a20.devInsightsQuality niet geladen:", e?.message || String(e));
+}
 
-app.use("/api", require("./routes/a14.sourceDetail.cjs")());
-app.use("/api", require("./routes/a15.imageProxy.cjs")());
-app.use("/api", require("./routes/a16.questionGen.cjs")());
-app.use("/api", require("./routes/a17.contextGen.cjs")());
+api.use(require("./routes/a06.chips.cjs"));
+api.use(require("./routes/a07.usageEvents.cjs")());
+api.use(require("./routes/a24.chipSuggest.cjs")());
+api.use(require("./routes/a12.search.cjs"));
+api.use(require("./routes/a13.searchPreset.cjs"));
+api.use(require("./routes/a22.thesaurus.cjs"));
+api.use(require("./routes/a35.proposals-v2.cjs"));
+api.use(require("./routes/lessonV2.refineConcept.cjs"));
+
+api.use(require("./routes/a14.sourceDetail.cjs")());
+api.use(require("./routes/a15.imageProxy.cjs")());
+api.use(require("./routes/a16.questionGen.cjs")());
+api.use(require("./routes/a17.contextGen.cjs")());
+api.use(require("./routes/a52.seedSourceSuggest.cjs")());
+api.use(require("./routes/a60.sourceGame.cjs")());
 
 // ✅ QL03: MATCH VANUIT CONTEXT_A (nieuw)
-app.use("/api", require("./routes/a18.matchFromContextA.cjs"));
+api.use(require("./routes/a18.matchFromContextA.cjs"));
 
 // ✅ QUESTION FLOW: 1 router, zowel /api/* als /* (handig voor debug)
 const questionFlowFactory = require("./routes/a17.questionFlow.cjs");
 const questionFlowRouter = questionFlowFactory();
-app.use("/api", questionFlowRouter);
+api.use(questionFlowRouter);
 app.use("/", questionFlowRouter);
-
-app.use("/api", require("./routes/searchMatch.cjs")());
 app.use("/", require("./routes/searchMatchV2.cjs"));
-app.use("/api", require("./routes/a51.citoimg.cjs"));
+api.use(require("./routes/a51.citoimg.cjs"));
 
 try {
   const { registerLessonV2Step1Routes } = require("./routes/lessonV2.step1.cjs");
   const { registerLessonV2Step2Routes } = require("./routes/lessonV2.step2.cjs");
   const { registerLessonV2Step3Routes } = require("./routes/lessonV2.step3.cjs");
   const { registerLessonV2Step4Routes } = require("./routes/lessonV2.step4.cjs");
+
   registerLessonV2Step1Routes(app);
   registerLessonV2Step2Routes(app);
   registerLessonV2Step3Routes(app);
   registerLessonV2Step4Routes(app);
+
+  registerLessonV2Step1Routes(api);
+  registerLessonV2Step2Routes(api);
+  registerLessonV2Step3Routes(api);
+  registerLessonV2Step4Routes(api);
 } catch (e) {
-  console.warn(
-    "[server] lessonV2 step routes niet geregistreerd:",
-    e?.message || String(e)
-  );
+  console.warn("[server] lessonV2 step routes niet geregistreerd:", e?.message || String(e));
 }
 
 try {
   const dbBrowserFactory = require("./routes/a50.dbBrowser.cjs");
-  app.use("/api", dbBrowserFactory());
+  api.use(dbBrowserFactory());
 } catch (e) {
   console.warn("[server] a50.devBrowser niet geladen:", e?.message || String(e));
 }
+
+app.use("/api", api);
 
 app.use((req, res) => {
   console.warn("[404] Niet gevonden:", req.method, req.url);
