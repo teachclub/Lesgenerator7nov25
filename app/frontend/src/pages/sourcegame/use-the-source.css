@@ -2158,10 +2158,11 @@
 }
 
 .uts-teacher-crawl-stage .uts-crawl-perspective {
-  left: 7%;
-  right: 7%;
-  bottom: -18%;
-  transform: rotateX(38deg);
+  left: 17%;
+  right: 17%;
+  top: 14%;
+  bottom: 7%;
+  transform: rotateX(42deg);
 }
 
 .uts-teacher-crawl-stage .uts-crawl-fade {
@@ -2600,14 +2601,15 @@
   }
 
   .uts-teacher-cockpit-screen {
-    inset: 1.9% 1.6% 2.4%;
+    inset: 0;
   }
 
   .uts-teacher-crawl-stage .uts-crawl-perspective {
-    left: 4%;
-    right: 4%;
-    bottom: -12%;
-    transform: rotateX(24deg);
+    left: 12%;
+    right: 12%;
+    top: 12%;
+    bottom: 6%;
+    transform: rotateX(34deg);
   }
 
   .uts-teacher-crawl-text h3 {
