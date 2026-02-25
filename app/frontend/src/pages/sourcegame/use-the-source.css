@@ -1344,6 +1344,8 @@
 }
 
 .uts-teacher-crawl-text {
+  position: relative;
+  left: -12ch;
   overflow-wrap: anywhere;
   word-break: break-word;
   hyphens: auto;
@@ -2627,6 +2629,10 @@
 
   .uts-teacher-crawl-text h3 {
     font-size: clamp(24px, 4.2vw, 38px);
+  }
+
+  .uts-teacher-crawl-text {
+    left: -8ch;
   }
 
   .uts-teacher-crawl-text p {
