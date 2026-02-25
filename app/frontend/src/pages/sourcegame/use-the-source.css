@@ -648,18 +648,17 @@
   overflow: hidden;
   isolation: isolate;
   min-height: clamp(460px, 64vh, 840px);
-  border-color: #9db4ff;
+  border-color: #6283b1;
+  border-radius: 16px;
   box-shadow:
-    inset 0 0 0 1px rgba(183, 221, 255, 0.24),
-    inset 0 -30px 52px rgba(33, 67, 132, 0.36),
-    0 0 26px rgba(96, 155, 255, 0.22),
-    0 0 50px rgba(32, 74, 164, 0.18);
+    inset 0 0 0 1px rgba(166, 201, 238, 0.2),
+    inset 0 -70px 90px rgba(8, 18, 34, 0.52),
+    0 16px 34px rgba(0, 0, 0, 0.38);
   background:
-    linear-gradient(180deg, rgba(12, 24, 44, 0.88), rgba(7, 15, 29, 0.96)),
-    radial-gradient(130% 90% at 50% 8%, rgba(58, 135, 255, 0.18), rgba(8, 18, 34, 0.92) 60%),
+    linear-gradient(180deg, rgba(8, 15, 28, 0.42), rgba(6, 10, 18, 0.72)),
     url("/images/sourcegame-cockpit.jpg");
-  background-size: cover, auto, cover;
-  background-position: center center, center center, center center;
+  background-size: cover;
+  background-position: center center;
 }
 
 .uts-mission-terminal--cockpit::before,
@@ -670,38 +669,55 @@
 }
 
 .uts-mission-terminal--cockpit::before {
-  inset: 8px 8px 24px 8px;
-  border-radius: 46% 46% 12px 12px / 17% 17% 12px 12px;
-  border: 2px solid rgba(128, 201, 255, 0.44);
-  box-shadow:
-    inset 0 0 26px rgba(79, 157, 255, 0.2),
-    inset 0 -22px 26px rgba(0, 0, 0, 0.3);
+  inset: clamp(12px, 2vw, 26px) clamp(10px, 2.2vw, 30px) clamp(16px, 2vw, 26px);
+  border-radius: 30px 30px 16px 16px;
+  border: 1px solid rgba(162, 196, 236, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(224, 240, 255, 0.07);
   background:
-    radial-gradient(120% 120% at 50% 0%, rgba(132, 211, 255, 0.15), rgba(0, 0, 0, 0.05) 68%),
-    linear-gradient(180deg, rgba(5, 14, 30, 0.28), rgba(8, 16, 36, 0.1));
+    linear-gradient(180deg, rgba(4, 8, 15, 0.28), rgba(4, 8, 15, 0.62)),
+    radial-gradient(120% 90% at 50% -16%, rgba(147, 198, 255, 0.2), transparent 46%);
+  z-index: 1;
 }
 
 .uts-mission-terminal--cockpit::after {
-  left: 6%;
-  right: 6%;
-  bottom: 8px;
-  height: 20px;
-  border-radius: 12px 12px 10px 10px;
-  border: 1px solid rgba(131, 192, 255, 0.42);
+  left: 14%;
+  right: 14%;
+  bottom: 10px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(168, 202, 240, 0.28);
   background:
-    repeating-linear-gradient(
-      90deg,
-      rgba(82, 151, 255, 0.22) 0 12px,
-      rgba(28, 67, 136, 0.22) 12px 24px
-    ),
-    linear-gradient(180deg, rgba(61, 124, 224, 0.32), rgba(17, 43, 93, 0.22));
+    linear-gradient(180deg, rgba(92, 128, 173, 0.22), rgba(24, 45, 74, 0.22));
+  z-index: 1;
+}
+
+.uts-mission-viewport {
+  position: relative;
+  z-index: 2;
+  max-width: min(100%, 980px);
+  margin: 0 auto;
+  min-height: inherit;
+  padding: clamp(22px, 2.2vw, 36px) clamp(22px, 2.8vw, 44px) clamp(20px, 2vw, 28px);
+  border-radius: 24px 24px 14px 14px;
+  overflow: hidden;
+}
+
+.uts-mission-viewport::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(5, 10, 19, 0.2), rgba(5, 10, 19, 0.66)),
+    radial-gradient(100% 80% at 50% -18%, rgba(170, 208, 248, 0.1), transparent 42%);
+  z-index: 0;
 }
 
 .uts-mission-terminal--cockpit .uts-mission-head,
 .uts-mission-terminal--cockpit .uts-mission-text,
 .uts-mission-terminal--cockpit .uts-mission-meta {
   position: relative;
-  z-index: 3;
+  z-index: 2;
 }
 
 .uts-mission-text--brief {
@@ -1968,148 +1984,72 @@
 
 .uts-teacher-cockpit-frame {
   position: relative;
-  border: 1px solid #4e6da7;
-  border-radius: 28px;
+  border: 1px solid #546d90;
+  border-radius: 22px;
   background:
-    radial-gradient(130% 130% at 50% -30%, rgba(126, 184, 255, 0.18), transparent 56%),
-    linear-gradient(180deg, rgba(17, 24, 35, 0.98), rgba(5, 10, 20, 0.99));
+    linear-gradient(180deg, rgba(5, 10, 18, 0.24), rgba(5, 10, 18, 0.6)),
+    url("/images/sourcegame-cockpit.jpg");
+  background-size: cover;
+  background-position: center center;
   box-shadow:
-    inset 0 0 0 1px rgba(143, 191, 255, 0.2),
-    inset 0 -140px 120px rgba(10, 22, 52, 0.86),
-    0 26px 44px rgba(0, 0, 0, 0.44);
-  padding: 26px 84px 98px;
+    inset 0 0 0 1px rgba(162, 199, 242, 0.18),
+    inset 0 -120px 110px rgba(6, 14, 26, 0.66),
+    0 24px 40px rgba(0, 0, 0, 0.42);
+  padding: clamp(18px, 2vw, 30px) clamp(16px, 2.8vw, 40px) clamp(88px, 11vh, 132px);
   overflow: hidden;
 }
 
 .uts-teacher-cockpit-frame::before {
   content: "";
   position: absolute;
-  left: 5%;
-  right: 5%;
-  top: 10px;
-  height: 26px;
-  border-radius: 999px;
-  border: 1px solid rgba(139, 198, 255, 0.45);
-  background: linear-gradient(180deg, rgba(93, 158, 255, 0.25), rgba(14, 49, 102, 0.2));
+  inset: 0;
   pointer-events: none;
-  z-index: 2;
+  background:
+    radial-gradient(120% 90% at 50% -16%, rgba(189, 222, 255, 0.22), transparent 38%),
+    linear-gradient(180deg, rgba(6, 13, 26, 0.14), rgba(6, 13, 26, 0.32));
+  z-index: 1;
 }
 
 .uts-teacher-cockpit-frame::after {
   content: "";
   position: absolute;
-  left: 6%;
-  right: 6%;
-  bottom: 12px;
-  height: 86px;
-  border-radius: 16px;
-  border: 1px solid rgba(140, 195, 255, 0.48);
+  left: 4%;
+  right: 4%;
+  bottom: 8px;
+  height: clamp(56px, 8.4vh, 92px);
+  border-radius: 12px;
+  border: 1px solid rgba(145, 181, 224, 0.34);
   background:
-    repeating-linear-gradient(
-      90deg,
-      rgba(96, 154, 255, 0.22) 0 16px,
-      rgba(27, 73, 146, 0.22) 16px 32px
-    ),
-    linear-gradient(180deg, rgba(61, 102, 178, 0.28), rgba(12, 29, 61, 0.36));
-  box-shadow: inset 0 0 0 1px rgba(177, 220, 255, 0.16);
+    linear-gradient(180deg, rgba(70, 96, 132, 0.28), rgba(16, 27, 44, 0.4));
+  box-shadow: inset 0 0 0 1px rgba(199, 225, 252, 0.08);
   pointer-events: none;
   z-index: 1;
 }
 
-.uts-teacher-cockpit-strut {
-  position: absolute;
-  top: 52px;
-  width: 88px;
-  height: 76%;
-  border: 1px solid rgba(133, 188, 255, 0.5);
-  background:
-    linear-gradient(180deg, rgba(88, 140, 221, 0.25), rgba(18, 35, 68, 0.36)),
-    repeating-linear-gradient(
-      180deg,
-      rgba(170, 210, 255, 0.12) 0 8px,
-      rgba(31, 54, 92, 0.12) 8px 16px
-    );
-  box-shadow:
-    inset 0 0 0 1px rgba(199, 229, 255, 0.12),
-    0 0 18px rgba(61, 112, 192, 0.26);
-  z-index: 6;
-  pointer-events: none;
-}
-
-.uts-teacher-cockpit-strut-left {
-  left: 54px;
-  transform: skewY(12deg);
-  border-radius: 14px 6px 8px 18px;
-}
-
-.uts-teacher-cockpit-strut-right {
-  right: 54px;
-  transform: skewY(-12deg);
-  border-radius: 6px 14px 18px 8px;
-}
-
-.uts-teacher-cockpit-topbar {
-  position: absolute;
-  left: 32%;
-  right: 32%;
-  top: 0;
-  height: 54px;
-  border-radius: 0 0 18px 18px;
-  border: 1px solid rgba(138, 190, 255, 0.52);
-  border-top: 0;
-  background: linear-gradient(180deg, rgba(87, 144, 235, 0.26), rgba(16, 46, 95, 0.2));
-  box-shadow: inset 0 0 0 1px rgba(177, 220, 255, 0.14);
-  pointer-events: none;
+.uts-teacher-cockpit-window-wrap {
+  position: relative;
   z-index: 3;
-}
-
-.uts-teacher-cockpit-side-window {
-  position: absolute;
-  top: 108px;
-  width: 86px;
-  height: 58%;
-  border: 1px solid rgba(129, 188, 255, 0.52);
-  background:
-    radial-gradient(120% 120% at 50% 0%, rgba(111, 176, 255, 0.18), rgba(6, 17, 33, 0.9) 64%),
-    linear-gradient(180deg, rgba(9, 23, 46, 0.96), rgba(4, 12, 24, 0.96));
-  box-shadow:
-    inset 0 0 0 1px rgba(164, 214, 255, 0.18),
-    0 0 16px rgba(70, 122, 211, 0.24);
-  pointer-events: none;
-  z-index: 1;
-}
-
-.uts-teacher-cockpit-side-window-left {
-  left: 18px;
-  clip-path: polygon(0 8%, 100% 0, 100% 100%, 0 92%);
-  border-radius: 16px 8px 8px 16px;
-}
-
-.uts-teacher-cockpit-side-window-right {
-  right: 18px;
-  clip-path: polygon(0 0, 100% 8%, 100% 92%, 0 100%);
-  border-radius: 8px 16px 16px 8px;
+  max-width: min(96vw, 1260px);
+  margin: 0 auto;
 }
 
 .uts-teacher-cockpit-window {
   position: relative;
-  border: 2px solid #7ea7de;
-  border-radius: 44px;
+  border: 2px solid rgba(160, 196, 234, 0.65);
+  border-radius: 28px 28px 16px 16px;
   overflow: hidden;
   isolation: isolate;
-  min-height: clamp(620px, 72vh, 920px);
+  min-height: clamp(600px, 70vh, 920px);
   background:
-    linear-gradient(180deg, rgba(6, 17, 33, 0.74), rgba(5, 11, 20, 0.9)),
-    radial-gradient(120% 90% at 50% 118%, rgba(96, 168, 255, 0.32) 0 18%, transparent 30%),
-    radial-gradient(140% 120% at 52% -12%, rgba(110, 176, 255, 0.2), transparent 58%),
+    linear-gradient(180deg, rgba(6, 12, 23, 0.22), rgba(6, 12, 23, 0.7)),
     url("/images/sourcegame-cockpit.jpg");
   background-size: cover;
   background-position: center center;
   box-shadow:
-    inset 0 0 0 1px rgba(157, 210, 255, 0.2),
-    inset 0 -54px 62px rgba(11, 26, 58, 0.52);
-  clip-path: polygon(8% 0, 92% 0, 100% 12%, 100% 88%, 92% 100%, 8% 100%, 0 88%, 0 12%);
-  z-index: 4;
+    inset 0 0 0 1px rgba(198, 225, 251, 0.14),
+    inset 0 -48px 62px rgba(8, 16, 30, 0.46);
+  clip-path: polygon(5% 0, 95% 0, 100% 12%, 100% 100%, 0 100%, 0 12%);
+  z-index: 3;
 }
 
 .uts-teacher-cockpit-window::before {
@@ -2118,63 +2058,71 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(120% 80% at 50% 110%, rgba(111, 180, 255, 0.4) 0 24%, transparent 30%),
-    linear-gradient(180deg, rgba(157, 214, 255, 0.1), rgba(0, 0, 0, 0.08));
+    radial-gradient(120% 80% at 50% -18%, rgba(188, 220, 255, 0.2), transparent 42%),
+    linear-gradient(180deg, rgba(4, 7, 13, 0.2), rgba(4, 7, 13, 0.56));
   z-index: 1;
 }
 
 .uts-teacher-cockpit-window::after {
   content: "";
   position: absolute;
-  left: -10%;
-  right: -10%;
-  bottom: -26%;
-  height: 42%;
+  left: 8%;
+  right: 8%;
+  bottom: 10px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(172, 205, 244, 0.32);
   background:
-    radial-gradient(60% 90% at 50% 0%, rgba(148, 210, 255, 0.82), rgba(95, 145, 222, 0.24) 52%, transparent 72%);
-  filter: blur(0.4px);
+    linear-gradient(180deg, rgba(101, 140, 191, 0.26), rgba(26, 49, 82, 0.22));
   pointer-events: none;
   z-index: 1;
 }
 
 .uts-teacher-crawl-stage {
-  min-height: clamp(620px, 72vh, 920px);
-  perspective: 720px;
+  min-height: clamp(600px, 70vh, 920px);
+  perspective: 760px;
   position: relative;
   overflow: hidden;
   z-index: 2;
 }
 
 .uts-teacher-crawl-stage .uts-crawl-perspective {
-  left: 8%;
-  right: 8%;
-  bottom: -6%;
-  transform: rotateX(21deg);
+  left: 10%;
+  right: 10%;
+  bottom: -8%;
+  transform: rotateX(20deg);
 }
 
 .uts-teacher-crawl-stage .uts-crawl-fade {
   background:
-    linear-gradient(180deg, rgba(1, 5, 12, 0.97) 0%, rgba(1, 5, 12, 0.35) 20%, rgba(1, 5, 12, 0.04) 40%, rgba(1, 5, 12, 0.25) 72%, rgba(1, 5, 12, 0.98) 100%);
+    linear-gradient(180deg, rgba(2, 6, 12, 0.94) 0%, rgba(2, 6, 12, 0.34) 20%, rgba(2, 6, 12, 0.05) 45%, rgba(2, 6, 12, 0.26) 74%, rgba(2, 6, 12, 0.96) 100%);
 }
 
 .uts-teacher-crawl-text h3 {
-  font-size: clamp(28px, 3.4vw, 52px);
-  letter-spacing: 0.09em;
+  font-size: clamp(28px, 3.1vw, 48px);
+  letter-spacing: 0.07em;
 }
 
 .uts-teacher-crawl-text p {
-  font-size: clamp(20px, 2.25vw, 34px);
-  line-height: 1.45;
+  font-size: clamp(19px, 2.1vw, 31px);
+  line-height: 1.42;
 }
 
 .uts-teacher-cockpit-meta {
-  margin-top: 12px;
+  margin-top: 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  color: #c9d9ff;
+  color: #d4e1f7;
   font-size: 13px;
+  position: relative;
+  z-index: 3;
+  background: rgba(8, 14, 24, 0.56);
+  border: 1px solid rgba(163, 194, 231, 0.24);
+  border-radius: 10px;
+  padding: 7px 10px;
+  backdrop-filter: blur(3px);
 }
 
 .uts-teacher-cockpit-actions {
@@ -2183,57 +2131,12 @@
   gap: 8px;
 }
 
-.uts-teacher-cockpit-console {
-  position: absolute;
-  bottom: 92px;
-  width: 160px;
-  height: 98px;
-  border: 1px solid rgba(138, 196, 255, 0.54);
-  background:
-    linear-gradient(180deg, rgba(21, 48, 92, 0.84), rgba(7, 20, 42, 0.96)),
-    repeating-linear-gradient(
-      90deg,
-      rgba(148, 204, 255, 0.13) 0 10px,
-      rgba(20, 39, 73, 0.13) 10px 20px
-    );
-  box-shadow:
-    inset 0 0 0 1px rgba(183, 224, 255, 0.14),
-    0 0 14px rgba(78, 132, 210, 0.22);
-  z-index: 6;
-  pointer-events: none;
-}
-
-.uts-teacher-cockpit-console-left {
-  left: 96px;
-  border-radius: 12px 10px 16px 20px;
-  transform: skewY(9deg);
-}
-
-.uts-teacher-cockpit-console-right {
-  right: 96px;
-  border-radius: 10px 12px 20px 16px;
-  transform: skewY(-9deg);
-}
-
+.uts-teacher-cockpit-strut,
+.uts-teacher-cockpit-side-window,
+.uts-teacher-cockpit-topbar,
+.uts-teacher-cockpit-console,
 .uts-teacher-cockpit-console-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 58px;
-  width: min(28%, 320px);
-  height: 62px;
-  border: 1px solid rgba(142, 197, 255, 0.5);
-  border-radius: 10px 10px 18px 18px;
-  background:
-    linear-gradient(180deg, rgba(73, 125, 206, 0.24), rgba(16, 34, 72, 0.36)),
-    repeating-linear-gradient(
-      90deg,
-      rgba(173, 220, 255, 0.12) 0 12px,
-      rgba(29, 55, 102, 0.12) 12px 24px
-    );
-  box-shadow: inset 0 0 0 1px rgba(190, 226, 255, 0.12);
-  pointer-events: none;
-  z-index: 6;
+  display: none;
 }
 
 .uts-ql-label {
@@ -2560,32 +2463,33 @@
 
   .uts-teacher-cockpit-window,
   .uts-teacher-crawl-stage {
-    min-height: clamp(500px, 64vh, 760px);
+    min-height: clamp(420px, 58vh, 680px);
   }
 
   .uts-teacher-cockpit-frame {
-    padding: 18px 20px 84px;
+    padding: 14px 10px 72px;
+    border-radius: 16px;
   }
 
-  .uts-teacher-cockpit-side-window {
-    display: none;
+  .uts-teacher-cockpit-window-wrap {
+    max-width: 100%;
   }
 
-  .uts-teacher-cockpit-strut,
-  .uts-teacher-cockpit-console,
-  .uts-teacher-cockpit-console-center {
-    display: none;
+  .uts-teacher-cockpit-window {
+    border-radius: 20px 20px 12px 12px;
   }
 
   .uts-teacher-crawl-stage .uts-crawl-perspective {
-    left: 8%;
-    right: 8%;
+    left: 7%;
+    right: 7%;
     bottom: -12%;
+    transform: rotateX(18deg);
   }
 
   .uts-teacher-cockpit-meta {
     flex-direction: column;
     align-items: flex-start;
+    font-size: 12px;
   }
 }
 

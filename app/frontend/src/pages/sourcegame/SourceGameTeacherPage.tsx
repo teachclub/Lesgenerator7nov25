@@ -959,40 +959,34 @@ export default function SourceGameTeacherPage() {
           <section className="uts-ql-card uts-teacher-intro-card">
             <div className="uts-teacher-intro-logo">USE THE SOURCE</div>
             <div className="uts-teacher-cockpit-frame">
-              <div className="uts-teacher-cockpit-strut uts-teacher-cockpit-strut-left" aria-hidden="true" />
-              <div className="uts-teacher-cockpit-strut uts-teacher-cockpit-strut-right" aria-hidden="true" />
-              <div className="uts-teacher-cockpit-side-window uts-teacher-cockpit-side-window-left" aria-hidden="true" />
-              <div className="uts-teacher-cockpit-side-window uts-teacher-cockpit-side-window-right" aria-hidden="true" />
-              <div className="uts-teacher-cockpit-topbar" aria-hidden="true" />
-              <div className="uts-teacher-cockpit-window">
-                <div
-                  ref={teacherIntroStageRef}
-                  className="uts-crawl-stage uts-teacher-crawl-stage"
-                  style={{
-                    ["--crawl-duration" as any]: `${teacherIntroDuration}s`,
-                    ["--crawl-start-px" as any]: `${teacherIntroMotion.startPx}px`,
-                    ["--crawl-end-px" as any]: `${teacherIntroMotion.endPx}px`,
-                  }}
-                >
-                  <div className="uts-crawl-fade" />
-                  <div className="uts-crawl-label">AUTOCUE · MISSION BRIEFING</div>
-                  <div className="uts-crawl-perspective">
-                    <div
-                      ref={teacherIntroTextRef}
-                      key={`${teacherIntroSeed}:${teacherIntroDuration}:${teacherIntroMotion.startPx}:${teacherIntroMotion.endPx}`}
-                      className="uts-crawl-text uts-crawl-text-preview-loop uts-teacher-crawl-text"
-                    >
-                      <h3>{TEACHER_INTRO_CRAWL_TITLE}</h3>
-                      {TEACHER_INTRO_CRAWL_BLOCKS.map((block, i) => (
-                        <p key={`teacher-intro-${i}-${block.slice(0, 18)}`}>{block}</p>
-                      ))}
+              <div className="uts-teacher-cockpit-window-wrap">
+                <div className="uts-teacher-cockpit-window">
+                  <div
+                    ref={teacherIntroStageRef}
+                    className="uts-crawl-stage uts-teacher-crawl-stage"
+                    style={{
+                      ["--crawl-duration" as any]: `${teacherIntroDuration}s`,
+                      ["--crawl-start-px" as any]: `${teacherIntroMotion.startPx}px`,
+                      ["--crawl-end-px" as any]: `${teacherIntroMotion.endPx}px`,
+                    }}
+                  >
+                    <div className="uts-crawl-fade" />
+                    <div className="uts-crawl-label">AUTOCUE · MISSION BRIEFING</div>
+                    <div className="uts-crawl-perspective">
+                      <div
+                        ref={teacherIntroTextRef}
+                        key={`${teacherIntroSeed}:${teacherIntroDuration}:${teacherIntroMotion.startPx}:${teacherIntroMotion.endPx}`}
+                        className="uts-crawl-text uts-crawl-text-preview-loop uts-teacher-crawl-text"
+                      >
+                        <h3>{TEACHER_INTRO_CRAWL_TITLE}</h3>
+                        {TEACHER_INTRO_CRAWL_BLOCKS.map((block, i) => (
+                          <p key={`teacher-intro-${i}-${block.slice(0, 18)}`}>{block}</p>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-              <div className="uts-teacher-cockpit-console uts-teacher-cockpit-console-left" aria-hidden="true" />
-              <div className="uts-teacher-cockpit-console uts-teacher-cockpit-console-right" aria-hidden="true" />
-              <div className="uts-teacher-cockpit-console-center" aria-hidden="true" />
               <div className="uts-teacher-cockpit-meta">
                 Cockpit raam: groot · 3D autocue · loop {teacherIntroDuration}s
                 <div className="uts-teacher-cockpit-actions">
