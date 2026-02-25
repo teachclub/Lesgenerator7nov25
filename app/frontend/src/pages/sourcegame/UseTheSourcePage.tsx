@@ -8,6 +8,7 @@ type Team = {
   name: string;
   score: number;
   join_code: string;
+  jokers_remaining?: number;
   join_path?: string;
   join_url?: string | null;
   players_count?: number;
@@ -45,6 +46,9 @@ type Round2QuizItem = {
   source_question_id?: number | null;
   prompt: string;
   options: string[];
+  correct_index?: number | null;
+  half_index?: number | null;
+  rationale?: string;
   origin: string;
   created_at: string;
 };
@@ -58,7 +62,7 @@ type Round2Answer = {
   player_key: string;
   display_name: string;
   selected_index: number;
-  verdict: "goed" | "half_goed" | "fout";
+  verdict: "goed" | "fout";
   points: number;
   rationale?: string;
   created_at: string;
@@ -68,6 +72,52 @@ type Round2State = {
   questions: Round2Question[];
   quiz_items: Round2QuizItem[];
   answers: Round2Answer[];
+};
+
+type ChipRainChip = {
+  chip_key: string;
+  term: string;
+  points_abs?: number;
+  spawn_ms: number;
+  fall_ms: number;
+  left_pct: number;
+  drift_px: number;
+  scale: number;
+  monster_variant?: number;
+  captured?: boolean;
+  captured_verdict?: "good" | "bad" | "";
+  captured_points?: number;
+};
+
+type ChipRainHit = {
+  id: number;
+  chip_key: string;
+  term: string;
+  verdict: string;
+  points: number;
+  team_id: number;
+  team_name: string;
+  player_id?: number;
+  player_key?: string;
+  display_name?: string;
+  created_at: string;
+};
+
+type ChipRainState = {
+  phase_active?: boolean;
+  total_chips: number;
+  chips: ChipRainChip[];
+  hits: ChipRainHit[];
+};
+
+type LaserShot = {
+  id: number;
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  angle: number;
+  length: number;
 };
 
 type OverallTeamScore = {
@@ -89,6 +139,14 @@ type OverallHighscores = {
   finished_sessions: number;
   teams_top: OverallTeamScore[];
   mvp_top: OverallMvpScore[];
+};
+
+type BonusReviewSummary = {
+  reviewed: number;
+  awarded: number;
+  rejected: number;
+  bonus_points_total: number;
+  reviewed_at?: string;
 };
 
 type SessionResponse = {
@@ -122,18 +180,27 @@ type SessionResponse = {
       reading_wpm?: number;
       question_reading_seconds?: number;
       question_maker_seconds?: number;
+      enable_chip_rain?: boolean;
+      chip_rain_seconds?: number;
       quiz_seconds?: number;
       round2_question_count?: number;
+      round2_question_seconds?: number;
+      round2_active_index?: number;
+      round2_reveal?: boolean;
+      round2_active_started_at?: string | null;
+      round2_question_seconds_left?: number;
+      bonus_review_summary?: BonusReviewSummary | null;
     };
     teams: Team[];
     clock?: {
-      phase: "waiting" | "reading" | "terms" | "question_reading" | "question_maker" | "quiz" | "time_up" | "finished";
+      phase: "waiting" | "reading" | "terms" | "chip_rain" | "question_reading" | "question_maker" | "quiz" | "time_up" | "finished";
       elapsed_seconds: number;
       seconds_left_total: number;
       seconds_left_phase: number;
       total_seconds: number;
       reading_seconds: number;
       term_seconds: number;
+      chip_rain_seconds?: number;
       question_reading_seconds?: number;
       question_maker_seconds?: number;
       quiz_seconds?: number;
@@ -144,6 +211,7 @@ type SessionResponse = {
   leaderboard?: Array<Team & { players?: Array<{ id: number; player_key?: string; display_name: string; score: number }> }>;
   score_timeline?: TimelineItem[];
   round2?: Round2State;
+  chip_rain?: ChipRainState;
 };
 
 type SearchSource = {
@@ -162,6 +230,39 @@ type SearchSource = {
 };
 
 const TVS = Array.from({ length: 10 }, (_, i) => `TV${i + 1}`);
+const TV_PERIOD_BY_CODE: Record<string, string> = {
+  TV1: "tot 3000 v.Chr.",
+  TV2: "3000 v.Chr. - 500 n.Chr.",
+  TV3: "500 - 1000",
+  TV4: "1000 - 1500",
+  TV5: "1500 - 1600",
+  TV6: "1600 - 1700",
+  TV7: "1700 - 1800",
+  TV8: "1800 - 1900",
+  TV9: "1900 - 1950 (20e eeuw, eerste helft)",
+  TV10: "1950 - heden (20e/21e eeuw)",
+};
+
+function formatTvHuman(tvRaw: string): string {
+  const tvCode = String(tvRaw || "").trim().toUpperCase();
+  if (!tvCode) return "Tijdvak onbekend";
+  const tvNum = Number(tvCode.replace(/[^\d]/g, ""));
+  const tvLabel = tvKaOptions.find((opt) => opt.tv === tvNum)?.tvLabel || tvCode;
+  const period = TV_PERIOD_BY_CODE[tvCode];
+  return period ? `${tvLabel} - ${period}` : tvLabel;
+}
+
+function formatKaHuman(kaRaw: string, tvRaw: string): string {
+  const kaCode = String(kaRaw || "").trim().toUpperCase();
+  if (!kaCode) return "Kenmerkend aspect onbekend";
+  const tvNum = Number(String(tvRaw || "").replace(/[^\d]/g, ""));
+  const kaNum = Number(kaCode.replace(/[^\d]/g, ""));
+  const hit = tvKaOptions.find((opt) => opt.tv === tvNum && Number(opt.ka) === kaNum)
+    || tvKaOptions.find((opt) => Number(opt.ka) === kaNum);
+  if (!hit) return kaCode;
+  const cleanLabel = String(hit.kaLabel || "").replace(/^KA\d+\s*-\s*/i, "").trim();
+  return cleanLabel ? `Kenmerkend aspect: ${cleanLabel}` : kaCode;
+}
 
 function toInt(value: string, fallback: number) {
   const n = Number(value);
@@ -172,18 +273,21 @@ function fallbackClock(session: SessionResponse["session"] | undefined) {
   if (!session) return null;
   const reading = Number(session.timing?.reading_seconds || 0);
   const term = Number(session.timing?.term_seconds || session.timing?.duration_seconds || 60);
+  const chipRainEnabled = Boolean((session.settings as any)?.enable_chip_rain ?? true);
+  const chipRain = chipRainEnabled ? Number((session.settings as any)?.chip_rain_seconds || 30) : 0;
   const questionReading = Number(session.settings?.question_reading_seconds || reading || 0);
   const questionMaker = Number(session.settings?.question_maker_seconds || 60);
   const quiz = Number(session.settings?.quiz_seconds || 90);
-  const total = reading + term + questionReading + questionMaker + quiz;
+  const total = reading + term + chipRain + questionReading + questionMaker + quiz;
   return {
     phase: "waiting" as const,
     elapsed_seconds: 0,
     seconds_left_total: total,
-    seconds_left_phase: reading || term || questionReading || questionMaker || quiz,
+    seconds_left_phase: reading || term || chipRain || questionReading || questionMaker || quiz,
     total_seconds: total,
     reading_seconds: reading,
     term_seconds: term,
+    chip_rain_seconds: chipRain,
     question_reading_seconds: questionReading,
     question_maker_seconds: questionMaker,
     quiz_seconds: quiz,
@@ -245,19 +349,112 @@ function estimateReadingSeconds(text: string, wpm: number) {
 const FIXED_READING_WPM = 80;
 const BUNDLED_CHASE_TRACK = "/audio/star-wars-style-chase-music-181118.mp3";
 const BUNDLED_BATTLE_TRACK = "/audio/star-wars-style-battle-music-148641.mp3";
-const PRE_AUTOCUE_COUNTDOWN_SECONDS = 0;
+const PRE_AUTOCUE_COUNTDOWN_SECONDS = 30;
+const READING_GRACE_AFTER_CRAWL_SECONDS = 30;
 const MISSION_TYPING_CHARS_PER_SECOND = 28;
+const PRE_PHASE_BRIEFING_TYPING_CHARS_PER_SECOND = 30;
+const PRE_QUESTION_COUNTDOWN_SECONDS = 30;
+const TERMS_INTERMISSION_SECONDS = 30;
 const MISSION_BRIEFING_TEXT = [
   "Jullie Missie:",
   "",
-  "Lees straks de tekst die verschijnt rustig door en onthoudt goed waar de tekst over gaat.",
-  "Wat zijn belangrijke personen. Bij welke historische begrippen past deze tekst beste?",
-  "Je mag straks dit allemaal invoeren.",
-  "De best passende begrippen leveren meer punten op.",
-  "Begrippen die al zijn geweest leveren strafpunten op.",
+  "Lees de bron straks als een detective: rustig, scherp, niet haasten.",
+  "Spot belangrijke personen, gebeurtenissen en historische begrippen.",
+  "Onthoud wat je leest, want de bron verdwijnt daarna tijdelijk van je scherm.",
+  "In de termfase scoor je punten met begrippen die echt bij de bron passen.",
+  "Pro-tip: ook slimme begrippen die niet letterlijk in de bron staan kunnen punten opleveren.",
+  "Dubbel invoeren = strafpunten. Blind gokken = ook niet handig ;)",
   "",
   "May the source be with you!",
 ].join("\n");
+const QUESTION_MAKER_BRIEFING_TEXT = [
+  "Mission Briefing // Vraagmaker",
+  "",
+  "Zo meteen start de vraagmaker.",
+  "Je ziet de bron dan als normale tekst op je scherm.",
+  "Bedenk 1 sterke vraag die je klasgenoten echt laat nadenken.",
+  "Waarom/waardoor/hoe-kon + historische context geeft de meeste punten.",
+  "",
+  "Check je missie. Vraagmaker start zo.",
+].join("\n");
+const CHIP_MONSTER_ICONS = ["👾", "🛸", "👽", "🤖", "🛰️", "🪐"];
+
+function buildPhaseBriefingState({
+  active,
+  nowMs,
+  phaseStartMs,
+  text,
+  typingCharsPerSecond,
+  countdownSeconds,
+  startDelaySeconds = 0,
+}: {
+  active: boolean;
+  nowMs: number;
+  phaseStartMs: number;
+  text: string;
+  typingCharsPerSecond: number;
+  countdownSeconds: number;
+  startDelaySeconds?: number;
+}) {
+  if (!active) {
+    return {
+      active: false,
+      typingDone: true,
+      countdownLeft: 0,
+      typedText: text,
+      showCursor: false,
+      delayLeft: 0,
+    };
+  }
+  if (!phaseStartMs) {
+    return {
+      active: true,
+      typingDone: false,
+      countdownLeft: Math.max(0, countdownSeconds),
+      typedText: "",
+      showCursor: true,
+      delayLeft: Math.max(0, startDelaySeconds),
+    };
+  }
+  const elapsedSeconds = Math.max(0, (nowMs - phaseStartMs) / 1000);
+  const delaySeconds = Math.max(0, Number(startDelaySeconds || 0));
+  const delayLeft = Math.max(0, Math.ceil(delaySeconds - elapsedSeconds));
+  const typingSeconds = Math.max(2, Math.ceil(text.length / Math.max(1, typingCharsPerSecond)));
+  const totalSeconds = delaySeconds + typingSeconds + Math.max(0, countdownSeconds);
+  const stillActive = elapsedSeconds < totalSeconds;
+  if (!stillActive) {
+    return {
+      active: false,
+      typingDone: true,
+      countdownLeft: 0,
+      typedText: text,
+      showCursor: false,
+      delayLeft: 0,
+    };
+  }
+  if (delayLeft > 0) {
+    return {
+      active: true,
+      typingDone: false,
+      countdownLeft: Math.max(0, countdownSeconds),
+      typedText: "",
+      showCursor: false,
+      delayLeft,
+    };
+  }
+  const elapsedBriefing = Math.max(0, elapsedSeconds - delaySeconds);
+  const typingDone = elapsedBriefing >= typingSeconds;
+  const typedChars = Math.min(text.length, Math.max(0, Math.floor(elapsedBriefing * typingCharsPerSecond)));
+  const countdownLeft = typingDone ? Math.max(0, Math.ceil(totalSeconds - elapsedSeconds)) : Math.max(0, countdownSeconds);
+  return {
+    active: true,
+    typingDone,
+    countdownLeft,
+    typedText: text.slice(0, typedChars),
+    showCursor: !typingDone,
+    delayLeft: 0,
+  };
+}
 
 function normalizeRequestedAudioUrl(raw: string) {
   const value = String(raw || "").trim();
@@ -312,6 +509,7 @@ export default function UseTheSourcePage() {
   const [leaderboard, setLeaderboard] = useState<SessionResponse["leaderboard"]>([]);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [round2, setRound2] = useState<Round2State>({ questions: [], quiz_items: [], answers: [] });
+  const [chipRain, setChipRain] = useState<ChipRainState>({ total_chips: 0, chips: [], hits: [] });
   const [overallHighscores, setOverallHighscores] = useState<OverallHighscores | null>(null);
 
   const [sourceRef, setSourceRef] = useState(search.get("source_ref") || "");
@@ -330,6 +528,7 @@ export default function UseTheSourcePage() {
   const [durationSeconds, setDurationSeconds] = useState(search.get("duration") || "90");
   const [termSeconds, setTermSeconds] = useState(search.get("terms") || "60");
   const [round2QuestionCount, setRound2QuestionCount] = useState(search.get("round2_count") || "5");
+  const [round2QuestionSeconds, setRound2QuestionSeconds] = useState(search.get("round2_qsec") || "20");
   const [teamsRaw, setTeamsRaw] = useState("Rebels, Empire");
 
   const [sessionId, setSessionId] = useState<string>(id || "");
@@ -340,7 +539,19 @@ export default function UseTheSourcePage() {
   const [termInput, setTermInput] = useState("");
   const [questionInput, setQuestionInput] = useState("");
   const [round2Msg, setRound2Msg] = useState("");
+  const [chipMsg, setChipMsg] = useState("");
+  const [chipFeedbackTone, setChipFeedbackTone] = useState<"" | "good" | "bad">("");
+  const [chipFeedback, setChipFeedback] = useState<{
+    verdict: string;
+    term: string;
+    points: number;
+  } | null>(null);
+  const [chipBusyKey, setChipBusyKey] = useState("");
+  const [laserShots, setLaserShots] = useState<LaserShot[]>([]);
+  const [shipFiring, setShipFiring] = useState(false);
   const [copyMsg, setCopyMsg] = useState("");
+  const [finishBonusSummary, setFinishBonusSummary] = useState<BonusReviewSummary | null>(null);
+  const [useJokerNext, setUseJokerNext] = useState(false);
   const [musicOn, setMusicOn] = useState(true);
   const [musicVolumePct, setMusicVolumePct] = useState<number>(() => {
     if (typeof window === "undefined") return 65;
@@ -349,17 +560,21 @@ export default function UseTheSourcePage() {
     return Math.max(0, Math.min(100, Math.trunc(raw)));
   });
   const [resolvedMusicUrl, setResolvedMusicUrl] = useState("");
-  const [preTermsCountdown, setPreTermsCountdown] = useState(0);
   const [sourceImageOrientation, setSourceImageOrientation] = useState<"portrait" | "landscape" | "unknown">("unknown");
+  const [phaseNowMs, setPhaseNowMs] = useState<number>(() => Date.now());
+  const [questionReadingPhaseStartMs, setQuestionReadingPhaseStartMs] = useState<number>(0);
 
   const audioRef = useRef<AudioContext | null>(null);
   const trackRef = useRef<HTMLAudioElement | null>(null);
   const crawlStageRef = useRef<HTMLDivElement | null>(null);
   const crawlTextRef = useRef<HTMLDivElement | null>(null);
   const crawlTailRef = useRef<HTMLSpanElement | null>(null);
+  const chipRainStageRef = useRef<HTMLDivElement | null>(null);
+  const chipShotSeqRef = useRef<number>(1);
   const readingDoneRef = useRef<string>("");
+  const readingDoneTimerRef = useRef<number | null>(null);
   const autoQuizRef = useRef<string>("");
-  const preTermsPhaseRef = useRef<string>("");
+  const phaseEntryRef = useRef<string>("");
   const prevPhaseRef = useRef<string>("");
   const beepSecondRef = useRef<number>(-1);
   const musicStepRef = useRef<number>(0);
@@ -368,18 +583,26 @@ export default function UseTheSourcePage() {
 
   const clock = session?.clock || fallbackClock(session);
   const phase = clock?.phase || "waiting";
+  const phaseKey = String(phase || "").toLowerCase();
+  const phaseLooksWaiting =
+    phaseKey === "waiting" ||
+    phaseKey.includes("waiting") ||
+    phaseKey.includes("lobby") ||
+    phaseKey.includes("pre_start") ||
+    phaseKey.includes("prepare");
   const secondsLeft = Number(clock?.seconds_left_phase ?? 0);
   const sessionStatus = String(session?.status || "").toLowerCase();
   const sessionStarted = sessionStatus === "live" || sessionStatus === "finished";
-  const inQuestionReading = phase === "question_reading";
-  const inQuestionMaker = phase === "question_maker";
-  const inQuiz = phase === "quiz";
-  // Bron weg tijdens termfase en vraagmaakfase; terug tijdens leesrondes en na afloop.
+  const inChipRain = phaseKey === "chip_rain";
+  const inQuestionReading = phaseKey === "question_reading";
+  const inQuestionMaker = phaseKey === "question_maker";
+  const inQuiz = phaseKey === "quiz";
+  // Bron weg tijdens begrippenfases; zichtbaar tijdens lees- en vraagmaakfase.
   const sourceVisible =
     sessionStarted &&
     (phase === "waiting" ||
       phase === "reading" ||
-      phase === "question_reading" ||
+      phase === "question_maker" ||
       phase === "time_up" ||
       phase === "finished");
   const sourceImageUrl = String((session?.source as any)?.image_url || (session?.source as any)?.imageUrl || "").trim();
@@ -420,33 +643,104 @@ export default function UseTheSourcePage() {
   const crawlDuration = useMemo(() => {
     const fromWpm = Math.ceil((crawlWordCount / Math.max(1, readingWpmSetting)) * 60);
     const fromClock = Number(clock?.reading_seconds || 0);
-    // Clock-timing is leidend; WPM alleen fallback als clock-data ontbreekt.
-    return Math.max(1, fromClock || fromWpm || 1);
+    const likelyIncludesGrace = fromClock > 0 && fromWpm > 0 && fromClock - fromWpm >= 20;
+    const fromClockCrawl = likelyIncludesGrace
+      ? Math.max(1, fromClock - READING_GRACE_AFTER_CRAWL_SECONDS)
+      : fromClock;
+    return Math.max(1, fromClockCrawl || fromWpm || 1);
   }, [crawlWordCount, readingWpmSetting, clock?.reading_seconds]);
-  const canSubmit = joined && phase === "terms" && preTermsCountdown === 0;
+  const readingSecondsTotal = Number(clock?.reading_seconds || 0);
+  const readingProgress = phase === "reading" ? Math.max(0, readingSecondsTotal - secondsLeft) : 0;
+  const missionTypingSeconds = 0;
+  const preAutocueTotalSeconds = READING_GRACE_AFTER_CRAWL_SECONDS;
+  const questionBriefingTypingSeconds = Math.max(
+    4,
+    Math.ceil(QUESTION_MAKER_BRIEFING_TEXT.length / Math.max(1, PRE_PHASE_BRIEFING_TYPING_CHARS_PER_SECOND))
+  );
+  const questionBriefingTotalSeconds = questionBriefingTypingSeconds + PRE_QUESTION_COUNTDOWN_SECONDS;
+  const missionBriefingActive = false;
+
+  const chipRainPhaseTotal = Math.max(0, Number(clock?.chip_rain_seconds || 0));
+  const questionReadingPhaseTotal = Math.max(0, Number(clock?.question_reading_seconds || 0));
+  const chipRainElapsed = inChipRain ? Math.max(0, chipRainPhaseTotal - Math.max(0, secondsLeft)) : 0;
+  const questionReadingElapsed = inQuestionReading
+    ? Math.max(0, questionReadingPhaseTotal - Math.max(0, secondsLeft))
+    : 0;
+  const termsIntermissionApplies =
+    (inChipRain && chipRainPhaseTotal > 0) ||
+    (inQuestionReading && chipRainPhaseTotal <= 0);
+  const termsIntermissionElapsed = inChipRain ? chipRainElapsed : questionReadingElapsed;
+  const termsIntermissionActive =
+    sessionStarted &&
+    termsIntermissionApplies &&
+    termsIntermissionElapsed < TERMS_INTERMISSION_SECONDS;
+  const termsIntermissionLeft = termsIntermissionActive
+    ? Math.max(0, Math.ceil(TERMS_INTERMISSION_SECONDS - termsIntermissionElapsed))
+    : 0;
+
+  const questionPrepBriefing = buildPhaseBriefingState({
+    active: sessionStarted && phase === "question_reading",
+    nowMs: phaseNowMs,
+    phaseStartMs: questionReadingPhaseStartMs,
+    text: QUESTION_MAKER_BRIEFING_TEXT,
+    typingCharsPerSecond: PRE_PHASE_BRIEFING_TYPING_CHARS_PER_SECOND,
+    countdownSeconds: PRE_QUESTION_COUNTDOWN_SECONDS,
+    startDelaySeconds:
+      sessionStarted && phase === "question_reading" && chipRainPhaseTotal <= 0
+        ? TERMS_INTERMISSION_SECONDS
+        : 0,
+  });
+  const canSubmit = joined && phase === "terms";
   const canSubmitQuestion = joined && inQuestionMaker;
   const quizQuestionCount = Math.max(2, Math.min(12, Number(session?.settings?.round2_question_count || 4)));
-  const showPreTermsBriefing = sessionStarted && phase === "terms" && preTermsCountdown > 0;
-  const countdownText = preTermsCountdown > 0 ? String(preTermsCountdown) : "";
-  const inAutocuePhase = phase === "reading" || phase === "question_reading";
+  const questionPrepBriefingActive = questionPrepBriefing.active;
+  const waitingCountdown = Math.max(0, Math.trunc(secondsLeft));
+  const showWaitingCountdown =
+    phaseLooksWaiting &&
+    waitingCountdown > 0 &&
+    waitingCountdown <= PRE_AUTOCUE_COUNTDOWN_SECONDS;
   const showNumericClock =
-    phase === "terms" || phase === "question_maker" || phase === "quiz";
+    showWaitingCountdown ||
+    phaseKey === "terms" ||
+    (phaseKey === "chip_rain" && !termsIntermissionActive) ||
+    (phaseKey === "question_reading" && !questionPrepBriefingActive && !termsIntermissionActive) ||
+    phaseKey === "question_maker" ||
+    phaseKey === "quiz";
   const clockDisplay =
-    phase === "waiting"
-      ? "READY"
-      : inAutocuePhase
-      ? "AUTOCUE"
-      : phase === "finished"
+    !sessionStarted
+      ? showWaitingCountdown
+        ? `${waitingCountdown}s`
+        : "READY"
+      : phaseLooksWaiting
+      ? showWaitingCountdown
+        ? `${waitingCountdown}s`
+        : "READY"
+      : termsIntermissionActive
+      ? "TOP 5"
+      : phaseKey === "reading"
+      ? missionBriefingActive
+        ? "BRIEFING"
+        : "AUTOCUE"
+      : phaseKey === "question_reading"
+      ? questionPrepBriefingActive
+        ? "BRIEFING"
+        : `${secondsLeft}s`
+      : phaseKey === "chip_rain"
+      ? `${secondsLeft}s`
+      : phaseKey === "finished"
       ? "FINISHED"
-      : phase === "time_up"
+      : phaseKey === "time_up"
       ? "TIME UP"
-      : `${secondsLeft}s`;
+      : showNumericClock
+      ? `${secondsLeft}s`
+      : "READY";
   const gameCode = session?.game_code || (sessionId ? `US${sessionId}` : "");
   const studentJoinPath = "/join";
   const studentJoinUrl = typeof window !== "undefined" ? `${window.location.origin}${studentJoinPath}` : studentJoinPath;
   const musicActive =
     musicOn &&
     (phase === "terms" ||
+      phase === "chip_rain" ||
       phase === "question_maker" ||
       phase === "quiz" ||
       phase === "time_up" ||
@@ -455,18 +749,6 @@ export default function UseTheSourcePage() {
   const warmupMusicUrl = String(session?.settings?.warmup_music_url || "https://pixabay.com/nl/music/hoofdtitel-star-wars-style-chase-music-181118/").trim();
   const liveMusicUrl = String(session?.settings?.music_live_url || session?.settings?.music_url || BUNDLED_BATTLE_TRACK).trim();
   const musicVolume = Math.max(0, Math.min(1, musicVolumePct / 100));
-  const readingSecondsTotal = Number(clock?.reading_seconds || 0);
-  const readingProgress = phase === "reading" ? Math.max(0, readingSecondsTotal - secondsLeft) : 0;
-  const missionTypingSeconds = Math.max(
-    4,
-    Math.ceil(MISSION_BRIEFING_TEXT.length / Math.max(1, MISSION_TYPING_CHARS_PER_SECOND))
-  );
-  const preAutocueTotalSeconds = missionTypingSeconds + PRE_AUTOCUE_COUNTDOWN_SECONDS;
-  const missionBriefingActive =
-    isPlayerRoute &&
-    sessionStarted &&
-    phase === "reading" &&
-    readingProgress < preAutocueTotalSeconds;
   const missionTypedChars = missionBriefingActive
     ? Math.min(
         MISSION_BRIEFING_TEXT.length,
@@ -475,7 +757,11 @@ export default function UseTheSourcePage() {
     : MISSION_BRIEFING_TEXT.length;
   const missionTypedText = MISSION_BRIEFING_TEXT.slice(0, missionTypedChars);
   const missionTypingDone = readingProgress >= missionTypingSeconds;
-  const showCrawl = sourceVisible && (phase === "reading" || phase === "question_reading") && !missionBriefingActive;
+  const missionCountdownLeft =
+    missionBriefingActive && missionTypingDone
+      ? Math.max(0, Math.ceil(preAutocueTotalSeconds - readingProgress))
+      : 0;
+  const showCrawl = sourceVisible && phase === "reading" && !missionBriefingActive;
   const showExternalImagePanel = isPlayerRoute && showCrawl && !!sourceImageUrl;
   const playerGridClass = !isPlayerRoute
     ? ""
@@ -490,7 +776,12 @@ export default function UseTheSourcePage() {
       ? "waiting"
       : inWarmup
       ? "warmup"
-      : phase === "terms" || phase === "question_maker" || phase === "quiz" || phase === "time_up" || phase === "finished"
+      : phase === "terms" ||
+        phase === "chip_rain" ||
+        phase === "question_maker" ||
+        phase === "quiz" ||
+        phase === "time_up" ||
+        phase === "finished"
       ? "live"
       : "off";
   const requestedMusicUrlRaw = musicPhase === "waiting" ? waitingMusicUrl : musicPhase === "warmup" ? warmupMusicUrl : musicPhase === "live" ? liveMusicUrl : "";
@@ -536,6 +827,18 @@ export default function UseTheSourcePage() {
     return rows;
   }, [leaderboard]);
 
+  const myTeam = useMemo(() => {
+    if (!playerKey) return null;
+    for (const team of leaderboard || []) {
+      if ((team.players || []).some((p) => String(p.player_key || "") === String(playerKey))) {
+        return team;
+      }
+    }
+    return null;
+  }, [leaderboard, playerKey]);
+
+  const jokersLeft = Math.max(0, Number((myTeam as any)?.jokers_remaining || 0));
+
   const activityByPlayer = useMemo(() => {
     const s = new Set<number>();
     for (const t of timeline || []) {
@@ -550,14 +853,36 @@ export default function UseTheSourcePage() {
       const pid = Number(a.player_id || 0);
       if (Number.isFinite(pid) && pid > 0) s.add(pid);
     }
+    for (const h of chipRain.hits || []) {
+      const pid = Number(h.player_id || 0);
+      if (Number.isFinite(pid) && pid > 0) s.add(pid);
+    }
     return s;
-  }, [timeline, round2.questions, round2.answers]);
+  }, [timeline, round2.questions, round2.answers, chipRain.hits]);
 
   const topPlayers = useMemo(() => {
     const rows = [...allPlayers];
     rows.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
     return rows.slice(0, 5);
   }, [allPlayers]);
+  const persistedBonusSummary = useMemo(() => {
+    const raw = (session?.settings as any)?.bonus_review_summary;
+    if (!raw || typeof raw !== "object") return null;
+    return {
+      reviewed: Number((raw as any).reviewed || 0),
+      awarded: Number((raw as any).awarded || 0),
+      rejected: Number((raw as any).rejected || 0),
+      bonus_points_total: Number((raw as any).bonus_points_total || 0),
+      reviewed_at: String((raw as any).reviewed_at || ""),
+    } as BonusReviewSummary;
+  }, [session?.settings]);
+  const bonusSummary = finishBonusSummary || persistedBonusSummary;
+
+  const topTeams5 = useMemo(() => {
+    const rows = [...(leaderboard || [])];
+    rows.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+    return rows.slice(0, 5);
+  }, [leaderboard]);
 
   const npcPlayers = useMemo(() => {
     return [...allPlayers]
@@ -576,6 +901,18 @@ export default function UseTheSourcePage() {
       .sort((a, b) => Date.parse(String(b.submitted_at || "")) - Date.parse(String(a.submitted_at || "")))
       .slice(0, 12);
   }, [timeline, secondsLeft]);
+
+  const recentChipHits = useMemo(() => {
+    const now = Date.now();
+    return [...(chipRain.hits || [])]
+      .filter((h) => {
+        const ts = Date.parse(String(h.created_at || ""));
+        if (!Number.isFinite(ts)) return false;
+        return now - ts <= 5000;
+      })
+      .sort((a, b) => Date.parse(String(b.created_at || "")) - Date.parse(String(a.created_at || "")))
+      .slice(0, 10);
+  }, [chipRain.hits, secondsLeft]);
 
   const selectedSource = useMemo(() => {
     return searchResults.find((s) => String(s.id) === String(selectedSourceId)) || null;
@@ -596,7 +933,10 @@ export default function UseTheSourcePage() {
     if (!Number.isFinite(tvNum) || tvNum < 1) return [] as Array<{ value: string; label: string }>;
     return tvKaOptions
       .filter((opt) => opt.tv === tvNum)
-      .map((opt) => ({ value: `KA${opt.ka}`, label: opt.kaLabel }));
+      .map((opt) => ({
+        value: `KA${opt.ka}`,
+        label: String(opt.kaLabel || "").replace(/^KA\d+\s*-\s*/i, "") || String(opt.kaLabel || ""),
+      }));
   }, [sourceTv]);
 
   useEffect(() => {
@@ -605,6 +945,9 @@ export default function UseTheSourcePage() {
       setSourceKa(kaOptionsForSourceTv[0].value);
     }
   }, [kaOptionsForSourceTv, sourceKa]);
+
+  const sourceTvHumanLabel = useMemo(() => formatTvHuman(sourceTv), [sourceTv]);
+  const sourceKaHumanLabel = useMemo(() => formatKaHuman(sourceKa, sourceTv), [sourceKa, sourceTv]);
 
   const ownQuestion = useMemo(
     () => (round2.questions || []).find((q) => q.player_key === playerKey) || null,
@@ -619,15 +962,84 @@ export default function UseTheSourcePage() {
     return m;
   }, [round2.answers, playerKey]);
 
-  const teamsAnsweredRound2 = useMemo(() => {
-    const ids = new Set((round2.answers || []).map((a) => Number(a.team_id)));
+  const round2ActiveIndex = Math.max(0, Number((session?.settings as any)?.round2_active_index || 0));
+  const round2Reveal = Boolean((session?.settings as any)?.round2_reveal);
+  const sessionRound2QuestionSeconds = Math.max(
+    8,
+    Math.min(240, Number((session?.settings as any)?.round2_question_seconds || 20))
+  );
+  const round2ActiveStartedAt = String((session?.settings as any)?.round2_active_started_at || "").trim();
+  const activeQuizItem = (round2.quiz_items || [])[round2ActiveIndex] || null;
+  const ownActiveAnswer = activeQuizItem ? ownAnswersByItem.get(Number(activeQuizItem.id)) : null;
+  const activeQuizTeamAnswers = useMemo(() => {
+    if (!activeQuizItem) return 0;
+    const ids = new Set<number>();
+    for (const a of round2.answers || []) {
+      if (Number(a.quiz_item_id) === Number(activeQuizItem.id)) ids.add(Number(a.team_id));
+    }
     return ids.size;
-  }, [round2.answers]);
+  }, [round2.answers, activeQuizItem]);
+  const quizQuestionSecondsLeft = useMemo(() => {
+    const fromServer = Number((session?.settings as any)?.round2_question_seconds_left || 0);
+    if (fromServer > 0) return fromServer;
+    if (!round2ActiveStartedAt) return sessionRound2QuestionSeconds;
+    const ms = Date.parse(round2ActiveStartedAt);
+    if (!Number.isFinite(ms)) return sessionRound2QuestionSeconds;
+    const elapsed = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+    return Math.max(0, sessionRound2QuestionSeconds - elapsed);
+  }, [session?.settings, round2ActiveStartedAt, sessionRound2QuestionSeconds, secondsLeft]);
+  const quizItemCount = (round2.quiz_items || []).length;
+  const isLastQuizItem = quizItemCount > 0 && round2ActiveIndex >= quizItemCount - 1;
 
   const finishGate = useMemo(() => {
-    const nTeams = Math.max(2, Number((leaderboard || []).length || 0));
-    return (round2.quiz_items || []).length > 0 && teamsAnsweredRound2 >= Math.min(2, nTeams);
-  }, [round2.quiz_items, teamsAnsweredRound2, leaderboard]);
+    const items = round2.quiz_items || [];
+    const nTeams = Math.min(2, Math.max(2, Number((leaderboard || []).length || 2)));
+    if (items.length < 1) return false;
+    const itemToTeams = new Map<number, Set<number>>();
+    for (const a of round2.answers || []) {
+      const qid = Number(a.quiz_item_id || 0);
+      const tid = Number(a.team_id || 0);
+      if (!qid || !tid) continue;
+      if (!itemToTeams.has(qid)) itemToTeams.set(qid, new Set());
+      itemToTeams.get(qid)!.add(tid);
+    }
+    return items.every((it) => (itemToTeams.get(Number(it.id))?.size || 0) >= nTeams);
+  }, [round2.quiz_items, round2.answers, leaderboard]);
+
+  const betweenstandTitle = useMemo(() => {
+    if (!sessionStarted) return "";
+    if (phase === "terms") return "Tussenstand na ronde 1 (begrippen)";
+    if (phase === "chip_rain") return "Tussenstand bonusronde (chip-rain)";
+    if (phase === "question_reading" || phase === "question_maker") return "Tussenstand na ronde 2 (vraagmaker)";
+    if (phase === "quiz") {
+      const nr = Math.max(1, Math.min(quizItemCount || 1, round2ActiveIndex + 1));
+      return `Tussenstand na quizvraag ${nr}`;
+    }
+    if (phase === "time_up" || phase === "finished") return "Eindtussenstand";
+    return "Live tussenstand";
+  }, [sessionStarted, phase, quizItemCount, round2ActiveIndex]);
+  const canAnswerActiveQuiz = Boolean(
+    joined &&
+      activeQuizItem &&
+      !ownActiveAnswer &&
+      !round2Reveal &&
+      (inQuiz || phase === "time_up") &&
+      quizQuestionSecondsLeft > 0
+  );
+  const canHitChip = Boolean(joined && inChipRain && !termsIntermissionActive);
+  const canTeacherAdvanceQuiz = Boolean(
+    !isPlayerRoute &&
+      activeQuizItem &&
+      (inQuiz || phase === "time_up" || phase === "finished")
+  );
+  const activeCorrectOption = useMemo(() => {
+    if (!activeQuizItem) return "";
+    const idx = Number(activeQuizItem.correct_index);
+    if (!Number.isFinite(idx) || idx < 0 || idx > 3) return "";
+    const label = String.fromCharCode(65 + idx);
+    const text = String((activeQuizItem.options || [])[idx] || "").trim();
+    return text ? `${label}. ${text}` : "";
+  }, [activeQuizItem]);
 
   async function refreshSession(targetId: string) {
     if (!targetId) return;
@@ -645,6 +1057,16 @@ export default function UseTheSourcePage() {
             answers: Array.isArray(json.round2.answers) ? json.round2.answers : [],
           }
         : { questions: [], quiz_items: [], answers: [] }
+    );
+    setChipRain(
+      json.chip_rain && typeof json.chip_rain === "object"
+        ? {
+            total_chips: Number((json.chip_rain as any).total_chips || 0),
+            chips: Array.isArray((json.chip_rain as any).chips) ? (json.chip_rain as any).chips : [],
+            hits: Array.isArray((json.chip_rain as any).hits) ? (json.chip_rain as any).hits : [],
+            phase_active: Boolean((json.chip_rain as any).phase_active),
+          }
+        : { total_chips: 0, chips: [], hits: [] }
     );
   }
 
@@ -676,6 +1098,18 @@ export default function UseTheSourcePage() {
     } catch {
       // fail-open: polling pakt fase vanzelf op
     }
+  }
+
+  function scheduleReadingDone(delayMs = 0) {
+    if (readingDoneTimerRef.current != null) {
+      window.clearTimeout(readingDoneTimerRef.current);
+      readingDoneTimerRef.current = null;
+    }
+    const wait = Math.max(0, Math.trunc(delayMs));
+    readingDoneTimerRef.current = window.setTimeout(() => {
+      readingDoneTimerRef.current = null;
+      void markReadingDone();
+    }, wait);
   }
 
   async function teacherSkipAutocue() {
@@ -894,6 +1328,7 @@ export default function UseTheSourcePage() {
       return;
     }
     setOverallHighscores(null);
+    setFinishBonusSummary(null);
   }, [sessionStatus, sessionId]);
 
   useEffect(() => {
@@ -940,9 +1375,10 @@ export default function UseTheSourcePage() {
       if (stage && tail) {
         const stageRect = stage.getBoundingClientRect();
         const tailRect = tail.getBoundingClientRect();
-        // Zodra de laatste regel uit beeld is, meteen door naar volgende fase.
+        // Laat de klas na de laatste zin nog 30s de bron vasthouden.
         if (tailRect.bottom <= stageRect.top + 2) {
-          void markReadingDone();
+          const delay = phase === "reading" ? READING_GRACE_AFTER_CRAWL_SECONDS * 1000 : 0;
+          scheduleReadingDone(delay);
           stopped = true;
           return;
         }
@@ -1005,27 +1441,81 @@ export default function UseTheSourcePage() {
 
   useEffect(() => {
     if (phase !== "reading" && phase !== "question_reading") {
+      if (readingDoneTimerRef.current != null) {
+        window.clearTimeout(readingDoneTimerRef.current);
+        readingDoneTimerRef.current = null;
+      }
       readingDoneRef.current = "";
     }
   }, [phase, sessionId]);
 
   useEffect(() => {
-    const prev = preTermsPhaseRef.current;
-    if (phase === "terms" && prev !== "terms") {
-      setPreTermsCountdown(10);
-    } else if (phase !== "terms") {
-      setPreTermsCountdown(0);
-    }
-    preTermsPhaseRef.current = phase;
-  }, [phase, sessionId]);
+    return () => {
+      if (readingDoneTimerRef.current != null) {
+        window.clearTimeout(readingDoneTimerRef.current);
+        readingDoneTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
-    if (preTermsCountdown <= 0) return;
-    const t = window.setTimeout(() => {
-      setPreTermsCountdown((v) => Math.max(0, v - 1));
-    }, 1000);
+    const prev = phaseEntryRef.current;
+    if (phase === "question_reading" && prev !== "question_reading") {
+      const phaseTotal = Math.max(0, Number(clock?.question_reading_seconds || 0));
+      const elapsedInPhase = Math.max(0, phaseTotal - Math.max(0, secondsLeft));
+      setQuestionReadingPhaseStartMs(Date.now() - elapsedInPhase * 1000);
+    } else if (phase !== "question_reading") {
+      setQuestionReadingPhaseStartMs(0);
+    }
+    phaseEntryRef.current = phase;
+  }, [phase, secondsLeft, clock?.chip_rain_seconds, clock?.question_reading_seconds]);
+
+  useEffect(() => {
+    if (!(sessionStarted && (phase === "chip_rain" || phase === "question_reading"))) return;
+    setPhaseNowMs(Date.now());
+    const t = window.setInterval(() => {
+      setPhaseNowMs(Date.now());
+    }, 120);
+    return () => window.clearInterval(t);
+  }, [sessionStarted, phase, sessionId]);
+
+  useEffect(() => {
+    if (!(sessionStarted && phase === "question_reading")) return;
+    if (questionPrepBriefing.active || termsIntermissionActive) return;
+    void markReadingDone();
+  }, [sessionStarted, phase, questionPrepBriefing.active, termsIntermissionActive]);
+
+  useEffect(() => {
+    if (jokersLeft <= 0 && useJokerNext) {
+      setUseJokerNext(false);
+    }
+  }, [jokersLeft, useJokerNext]);
+
+  useEffect(() => {
+    if (!chipMsg) return;
+    const t = window.setTimeout(() => setChipMsg(""), 1800);
     return () => window.clearTimeout(t);
-  }, [preTermsCountdown]);
+  }, [chipMsg]);
+
+  useEffect(() => {
+    if (!chipFeedback) return;
+    const t = window.setTimeout(() => setChipFeedback(null), 1800);
+    return () => window.clearTimeout(t);
+  }, [chipFeedback]);
+
+  useEffect(() => {
+    if (!chipFeedbackTone) return;
+    const t = window.setTimeout(() => setChipFeedbackTone(""), 280);
+    return () => window.clearTimeout(t);
+  }, [chipFeedbackTone]);
+
+  useEffect(() => {
+    if (phase === "chip_rain") return;
+    setLaserShots([]);
+    setShipFiring(false);
+    setChipFeedback(null);
+    setChipFeedbackTone("");
+  }, [phase]);
 
   useEffect(() => {
     if (!sessionId || (phase !== "quiz" && phase !== "time_up")) {
@@ -1195,6 +1685,7 @@ export default function UseTheSourcePage() {
       const inputTerm = toInt(termSeconds, 60);
       const effectiveDuration = Math.max(0, effectiveReadingWithBriefing + inputTerm);
       const questionCount = Math.max(2, Math.min(12, toInt(round2QuestionCount, 5)));
+      const perQuestionSeconds = Math.max(8, Math.min(240, toInt(round2QuestionSeconds, 20)));
 
       const createRes = await fetch("/api/sourcegame/sessions", {
         method: "POST",
@@ -1221,11 +1712,12 @@ export default function UseTheSourcePage() {
             bonus_tv: true,
             bonus_ka: true,
             round2_question_count: questionCount,
-            question_reading_seconds: effectiveReading,
+            round2_question_seconds: perQuestionSeconds,
+            question_reading_seconds: questionBriefingTotalSeconds,
             question_maker_seconds: Math.max(30, Math.min(240, questionCount * 15)),
-            quiz_seconds: Math.max(90, Math.min(900, questionCount * 35)),
-            pre_reading_countdown_seconds: PRE_AUTOCUE_COUNTDOWN_SECONDS,
-            pre_reading_typing_seconds: missionTypingSeconds,
+            quiz_seconds: Math.max(90, Math.min(1800, questionCount * (perQuestionSeconds + 18))),
+            pre_reading_countdown_seconds: 0,
+            pre_reading_typing_seconds: 0,
           },
         }),
       });
@@ -1277,6 +1769,7 @@ export default function UseTheSourcePage() {
   async function submitTerm() {
     if (!canSubmit || !termInput.trim() || !sessionId) return;
     const term = termInput.trim();
+    const jokerNow = Boolean(useJokerNext && jokersLeft > 0);
     setTermInput("");
     try {
       const res = await fetch(`/api/sourcegame/sessions/${sessionId}/submit`, {
@@ -1285,13 +1778,22 @@ export default function UseTheSourcePage() {
         body: JSON.stringify({
           player_key: playerKey,
           term,
+          use_joker: jokerNow,
         }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Term versturen mislukt");
-      const result = json.result || {};
+      if (jokerNow) setUseJokerNext(false);
       setLeaderboard(json.leaderboard || []);
       if (Array.isArray(json.score_timeline)) setTimeline(json.score_timeline);
+      if (json.chip_rain) {
+        setChipRain({
+          total_chips: Number(json.chip_rain.total_chips || 0),
+          chips: Array.isArray(json.chip_rain.chips) ? json.chip_rain.chips : [],
+          hits: Array.isArray(json.chip_rain.hits) ? json.chip_rain.hits : [],
+          phase_active: Boolean(json.chip_rain.phase_active),
+        });
+      }
       await refreshSession(sessionId);
     } catch (e: any) {
       setError(String(e?.message || e));
@@ -1329,6 +1831,89 @@ export default function UseTheSourcePage() {
       setError(String(e?.message || e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  function fireChipLaser(targetEl?: HTMLElement | null) {
+    const stageEl = chipRainStageRef.current;
+    if (!stageEl || !targetEl) return;
+    const stageRect = stageEl.getBoundingClientRect();
+    const targetRect = targetEl.getBoundingClientRect();
+    if (!stageRect.width || !stageRect.height || !targetRect.width || !targetRect.height) return;
+
+    const startX = stageRect.width * 0.5;
+    const startY = stageRect.height - 20;
+    const targetX = targetRect.left + targetRect.width / 2 - stageRect.left;
+    const targetY = targetRect.top + targetRect.height / 2 - stageRect.top;
+    const dx = targetX - startX;
+    const dy = targetY - startY;
+    const length = Math.max(24, Math.hypot(dx, dy));
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const shotId = chipShotSeqRef.current++;
+
+    setShipFiring(true);
+    setLaserShots((prev) => [
+      ...prev.slice(-5),
+      { id: shotId, startX, startY, targetX, targetY, angle, length },
+    ]);
+
+    window.setTimeout(() => {
+      setLaserShots((prev) => prev.filter((shot) => shot.id !== shotId));
+    }, 260);
+    window.setTimeout(() => {
+      setShipFiring(false);
+    }, 120);
+  }
+
+  async function submitChipHit(chipKey: string, chipEl?: HTMLElement | null) {
+    if (!sessionId || !joined || !playerKey || !chipKey || !canHitChip) return;
+    fireChipLaser(chipEl);
+    setChipBusyKey(chipKey);
+    setChipMsg("");
+    setChipFeedback(null);
+    setChipFeedbackTone("");
+    setError("");
+    try {
+      const res = await fetch(`/api/sourcegame/sessions/${sessionId}/chip-rain/hit`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          player_key: playerKey,
+          chip_key: chipKey,
+        }),
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error || "Chip-hit mislukt");
+      const verdict = String(json?.result?.verdict || "rejected");
+      const pts = Number(json?.result?.points || 0);
+      const label =
+        verdict === "accepted" ? "RAAK" : verdict === "duplicate" ? "TE LAAT" : "MIS";
+      setChipMsg(`${label}: ${json?.result?.term || chipKey} (${pts > 0 ? `+${pts}` : pts})`);
+      setChipFeedback({
+        verdict,
+        term: String(json?.result?.term || chipKey),
+        points: pts,
+      });
+      setChipFeedbackTone(pts > 0 ? "good" : "bad");
+      if (json.leaderboard) setLeaderboard(json.leaderboard || []);
+      if (json.chip_rain) {
+        setChipRain({
+          total_chips: Number(json.chip_rain.total_chips || 0),
+          chips: Array.isArray(json.chip_rain.chips) ? json.chip_rain.chips : [],
+          hits: Array.isArray(json.chip_rain.hits) ? json.chip_rain.hits : [],
+          phase_active: Boolean(json.chip_rain.phase_active),
+        });
+      }
+    } catch (e: any) {
+      setError(String(e?.message || e));
+      setChipFeedback({
+        verdict: "error",
+        term: chipKey,
+        points: 0,
+      });
+      setChipFeedbackTone("bad");
+    } finally {
+      setChipBusyKey("");
     }
   }
 
@@ -1381,8 +1966,7 @@ export default function UseTheSourcePage() {
       if (!json?.ok) throw new Error(json?.error || "Antwoord insturen mislukt");
       const verdict = String(json?.result?.verdict || "fout");
       const points = Number(json?.result?.points || 0);
-      const verdictTxt =
-        verdict === "goed" ? "Goed" : verdict === "half_goed" ? "Half goed" : "Fout";
+      const verdictTxt = verdict === "goed" ? "Goed" : "Fout";
       setRound2Msg(`Beoordeling: ${verdictTxt} (${points > 0 ? `+${points}` : points})`);
       setLeaderboard(json.leaderboard || []);
       if (json.round2) {
@@ -1400,6 +1984,41 @@ export default function UseTheSourcePage() {
     }
   }
 
+  async function advanceRound2QuizStep() {
+    if (!sessionId || isPlayerRoute) return;
+    setBusy(true);
+    setRound2Msg("");
+    setError("");
+    try {
+      const res = await fetch(`/api/sourcegame/sessions/${sessionId}/round2/next`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error || "Quizdoorgang mislukt");
+      const progress = json?.progress || {};
+      const activeIdx = Number(progress.active_index || 0) + 1;
+      const total = Number(progress.total_items || (round2.quiz_items || []).length || 0);
+      if (progress.reveal) {
+        setRound2Msg(`Goed antwoord getoond · vraag ${Math.max(1, activeIdx)} van ${Math.max(1, total)}`);
+      } else {
+        setRound2Msg(`Volgende quizvraag · vraag ${Math.max(1, activeIdx)} van ${Math.max(1, total)}`);
+      }
+      if (json.round2) {
+        setRound2({
+          questions: Array.isArray(json.round2.questions) ? json.round2.questions : [],
+          quiz_items: Array.isArray(json.round2.quiz_items) ? json.round2.quiz_items : [],
+          answers: Array.isArray(json.round2.answers) ? json.round2.answers : [],
+        });
+      }
+      setLeaderboard(json.leaderboard || []);
+      await refreshSession(sessionId);
+    } catch (e: any) {
+      setError(String(e?.message || e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function finishSession() {
     if (!sessionId) return;
     setBusy(true);
@@ -1408,6 +2027,15 @@ export default function UseTheSourcePage() {
       const res = await fetch(`/api/sourcegame/sessions/${sessionId}/finish`, { method: "POST" });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Afronden mislukt");
+      if (json?.bonus_summary && typeof json.bonus_summary === "object") {
+        setFinishBonusSummary({
+          reviewed: Number(json.bonus_summary.reviewed || 0),
+          awarded: Number(json.bonus_summary.awarded || 0),
+          rejected: Number(json.bonus_summary.rejected || 0),
+          bonus_points_total: Number(json.bonus_summary.bonus_points_total || 0),
+          reviewed_at: new Date().toISOString(),
+        });
+      }
       await refreshSession(sessionId);
       await refreshOverallHighscores(5).catch(() => void 0);
     } catch (e: any) {
@@ -1520,7 +2148,7 @@ export default function UseTheSourcePage() {
                           >
                             <strong>{src.title || src.id}</strong>
                             <span>
-                              {src.provider || "DB"} · {src.tv || "TV?"} · {src.ka || "KA?"}
+                              {src.provider || "DB"} · {formatTvHuman(String(src.tv || ""))} · {formatKaHuman(String(src.ka || ""), String(src.tv || ""))}
                               {typeof src._score === "number" ? ` · score ${src._score}` : ""}
                             </span>
                           </button>
@@ -1532,9 +2160,9 @@ export default function UseTheSourcePage() {
                   {selectedSource && (
                     <div className="uts-source-mini">
                       <div><strong>Geselecteerd:</strong> {sourceTitle || selectedSource.title || selectedSource.id}</div>
-                      <div className="uts-source-mini-meta">{sourceRef} · {sourceTv || "TV?"} · {sourceKa || "KA?"}</div>
+                      <div className="uts-source-mini-meta">{sourceRef} · {sourceTvHumanLabel} · {sourceKaHumanLabel}</div>
                       <div className="uts-source-mini-meta">
-                        Verwachte leestijd bron: <b>{computedReadingSeconds}s</b> · missiebriefing: <b>{preAutocueTotalSeconds}s</b> · totaal leesfase: <b>{computedReadingSeconds + preAutocueTotalSeconds}s</b>
+                        Verwachte leestijd bron: <b>{computedReadingSeconds}s</b> · uitloop na laatste zin: <b>{preAutocueTotalSeconds}s</b> · totaal leesfase: <b>{computedReadingSeconds + preAutocueTotalSeconds}s</b>
                       </div>
                       {!!sourceSnippet && <p>{sourceSnippet.slice(0, 240)}</p>}
                     </div>
@@ -1548,7 +2176,7 @@ export default function UseTheSourcePage() {
                 <>
                   <div className="uts-source-mini">
                     <div><strong>Bron voor game:</strong> {sourceTitle || selectedSource?.title || sourceRef || "(nog geen bron)"}</div>
-                    <div className="uts-source-mini-meta">{sourceRef || "-"} · {sourceTv || "TV?"} · {sourceKa || "KA?"}</div>
+                    <div className="uts-source-mini-meta">{sourceRef || "-"} · {sourceTvHumanLabel} · {sourceKaHumanLabel}</div>
                   </div>
 
                   <label>Teams (komma-gescheiden)</label>
@@ -1558,7 +2186,7 @@ export default function UseTheSourcePage() {
                       <label>Leestempo (vast)</label>
                       <input value={`${FIXED_READING_WPM} woorden/min`} disabled />
                       <div className="uts-muted" style={{ marginTop: 4 }}>
-                        Berekende leestijd bron: <b>{computedReadingSeconds}s</b> ({sourceWordCount} woorden) · missiebriefing: <b>{preAutocueTotalSeconds}s</b> · totaal leesfase: <b>{computedReadingSeconds + preAutocueTotalSeconds}s</b>
+                        Berekende leestijd bron: <b>{computedReadingSeconds}s</b> ({sourceWordCount} woorden) · uitloop na laatste zin: <b>{preAutocueTotalSeconds}s</b> · totaal leesfase: <b>{computedReadingSeconds + preAutocueTotalSeconds}s</b>
                       </div>
                     </div>
                     <div>
@@ -1568,6 +2196,10 @@ export default function UseTheSourcePage() {
                     <div>
                       <label>Aantal quizvragen</label>
                       <input value={round2QuestionCount} onChange={(e) => setRound2QuestionCount(e.target.value)} />
+                    </div>
+                    <div>
+                      <label>Quiztijd per vraag (s)</label>
+                      <input value={round2QuestionSeconds} onChange={(e) => setRound2QuestionSeconds(e.target.value)} />
                     </div>
                     <div>
                       <label>Totaal fallback (s)</label>
@@ -1636,19 +2268,25 @@ export default function UseTheSourcePage() {
                 {clockDisplay}
               </div>
               <div className="uts-phase">
-                {phase === "reading"
+                {termsIntermissionActive
+                  ? "TUSSENSTAND"
+                  : phase === "reading"
                   ? "LEESFASE"
                   : phase === "terms"
                   ? "TERMFASE"
+                  : phase === "chip_rain"
+                  ? "CHIP RAIN"
                   : phase === "question_reading"
-                  ? "LEESFASE 2"
+                  ? "VRAAG BRIEFING"
                   : phase === "question_maker"
                   ? "VRAAGMAAK"
                   : phase === "quiz"
                   ? "QUIZ"
+                  : phaseLooksWaiting
+                  ? "WAITING"
                   : phase.toUpperCase()}
               </div>
-              {!isPlayerRoute && (phase === "reading" || phase === "question_reading") ? (
+              {!isPlayerRoute && phase === "reading" ? (
                 <button className="uts-btn-stop" type="button" onClick={teacherSkipAutocue} disabled={busy}>
                   Stop autocue → volgende ronde
                 </button>
@@ -1697,17 +2335,81 @@ export default function UseTheSourcePage() {
                 <h3>Be strong with the Source.</h3>
                 <p>Talent without training is nothing.</p>
               </div>
+            ) : termsIntermissionActive ? (
+              <div className="uts-terms-intermission" aria-live="polite">
+                <div className="uts-terms-intermission-head">Tussenstand na begrippenronde</div>
+                <div className="uts-terms-intermission-count">
+                  Volgende instructie over <b>{termsIntermissionLeft}s</b>
+                </div>
+                <div className="uts-terms-intermission-grid">
+                  <section className="uts-terms-intermission-col">
+                    <h3>Top 5 Teams</h3>
+                    {topTeams5.length > 0 ? (
+                      <div className="uts-terms-intermission-list">
+                        {topTeams5.map((team, idx) => (
+                          <div key={`inter-team-${team.id}-${idx}`} className="uts-terms-intermission-row">
+                            <span>#{idx + 1} {team.name}</span>
+                            <strong>{team.score}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="uts-muted">Nog geen scores.</div>
+                    )}
+                  </section>
+                  <section className="uts-terms-intermission-col">
+                    <h3>Top 5 MVP</h3>
+                    {topPlayers.length > 0 ? (
+                      <div className="uts-terms-intermission-list">
+                        {topPlayers.map((player, idx) => (
+                          <div key={`inter-player-${player.id}-${idx}`} className="uts-terms-intermission-row">
+                            <span>#{idx + 1} {player.display_name}</span>
+                            <strong>{player.score}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="uts-muted">Nog geen spelersscore.</div>
+                    )}
+                  </section>
+                </div>
+              </div>
             ) : missionBriefingActive ? (
-              <div className="uts-mission-terminal" aria-live="polite">
-                <div className="uts-mission-head">MISSION BRIEFING // SOURCE OPS</div>
-                <pre className="uts-mission-text">
-                  {missionTypedText}
-                  {!missionTypingDone ? <span className="uts-mission-cursor">█</span> : null}
-                </pre>
-                <div className="uts-mission-meta">{missionTypingDone ? "Autocue actief..." : "Transmissie opstarten..."}</div>
+              <div className="uts-mission-terminal uts-mission-terminal--cockpit" aria-live="polite">
+                <div className="uts-mission-viewport">
+                  <div className="uts-mission-head">MISSION BRIEFING // SOURCE OPS</div>
+                  <pre className="uts-mission-text">
+                    {missionTypedText}
+                    {!missionTypingDone ? <span className="uts-mission-cursor">█</span> : null}
+                  </pre>
+                  <div className="uts-mission-meta">
+                    {missionTypingDone
+                      ? missionCountdownLeft > 0
+                        ? `Autocue start in ${missionCountdownLeft}s...`
+                        : "Autocue actief..."
+                      : "Transmissie opstarten..."}
+                  </div>
+                </div>
+              </div>
+            ) : questionPrepBriefingActive ? (
+              <div className="uts-mission-terminal uts-mission-terminal--brief uts-mission-terminal--cockpit" aria-live="assertive">
+                <div className="uts-mission-viewport">
+                  <div className="uts-mission-head">MISSION BRIEFING // VRAAGMAAK</div>
+                  <pre className="uts-mission-text uts-mission-text--brief">
+                    {questionPrepBriefing.typedText}
+                    {questionPrepBriefing.showCursor ? <span className="uts-mission-cursor">█</span> : null}
+                  </pre>
+                  <div className="uts-mission-meta">
+                    {!questionPrepBriefing.typingDone
+                      ? "Instructie laden..."
+                      : questionPrepBriefing.countdownLeft > 0
+                      ? `Vraagmaker start in ${questionPrepBriefing.countdownLeft}s...`
+                      : "Vraagmaker actief..."}
+                  </div>
+                </div>
               </div>
             ) : sourceVisible ? (
-              <div className={`uts-source-box ${showCrawl ? "crawl-mode" : ""}`}>
+              <div className={`uts-source-box ${showCrawl ? "crawl-mode uts-source-box--cockpit" : ""}`}>
                 {showCrawl ? (
                   <div className={`uts-crawl-layout ${sourceImageUrl && !showExternalImagePanel ? "with-image" : ""}`.trim()}>
                     <div
@@ -1720,11 +2422,16 @@ export default function UseTheSourcePage() {
                       }}
                     >
                       <div className="uts-crawl-fade" />
-                      <div className="uts-crawl-label">
-                        {phase === "question_reading" ? "AUTOCUE · VRAAGVOORBEREIDING" : "AUTOCUE · LEESFASE"}
-                      </div>
+                      <div className="uts-crawl-label">AUTOCUE · LEESFASE</div>
                       <div className="uts-crawl-perspective">
-                        <div ref={crawlTextRef} className="uts-crawl-text" onAnimationEnd={() => { void markReadingDone(); }}>
+                        <div
+                          ref={crawlTextRef}
+                          className="uts-crawl-text"
+                          onAnimationEnd={() => {
+                            const delay = phase === "reading" ? READING_GRACE_AFTER_CRAWL_SECONDS * 1000 : 0;
+                            scheduleReadingDone(delay);
+                          }}
+                        >
                           <h3>{crawlContent.title}</h3>
                           {crawlContent.blocks.map((block, i) => (
                             <p key={`${i}-${block.slice(0, 24)}`}>{block}</p>
@@ -1751,29 +2458,114 @@ export default function UseTheSourcePage() {
                   </>
                 )}
               </div>
-            ) : showPreTermsBriefing ? (
-              <div className="uts-mission-terminal uts-mission-terminal--brief" aria-live="assertive">
-                <div className="uts-mission-head">MISSION BRIEFING // TERMFASE</div>
-                <pre className="uts-mission-text uts-mission-text--brief">
-                  Voer belangrijke begrippen in die bij deze source passen.
-                  {"\n"}
-                  Passende begrippen die niet letterlijk in de bron voorkomen leveren ook punten op.
-                </pre>
-                <div className="uts-pre-terms-countdown" aria-live="assertive">
-                  {countdownText}
+            ) : inChipRain ? (
+                <div className="uts-chip-rain-box uts-chip-rain-box--cockpit">
+                  <div className="uts-chip-rain-head">
+                    <h3>Chip Rain</h3>
+                    <span>
+                      Gevangen chips: {chipRain.hits.length}/{Math.max(1, Number(chipRain.total_chips || chipRain.chips.length || 0))}
+                    </span>
+                  </div>
+                  <p className="uts-chip-rain-help">
+                    Klik snelle, passende termen voor punten. Foute of al gepakte chips geven strafpunten.
+                  </p>
+                  <div
+                    ref={chipRainStageRef}
+                    className={`uts-chip-rain-stage ${chipFeedbackTone ? `hit-${chipFeedbackTone}` : ""}`.trim()}
+                    aria-live="polite"
+                  >
+                    {laserShots.map((shot) => (
+                      <span
+                        key={`laser-${shot.id}`}
+                        className="uts-laser-shot"
+                        style={
+                          {
+                            left: `${shot.startX}px`,
+                            top: `${shot.startY}px`,
+                            width: `${shot.length}px`,
+                            transform: `rotate(${shot.angle}deg)`,
+                          } as any
+                        }
+                        aria-hidden
+                      />
+                    ))}
+                    {laserShots.map((shot) => (
+                      <span
+                        key={`impact-${shot.id}`}
+                        className="uts-laser-impact"
+                        style={
+                          {
+                            left: `${shot.targetX}px`,
+                            top: `${shot.targetY}px`,
+                          } as any
+                        }
+                        aria-hidden
+                      />
+                    ))}
+                    <div className={`uts-chip-rain-ship ${shipFiring ? "firing" : ""}`.trim()} aria-hidden>
+                      🚀
+                    </div>
+                    {(chipRain.chips || []).map((chip) => {
+                      const variant = Math.abs(Number(chip.monster_variant || 0)) % CHIP_MONSTER_ICONS.length;
+                      const icon = CHIP_MONSTER_ICONS[variant];
+                      const capturedPoints = Number(chip.captured_points || 0);
+                      return (
+                        <button
+                          key={chip.chip_key}
+                          type="button"
+                          className={`uts-fall-chip monster-${variant} ${chip.captured ? `captured ${String(chip.captured_verdict || "")}` : ""} ${
+                            chipBusyKey === chip.chip_key ? "pending" : ""
+                          }`.trim()}
+                          style={
+                            {
+                              ["--chip-delay" as any]: `${Math.max(0, Number(chip.spawn_ms || 0))}ms`,
+                              ["--chip-fall" as any]: `${Math.max(1800, Number(chip.fall_ms || 7000))}ms`,
+                              ["--chip-left" as any]: `${Math.max(2, Math.min(98, Number(chip.left_pct || 50)))}%`,
+                              ["--chip-drift" as any]: `${Math.max(-120, Math.min(120, Number(chip.drift_px || 0)))}px`,
+                              ["--chip-scale" as any]: `${Math.max(0.82, Math.min(1.6, Number(chip.scale || 1)))}`,
+                            } as any
+                          }
+                          disabled={!canHitChip || Boolean(chip.captured) || chipBusyKey === chip.chip_key}
+                          onClick={(e) => submitChipHit(chip.chip_key, e.currentTarget as HTMLButtonElement)}
+                        >
+                          <span className="uts-fall-chip-head">
+                            <span className="uts-fall-monster" aria-hidden>{icon}</span>
+                            <span className="uts-fall-term">{chip.term}</span>
+                          </span>
+                          {chip.captured ? (
+                            <span className={`uts-fall-points ${capturedPoints >= 0 ? "good" : "bad"}`.trim()}>
+                              {capturedPoints > 0 ? `+${capturedPoints}` : `${capturedPoints}`}
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {chipFeedback ? (
+                    <div className={`uts-chip-hit-feedback ${chipFeedback.points > 0 ? "good" : "bad"}`.trim()}>
+                      {chipFeedback.points > 0 ? `+${chipFeedback.points}` : `${chipFeedback.points}`} · {chipFeedback.term}
+                    </div>
+                  ) : null}
+                  {!!chipMsg && (
+                    <div className={`uts-chip-rain-msg ${chipFeedback && chipFeedback.points > 0 ? "good" : "bad"}`.trim()}>
+                      {chipMsg}
+                    </div>
+                  )}
+                  {recentChipHits.length > 0 ? (
+                    <div className="uts-chip-rain-hits">
+                      {recentChipHits.map((h) => (
+                        <span
+                          key={`hit-${h.id}`}
+                          className={`uts-chip-hit ${
+                            Number(h.points || 0) > 0 ? "good" : "bad"
+                          }`.trim()}
+                        >
+                          <b>{h.team_name}</b> {h.term} {Number(h.points || 0) > 0 ? `+${h.points}` : h.points}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ) : inQuestionMaker ? (
-              <div className="uts-mission-terminal uts-mission-terminal--brief">
-                <div className="uts-mission-head">MISSION BRIEFING // VRAAGMAAK</div>
-                <pre className="uts-mission-text uts-mission-text--brief">
-                  Maak nu 1 sterke bronvraag.
-                  {"\n"}
-                  Waarom/waardoor/hoe-kon vragen over oorzaken en historische context geven de meeste punten.
-                  {"\n"}
-                  Wat/wanneer/noem-vragen geven minder punten.
-                </pre>
-              </div>
             ) : (
               <div className="uts-memory-box">
                 <h3>Transmission Lost</h3>
@@ -1788,6 +2580,8 @@ export default function UseTheSourcePage() {
                 placeholder={
                   canSubmit
                     ? "Typ een relevante term (geen dubbelingen)..."
+                    : inChipRain
+                    ? "Chip-rain actief: klik vallende begrippen..."
                     : inQuestionMaker
                     ? "Termfase voorbij. Nu vragenronde..."
                     : "Wacht op termfase..."
@@ -1801,6 +2595,19 @@ export default function UseTheSourcePage() {
                 Verstuur
               </button>
             </div>
+            {canSubmit ? (
+              <div className="uts-joker-row">
+                <button
+                  type="button"
+                  className={`uts-btn-joker ${useJokerNext ? "active" : ""}`.trim()}
+                  disabled={jokersLeft <= 0}
+                  onClick={() => setUseJokerNext((v) => !v)}
+                >
+                  {useJokerNext ? "Joker actief voor volgende term" : "Gebruik joker op volgende term"}
+                </button>
+                <span>Jokers over: <b>{jokersLeft}</b></span>
+              </div>
+            ) : null}
             {canSubmit ? (
               <div className="uts-live-label">
                 Voer belangrijke begrippen in die bij deze source passen. Passende begrippen die niet
@@ -1889,38 +2696,82 @@ export default function UseTheSourcePage() {
 
                 {(round2.quiz_items || []).length > 0 ? (
                   <div className="uts-round2-quiz">
-                    {(round2.quiz_items || []).map((item, idx) => {
-                      const ownAnswer = ownAnswersByItem.get(Number(item.id));
-                      return (
-                        <div key={item.id} className="uts-round2-item">
-                          <div className="uts-round2-prompt">
-                            <span>Vraag {idx + 1}</span> {item.prompt}
-                          </div>
-                          <div className="uts-round2-options">
-                            {(item.options || []).map((opt, optIdx) => (
-                              <button
-                                key={`${item.id}-${optIdx}`}
-                                className={`uts-round2-option ${ownAnswer?.selected_index === optIdx ? "selected" : ""}`}
-                                disabled={!joined || Boolean(ownAnswer) || busy || !(inQuiz || phase === "time_up")}
-                                onClick={() => submitRound2Answer(Number(item.id), optIdx)}
-                              >
-                                <b>{String.fromCharCode(65 + optIdx)}.</b> {opt}
-                              </button>
-                            ))}
-                          </div>
-                          {ownAnswer ? (
-                            <div className={`uts-round2-verdict ${ownAnswer.verdict}`}>
-                              {ownAnswer.verdict === "goed"
-                                ? "Goed"
-                                : ownAnswer.verdict === "half_goed"
-                                ? "Half goed"
-                                : "Fout"}{" "}
-                              ({ownAnswer.points > 0 ? `+${ownAnswer.points}` : ownAnswer.points})
-                            </div>
-                          ) : null}
+                    {activeQuizItem ? (
+                      <div className="uts-round2-item">
+                        <div className="uts-round2-step">
+                          <span>
+                            Vraag {Math.min(quizItemCount, round2ActiveIndex + 1)} / {quizItemCount}
+                          </span>
+                          {!round2Reveal ? (
+                            <em>{Math.max(0, quizQuestionSecondsLeft)}s</em>
+                          ) : (
+                            <em>Antwoordfase</em>
+                          )}
                         </div>
-                      );
-                    })}
+                        <div className="uts-round2-prompt">
+                          {activeQuizItem.prompt}
+                        </div>
+                        <div className="uts-round2-options">
+                          {(activeQuizItem.options || []).map((opt, optIdx) => (
+                            <button
+                              key={`${activeQuizItem.id}-${optIdx}`}
+                              className={`uts-round2-option ${
+                                ownActiveAnswer?.selected_index === optIdx ? "selected" : ""
+                              } ${
+                                round2Reveal &&
+                                activeQuizItem.correct_index != null &&
+                                Number(activeQuizItem.correct_index) === Number(optIdx)
+                                  ? "correct"
+                                  : ""
+                              }`.trim()}
+                              disabled={!canAnswerActiveQuiz}
+                              onClick={() => submitRound2Answer(Number(activeQuizItem.id), optIdx)}
+                            >
+                              <b>{String.fromCharCode(65 + optIdx)}.</b> {opt}
+                            </button>
+                          ))}
+                        </div>
+                        {ownActiveAnswer ? (
+                          <div className={`uts-round2-verdict ${ownActiveAnswer.verdict}`}>
+                            {ownActiveAnswer.verdict === "goed"
+                              ? "Goed"
+                              : "Fout"}{" "}
+                            ({ownActiveAnswer.points > 0 ? `+${ownActiveAnswer.points}` : ownActiveAnswer.points})
+                          </div>
+                        ) : null}
+                        {round2Reveal && activeCorrectOption ? (
+                          <div className="uts-round2-correct">
+                            Goed antwoord: <b>{activeCorrectOption}</b>
+                            {activeQuizTeamAnswers > 0 ? (
+                              <span> · {activeQuizTeamAnswers} team(s) beantwoord</span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {canTeacherAdvanceQuiz ? (
+                          <div className="uts-round2-host-nav">
+                            <button
+                              className="uts-btn-secondary"
+                              type="button"
+                              onClick={advanceRound2QuizStep}
+                              disabled={busy}
+                            >
+                              {!round2Reveal
+                                ? "Toon goed antwoord"
+                                : isLastQuizItem
+                                ? "Laatste vraag blijft zichtbaar"
+                                : "Volgende quizvraag"}
+                            </button>
+                            {!round2Reveal ? (
+                              <span className="uts-muted">
+                                Beide teams kunnen antwoorden; je kunt ook handmatig doorgaan.
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="uts-muted">Quizvragen afgerond.</div>
+                    )}
                   </div>
                 ) : (
                   <div className="uts-muted">
@@ -1944,14 +2795,32 @@ export default function UseTheSourcePage() {
             <div className="uts-score-list">
               {(leaderboard || []).map((team) => (
                 <div key={team.id} className="uts-score-row">
-                  <span>{team.name}</span>
+                  <span>
+                    {team.name}
+                    <em className="uts-team-meta"> · jokers {Math.max(0, Number((team as any).jokers_remaining || 0))}</em>
+                  </span>
                   <strong>{team.score}</strong>
                 </div>
               ))}
             </div>
-            {(phase === "time_up" || phase === "finished") && topPlayers.length > 0 ? (
+            {sessionStarted ? <div className="uts-live-label">{betweenstandTitle}</div> : null}
+            {sessionStarted && topTeams5.length > 0 ? (
               <div className="uts-top5">
-                <h3>Top 5 Most Productive Players</h3>
+                <h3>Top 5 Teams</h3>
+                <div className="uts-top5-list">
+                  {topTeams5.map((t, idx) => (
+                    <div key={`${t.id}-${idx}`} className="uts-top5-row">
+                      <span>#{idx + 1} {t.name}</span>
+                      <span>{(t.players || []).length} spelers</span>
+                      <strong>{t.score}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {sessionStarted && topPlayers.length > 0 ? (
+              <div className="uts-top5">
+                <h3>Top 5 MVP</h3>
                 <div className="uts-top5-list">
                   {topPlayers.map((p, idx) => (
                     <div key={`${p.id}-${idx}`} className="uts-top5-row">
@@ -1977,6 +2846,25 @@ export default function UseTheSourcePage() {
                     </div>
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+            {sessionStatus === "finished" && bonusSummary ? (
+              <div className="uts-bonus-review">
+                <h3>Gemini eindreview begrippen</h3>
+                <div className="uts-bonus-review-grid">
+                  <div>
+                    Herzien: <b>{bonusSummary.reviewed}</b>
+                  </div>
+                  <div>
+                    Alsnog goed: <b>{bonusSummary.awarded}</b>
+                  </div>
+                  <div>
+                    Afgewezen: <b>{bonusSummary.rejected}</b>
+                  </div>
+                  <div>
+                    Puntencorrectie: <b>{bonusSummary.bonus_points_total > 0 ? `+${bonusSummary.bonus_points_total}` : bonusSummary.bonus_points_total}</b>
+                  </div>
+                </div>
               </div>
             ) : null}
             {sessionStatus === "finished" && overallHighscores ? (

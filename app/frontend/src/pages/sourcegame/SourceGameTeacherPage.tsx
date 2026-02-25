@@ -6,16 +6,23 @@ type SearchSource = {
   id: string;
   provider?: string;
   title?: string;
+  display_title?: string;
+  human_title?: string;
+  pretty_title?: string;
+  source_title?: string;
   description?: string;
   fullText?: string;
   mainText?: string;
   imageUrl?: string | null;
+  image_url?: string | null;
+  image?: string | null;
   tv?: string;
   ka?: string;
   link?: string;
   url?: string;
   type?: string;
   _score?: number;
+  _uiKey?: string;
 };
 
 type SessionApi = {
@@ -26,7 +33,7 @@ type SessionApi = {
     status?: string;
     title?: string;
     clock?: {
-      phase?: "waiting" | "reading" | "terms" | "question_reading" | "question_maker" | "quiz" | "time_up" | "finished";
+      phase?: "waiting" | "reading" | "terms" | "chip_rain" | "question_reading" | "question_maker" | "quiz" | "time_up" | "finished";
       seconds_left_phase?: number;
     };
     teams?: Array<{ id: number; name: string; join_code: string; score?: number; players_count?: number }>;
@@ -75,13 +82,54 @@ function truncateAtWordEnd(raw: unknown, maxChars = 320): string {
   const cut = text.slice(0, Math.max(20, maxChars));
   const lastSpace = cut.lastIndexOf(" ");
   const safe = (lastSpace > 30 ? cut.slice(0, lastSpace) : cut).trim();
-  return `${safe}....>lees verder`;
+  return `${safe}... lees verder`;
+}
+
+function pickSourceDisplayTitle(src: SearchSource): string {
+  return asText(
+    src.title ||
+    src.display_title ||
+    src.human_title ||
+    src.pretty_title ||
+    src.source_title ||
+    src.id
+  );
+}
+
+function pickSourceImageUrl(src: SearchSource): string {
+  return asText(
+    src.imageUrl ||
+    src.image_url ||
+    src.image
+  );
+}
+
+function sourceUiKey(src: SearchSource, fallbackIndex = 0): string {
+  return [
+    asText(src.provider).toLowerCase(),
+    asText(src.id),
+    asText(src.url || src.link),
+    pickSourceDisplayTitle(src).toLowerCase(),
+    String(fallbackIndex),
+  ].join("|");
+}
+
+function normalizeSearchSource(src: SearchSource, fallbackIndex = 0): SearchSource {
+  const normalized = {
+    ...src,
+    title: pickSourceDisplayTitle(src),
+    imageUrl: pickSourceImageUrl(src) || null,
+  };
+  return {
+    ...normalized,
+    _uiKey: asText(src._uiKey) || sourceUiKey(normalized, fallbackIndex),
+  };
 }
 
 function hasImageSignal(src: SearchSource): boolean {
   const type = asText(src.type).toLowerCase();
   const hasTypeHit = /afbeelding|foto|prent|spotprent|poster|cartoon|illustratie|kaart|image/.test(type);
-  const hasUrl = Boolean(asText(src.imageUrl));
+  const hasUrl = Boolean(pickSourceImageUrl(src));
   return hasTypeHit || hasUrl;
 }
 
@@ -107,8 +155,58 @@ function estimateReadingSeconds(words: number, wpm: number): number {
   return Math.ceil((words / speed) * 60);
 }
 
+function phaseLabel(phase: string): string {
+  const p = asText(phase).toLowerCase();
+  if (!p) return "onbekend";
+  if (p === "waiting") return "waiting";
+  if (p === "reading") return "leesfase";
+  if (p === "terms") return "termfase";
+  if (p === "chip_rain") return "chip-rain";
+  if (p === "question_reading") return "leesfase 2";
+  if (p === "question_maker") return "vraagmaker";
+  if (p === "quiz") return "quiz";
+  if (p === "time_up") return "tijd op";
+  if (p === "finished") return "klaar";
+  return p;
+}
+
+const TV_PERIOD_BY_CODE: Record<string, string> = {
+  TV1: "tot 3000 v.Chr.",
+  TV2: "3000 v.Chr. – 500 n.Chr.",
+  TV3: "500 – 1000",
+  TV4: "1000 – 1500",
+  TV5: "1500 – 1600",
+  TV6: "1600 – 1700",
+  TV7: "1700 – 1800",
+  TV8: "1800 – 1900",
+  TV9: "1900 – 1950 (20e eeuw, eerste helft)",
+  TV10: "1950 – heden (20e/21e eeuw)",
+};
+
+function formatTvHuman(tvRaw: string): string {
+  const tvCode = asText(tvRaw).toUpperCase();
+  if (!tvCode) return "Tijdvak onbekend";
+  const tvNum = Number(tvCode.replace(/[^\d]/g, ""));
+  const tvLabel = tvKaOptions.find((opt) => opt.tv === tvNum)?.tvLabel || tvCode;
+  const period = TV_PERIOD_BY_CODE[tvCode];
+  return period ? `${tvLabel} · ${period}` : tvLabel;
+}
+
+function formatKaHuman(kaRaw: string, tvRaw: string): string {
+  const kaCode = asText(kaRaw).toUpperCase();
+  if (!kaCode) return "Kenmerkend aspect onbekend";
+  const tvNum = Number(asText(tvRaw).replace(/[^\d]/g, ""));
+  const kaNum = Number(kaCode.replace(/[^\d]/g, ""));
+  const hit = tvKaOptions.find((opt) => opt.tv === tvNum && Number(opt.ka) === kaNum)
+    || tvKaOptions.find((opt) => Number(opt.ka) === kaNum);
+  if (!hit) return kaCode;
+  const cleanLabel = asText(hit.kaLabel).replace(/^KA\d+\s*-\s*/i, "");
+  return cleanLabel ? `Kenmerkend aspect: ${cleanLabel}` : kaCode;
+}
+
 const BUNDLED_CHASE_TRACK = "/audio/star-wars-style-chase-music-181118.mp3";
 const BUNDLED_BATTLE_TRACK = "/audio/star-wars-style-battle-music-148641.mp3";
+const READING_GRACE_AFTER_CRAWL_SECONDS = 30;
 
 function normalizeAudioInputForSession(raw: string): string {
   const value = asText(raw);
@@ -134,8 +232,26 @@ function normalizeAudioInputForSession(raw: string): string {
 }
 
 const TVS = Array.from({ length: 10 }, (_, i) => `TV${i + 1}`);
+const TEACHER_INTRO_WPM = 135;
+const TEACHER_INTRO_SPEED_MULTIPLIER = 1.5;
+const TEACHER_INTRO_CRAWL_TITLE = "Mission Briefing // Use the Source";
+const TEACHER_INTRO_CRAWL_BLOCKS = [
+  "Scherp aan.",
+  "Beste leraar, beste sourcerer.",
+  "Lang geleden, in een vergeten tijdperk, lazen leerlingen vrijwillig bronnen. Ja, echt. Zonder zuchten. Zonder \"moet dit?\".",
+  "Nu moeten we concurreren met Snapchat, TikTok, PlayStation en 47 open tabs die niets met geschiedenis te maken hebben.",
+  "Goed nieuws: wij zijn de Yedi van het lokaal. Discipline, nieuwsgierigheid en bronkracht zitten nog in je klas, je moet ze alleen activeren.",
+  "Kies een bron die past bij je les van vandaag en stuur teams de hyperspace in.",
+  "Laat ze scoren op relevante begrippen, historische context en precisie.",
+  "Goede bronkennis = meer punten. Wild gokken = punishment.",
+  "Tip: pak een bron met herkenbare personen, gebeurtenissen en begrippen. Dan zie je meteen wie scherp leest en wie op automatische piloot zweeft.",
+  "Ready? Druk op die button.",
+  "May the source be with you.",
+];
 
 export default function SourceGameTeacherPage() {
+  const [teacherIntroOpen, setTeacherIntroOpen] = useState(true);
+  const [teacherIntroSeed, setTeacherIntroSeed] = useState(0);
   const [step, setStep] = useState<"select" | "game">("select");
   const [mainQuestion, setMainQuestion] = useState("");
   const [tv, setTv] = useState("TV9");
@@ -151,24 +267,38 @@ export default function SourceGameTeacherPage() {
   const [detailBusy, setDetailBusy] = useState(false);
 
   const [teamsRaw, setTeamsRaw] = useState("Team Licht, Team Donker");
-  const [readingWpm, setReadingWpm] = useState(80);
+  const [readingWpm, setReadingWpm] = useState(180);
   const [termSeconds, setTermSeconds] = useState("60");
+  const [chipRainEnabled, setChipRainEnabled] = useState(true);
   const [round2Count, setRound2Count] = useState("5");
   const [waitingMusicUrl, setWaitingMusicUrl] = useState("https://pixabay.com/nl/music/hoofdtitel-space-adventures-orchestral-music-star-wars-style-139660/");
   const [warmupMusicUrl, setWarmupMusicUrl] = useState(BUNDLED_CHASE_TRACK);
   const [musicUrl, setMusicUrl] = useState(BUNDLED_BATTLE_TRACK);
   const [teacherMusicOn, setTeacherMusicOn] = useState(false);
   const [teacherMusicVolume, setTeacherMusicVolume] = useState(65);
+  const [introMusicBlocked, setIntroMusicBlocked] = useState(false);
   const teacherTrackRef = useRef<HTMLAudioElement | null>(null);
   const [previewSeed, setPreviewSeed] = useState(0);
   const previewStageRef = useRef<HTMLDivElement | null>(null);
   const previewTextRef = useRef<HTMLDivElement | null>(null);
+  const teacherIntroStageRef = useRef<HTMLDivElement | null>(null);
+  const teacherIntroTextRef = useRef<HTMLDivElement | null>(null);
+  const [teacherIntroMotion, setTeacherIntroMotion] = useState({ startPx: 340, endPx: 220 });
   const [previewMotion, setPreviewMotion] = useState({ startPx: 260, endPx: 180 });
   const [sessionBusy, setSessionBusy] = useState(false);
   const [session, setSession] = useState<SessionApi["session"]>();
   const [copyMsg, setCopyMsg] = useState("");
 
   const [error, setError] = useState("");
+  const [leadDismissed, setLeadDismissed] = useState(false);
+  const [leadBusy, setLeadBusy] = useState(false);
+  const [leadEmail, setLeadEmail] = useState("");
+  const [leadName, setLeadName] = useState("");
+  const [leadSchool, setLeadSchool] = useState("");
+  const [leadConsentCommunity, setLeadConsentCommunity] = useState(true);
+  const [leadConsentProduct, setLeadConsentProduct] = useState(false);
+  const [leadMsg, setLeadMsg] = useState("");
+  const [leadError, setLeadError] = useState("");
   const [manualSourceRef, setManualSourceRef] = useState("");
   const [manualSourceTitle, setManualSourceTitle] = useState("");
   const [manualSourceSnippet, setManualSourceSnippet] = useState("");
@@ -176,6 +306,50 @@ export default function SourceGameTeacherPage() {
   const [manualSourceUrl, setManualSourceUrl] = useState("");
   const [manualSourceImage, setManualSourceImage] = useState("");
   const [manualSourceType, setManualSourceType] = useState("TEXT");
+
+  useEffect(() => {
+    if (!teacherIntroOpen) return;
+    const stage = teacherIntroStageRef.current;
+    const text = teacherIntroTextRef.current;
+    if (!stage || !text) return;
+    const measure = () => {
+      const stageH = Math.max(360, stage.clientHeight || 0);
+      const textH = Math.max(180, text.scrollHeight || 0);
+      const startPx = Math.round(stageH * 0.95);
+      const endPx = Math.max(140, Math.round(textH - stageH * 0.14));
+      setTeacherIntroMotion((prev) =>
+        prev.startPx === startPx && prev.endPx === endPx ? prev : { startPx, endPx }
+      );
+    };
+    measure();
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => measure());
+      ro.observe(stage);
+      ro.observe(text);
+    } else {
+      const t = window.setTimeout(measure, 250);
+      return () => window.clearTimeout(t);
+    }
+    return () => {
+      if (ro) ro.disconnect();
+    };
+  }, [teacherIntroOpen, teacherIntroSeed]);
+
+  useEffect(() => {
+    try {
+      const dismissed = window.localStorage.getItem("uts_teacher_lead_dismissed_v1") === "1";
+      const savedEmail = asText(window.localStorage.getItem("uts_teacher_lead_email_v1"));
+      const savedName = asText(window.localStorage.getItem("uts_teacher_lead_name_v1"));
+      const savedSchool = asText(window.localStorage.getItem("uts_teacher_lead_school_v1"));
+      setLeadDismissed(dismissed);
+      if (savedEmail) setLeadEmail(savedEmail);
+      if (savedName) setLeadName(savedName);
+      if (savedSchool) setLeadSchool(savedSchool);
+    } catch {
+      // localstorage fail-open
+    }
+  }, []);
 
   const topChips = useMemo(() => {
     return searchResults.slice(0, 5).map((s) => asText(s.title || s.id)).filter(Boolean);
@@ -186,7 +360,10 @@ export default function SourceGameTeacherPage() {
     if (!Number.isFinite(tvNum) || tvNum < 1) return [] as Array<{ value: string; label: string }>;
     return tvKaOptions
       .filter((opt) => opt.tv === tvNum)
-      .map((opt) => ({ value: `KA${opt.ka}`, label: opt.kaLabel }));
+      .map((opt) => ({
+        value: `KA${opt.ka}`,
+        label: asText(opt.kaLabel).replace(/^KA\d+\s*-\s*/i, "") || asText(opt.kaLabel),
+      }));
   }, [tv]);
 
   useEffect(() => {
@@ -195,6 +372,9 @@ export default function SourceGameTeacherPage() {
       setKa(kaOptionsForTv[0].value);
     }
   }, [kaOptionsForTv, ka]);
+
+  const tvHumanLabel = useMemo(() => formatTvHuman(tv), [tv]);
+  const kaHumanLabel = useMemo(() => formatKaHuman(ka, tv), [ka, tv]);
 
   useEffect(() => {
     if (step !== "game") return;
@@ -280,14 +460,21 @@ export default function SourceGameTeacherPage() {
     return normalizeAudioInputForSession(musicUrl);
   }, [musicUrl]);
   const teacherVolume01 = Math.max(0, Math.min(1, teacherMusicVolume / 100));
+  const teacherIntroTrackUrl = BUNDLED_CHASE_TRACK;
+  const teacherActiveTrackUrl = teacherIntroOpen
+    ? teacherIntroTrackUrl
+    : step === "game" && teacherMusicOn
+    ? teacherPreviewTrackUrl
+    : "";
 
   useEffect(() => {
-    if (step !== "game" || !teacherMusicOn || !teacherPreviewTrackUrl) {
+    if (!teacherActiveTrackUrl) {
       if (teacherTrackRef.current) {
         teacherTrackRef.current.pause();
         teacherTrackRef.current.currentTime = 0;
         teacherTrackRef.current = null;
       }
+      setIntroMusicBlocked(false);
       return;
     }
     if (teacherTrackRef.current) {
@@ -295,23 +482,58 @@ export default function SourceGameTeacherPage() {
       teacherTrackRef.current.currentTime = 0;
       teacherTrackRef.current = null;
     }
-    const audio = new Audio(teacherPreviewTrackUrl);
+    const audio = new Audio(teacherActiveTrackUrl);
     audio.loop = true;
     audio.volume = teacherVolume01;
     teacherTrackRef.current = audio;
-    audio.play().catch(() => void 0);
+    audio.play().then(() => {
+      setIntroMusicBlocked(false);
+    }).catch(async () => {
+      try {
+        audio.muted = true;
+        await audio.play();
+        audio.muted = false;
+        audio.volume = teacherVolume01;
+        setIntroMusicBlocked(false);
+      } catch {
+        if (teacherIntroOpen) setIntroMusicBlocked(true);
+      }
+    });
     return () => {
       audio.pause();
       audio.currentTime = 0;
       if (teacherTrackRef.current === audio) teacherTrackRef.current = null;
     };
-  }, [step, teacherMusicOn, teacherPreviewTrackUrl]);
+  }, [teacherActiveTrackUrl, teacherVolume01, teacherIntroOpen]);
 
   useEffect(() => {
     if (teacherTrackRef.current) {
       teacherTrackRef.current.volume = teacherVolume01;
     }
   }, [teacherVolume01]);
+
+  function tryStartIntroMusic() {
+    const track = teacherTrackRef.current;
+    if (!teacherIntroOpen || !track) return;
+    track.play().then(() => {
+      setIntroMusicBlocked(false);
+    }).catch(() => {
+      setIntroMusicBlocked(true);
+    });
+  }
+
+  useEffect(() => {
+    if (!teacherIntroOpen || !introMusicBlocked) return;
+    const onAnyInteraction = () => {
+      tryStartIntroMusic();
+    };
+    window.addEventListener("pointerdown", onAnyInteraction, { once: true });
+    window.addEventListener("keydown", onAnyInteraction, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", onAnyInteraction);
+      window.removeEventListener("keydown", onAnyInteraction);
+    };
+  }, [teacherIntroOpen, introMusicBlocked]);
 
   async function copyText(label: string, value: string) {
     if (!value) return;
@@ -360,11 +582,23 @@ export default function SourceGameTeacherPage() {
   }
 
   async function selectSource(src: SearchSource) {
-    setSelectedSourceId(String(src.id || ""));
-    setSelectedSource(src);
-    const enriched = await enrichWithDetail(src);
+    const normalized = normalizeSearchSource(src);
+    const key = asText(normalized._uiKey) || sourceUiKey(normalized);
+    setSelectedSourceId(key);
+    setSelectedSource(normalized);
+    const enrichedRaw = await enrichWithDetail(normalized);
+    const enriched = normalizeSearchSource({
+      ...normalized,
+      ...enrichedRaw,
+      _uiKey: key,
+    });
     setSelectedSource(enriched);
-    setSearchResults((prev) => prev.map((p) => (String(p.id) === String(src.id) ? { ...p, ...enriched } : p)));
+    setSearchResults((prev) =>
+      prev.map((p) => {
+        const rowKey = asText(p._uiKey) || sourceUiKey(p);
+        return rowKey === key ? { ...p, ...enriched, _uiKey: key } : p;
+      })
+    );
   }
 
   async function runSourceSearch() {
@@ -416,7 +650,8 @@ export default function SourceGameTeacherPage() {
       });
       const json = await res.json();
       const raw = Array.isArray(json?.sources) ? (json.sources as SearchSource[]) : [];
-      const providerScoped = raw.filter((src) => {
+      const rawNormalized = raw.map((src, idx) => normalizeSearchSource(src, idx));
+      const providerScoped = rawNormalized.filter((src) => {
         const p = asText(src.provider).toLowerCase();
         if (providerFilter === "KLEIO") return p.includes("kleio");
         if (providerFilter === "CITO") return p.includes("cito");
@@ -426,10 +661,19 @@ export default function SourceGameTeacherPage() {
       const tokens = topTokens(q);
 
       const scored = imageScoped
-        .map((src) => {
-          const blob = normLex([src.title, src.description, src.fullText, src.mainText].filter(Boolean).join(" "));
+        .map((src, idx) => {
+          const title = pickSourceDisplayTitle(src);
+          const blob = normLex([title, src.description, src.fullText, src.mainText].filter(Boolean).join(" "));
           const tokenScore = tokens.reduce((acc, t) => (blob.includes(t) ? acc + 1 : acc), 0);
-          return { ...src, _score: tokenScore };
+          return normalizeSearchSource(
+            {
+              ...src,
+              title,
+              imageUrl: pickSourceImageUrl(src) || null,
+              _score: tokenScore,
+            },
+            idx
+          );
         })
         .sort((a, b) => Number(b._score || 0) - Number(a._score || 0));
 
@@ -481,8 +725,9 @@ export default function SourceGameTeacherPage() {
       url: asText(manualSourceUrl),
       type: asText(manualSourceType) || "TEXT",
       _score: 999,
+      _uiKey: `manual|${ref}`,
     };
-    setSelectedSourceId(ref);
+    setSelectedSourceId(asText(src._uiKey) || ref);
     setSelectedSource(src);
   }
 
@@ -505,8 +750,10 @@ export default function SourceGameTeacherPage() {
       const sourceText = cleanText(selectedSource.fullText || selectedSource.mainText || selectedSource.description);
       const sourceUrl = asText(selectedSource.url || selectedSource.link);
       const term = Math.max(15, toInt(termSeconds, 60));
-      const duration = Math.max(15, computedReadingSeconds + term);
+      const readingWithGrace = computedReadingSeconds + READING_GRACE_AFTER_CRAWL_SECONDS;
+      const duration = Math.max(15, readingWithGrace + term);
       const questionCount = Math.max(2, Math.min(12, toInt(round2Count, 5)));
+      const chipRainSeconds = chipRainEnabled ? 35 : 0;
 
       const createRes = await fetch("/api/sourcegame/sessions", {
         method: "POST",
@@ -527,11 +774,13 @@ export default function SourceGameTeacherPage() {
           teams,
           settings: {
             duration_seconds: duration,
-            reading_seconds: computedReadingSeconds,
+            reading_seconds: readingWithGrace,
             term_seconds: term,
             lock_teams_on_start: true,
             bonus_tv: true,
             bonus_ka: true,
+            enable_chip_rain: chipRainEnabled,
+            chip_rain_seconds: chipRainSeconds,
             round2_question_count: questionCount,
             question_reading_seconds: computedReadingSeconds,
             question_maker_seconds: Math.max(30, Math.min(240, questionCount * 15)),
@@ -566,14 +815,32 @@ export default function SourceGameTeacherPage() {
       return;
     }
 
+    let boardWindow: Window | null = null;
+    try {
+      boardWindow = window.open("", "_blank", "noopener,noreferrer");
+    } catch {
+      boardWindow = null;
+    }
+
     setSessionBusy(true);
     setError("");
     try {
-      const res = await fetch(`/api/sourcegame/sessions/${session.id}/start`, { method: "POST" });
+      const sid = session.id;
+      const res = await fetch(`/api/sourcegame/sessions/${sid}/start`, { method: "POST" });
       const json = await res.json();
       if (!json?.ok) throw new Error(json?.error || "Sessie starten mislukt");
-      await refreshSession(session.id);
+      await refreshSession(sid);
+      if (boardWindow) {
+        boardWindow.location.href = `/sourcegame/board/${sid}`;
+      }
     } catch (e: any) {
+      if (boardWindow) {
+        try {
+          boardWindow.close();
+        } catch {
+          // ignore
+        }
+      }
       setError(String(e?.message || e));
     } finally {
       setSessionBusy(false);
@@ -596,14 +863,81 @@ export default function SourceGameTeacherPage() {
     }
   }
 
+  function dismissLeadCard() {
+    setLeadDismissed(true);
+    try {
+      window.localStorage.setItem("uts_teacher_lead_dismissed_v1", "1");
+    } catch {
+      // ignore
+    }
+  }
+
+  async function submitTeacherLead() {
+    setLeadError("");
+    setLeadMsg("");
+    const email = asText(leadEmail).toLowerCase();
+    if (!email) {
+      setLeadError("Vul je e-mailadres in.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setLeadError("Gebruik een geldig e-mailadres.");
+      return;
+    }
+    if (!leadConsentCommunity && !leadConsentProduct) {
+      setLeadError("Kies minimaal 1 opt-in.");
+      return;
+    }
+    setLeadBusy(true);
+    try {
+      const res = await fetch("/api/sourcegame/teacher-lead", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email,
+          display_name: asText(leadName),
+          school_name: asText(leadSchool),
+          consent_community: leadConsentCommunity,
+          consent_product: leadConsentProduct,
+        }),
+      });
+      const json = await res.json();
+      if (!json?.ok) throw new Error(json?.error || "Aanmelden mislukt");
+      try {
+        window.localStorage.setItem("uts_teacher_lead_email_v1", email);
+        window.localStorage.setItem("uts_teacher_lead_name_v1", asText(leadName));
+        window.localStorage.setItem("uts_teacher_lead_school_v1", asText(leadSchool));
+        window.localStorage.setItem("uts_teacher_lead_dismissed_v1", "1");
+      } catch {
+        // ignore
+      }
+      setLeadMsg("Top. Je bent optioneel aangemeld.");
+      setLeadDismissed(true);
+    } catch (e: any) {
+      setLeadError(String(e?.message || e));
+    } finally {
+      setLeadBusy(false);
+    }
+  }
+
+  const teacherIntroWordCount = useMemo(
+    () => countWords([TEACHER_INTRO_CRAWL_TITLE, ...TEACHER_INTRO_CRAWL_BLOCKS].join(" ")),
+    []
+  );
+  const teacherIntroDuration = useMemo(
+    () => Math.max(30, Math.ceil(estimateReadingSeconds(teacherIntroWordCount, TEACHER_INTRO_WPM) / TEACHER_INTRO_SPEED_MULTIPLIER)),
+    [teacherIntroWordCount]
+  );
+
   const gameCode = asText(session?.game_code || (session?.id ? `US${session.id}` : ""));
   const playerJoinPath = "/join";
   const playerJoinUrl = typeof window !== "undefined" ? `${window.location.origin}${playerJoinPath}` : playerJoinPath;
+  const smartboardPath = session?.id ? `/sourcegame/board/${session.id}` : "";
+  const smartboardUrl = typeof window !== "undefined" && smartboardPath ? `${window.location.origin}${smartboardPath}` : smartboardPath;
   const joinedCount = (session?.teams || []).reduce((acc, t) => acc + Number(t.players_count || 0), 0);
   const canStart = Boolean(session?.id) && asText(session?.status) !== "live" && joinedCount >= 1;
   const phase = asText(session?.clock?.phase || "");
   const canStopAutocue = Boolean(session?.id) && asText(session?.status) === "live" && (phase === "reading" || phase === "question_reading");
-
   useEffect(() => {
     if (!session?.id) return;
     const timer = window.setInterval(() => {
@@ -621,22 +955,143 @@ export default function SourceGameTeacherPage() {
           <p>Docentmodule: eerst bron kiezen in QL-flow, daarna game instellen.</p>
         </div>
 
-        <div className="uts-ql-tabs">
-          <button type="button" className={`uts-ql-tab ${step === "select" ? "active" : ""}`} onClick={() => setStep("select")}>
-            Pagina 1 · Bron + Hoofdvraag
-          </button>
-          <button
-            type="button"
-            className={`uts-ql-tab ${step === "game" ? "active" : ""}`}
-            onClick={() => {
-              if (selectedSource) setStep("game");
-            }}
-          >
-            Pagina 2 · Game instellingen
-          </button>
-        </div>
+        {teacherIntroOpen ? (
+          <section className="uts-ql-card uts-teacher-intro-card">
+            <div className="uts-teacher-intro-logo">USE THE SOURCE</div>
+            <div className="uts-teacher-cockpit-frame">
+              <div className="uts-teacher-cockpit-strut uts-teacher-cockpit-strut-left" aria-hidden="true" />
+              <div className="uts-teacher-cockpit-strut uts-teacher-cockpit-strut-right" aria-hidden="true" />
+              <div className="uts-teacher-cockpit-side-window uts-teacher-cockpit-side-window-left" aria-hidden="true" />
+              <div className="uts-teacher-cockpit-side-window uts-teacher-cockpit-side-window-right" aria-hidden="true" />
+              <div className="uts-teacher-cockpit-topbar" aria-hidden="true" />
+              <div className="uts-teacher-cockpit-window">
+                <div
+                  ref={teacherIntroStageRef}
+                  className="uts-crawl-stage uts-teacher-crawl-stage"
+                  style={{
+                    ["--crawl-duration" as any]: `${teacherIntroDuration}s`,
+                    ["--crawl-start-px" as any]: `${teacherIntroMotion.startPx}px`,
+                    ["--crawl-end-px" as any]: `${teacherIntroMotion.endPx}px`,
+                  }}
+                >
+                  <div className="uts-crawl-fade" />
+                  <div className="uts-crawl-label">AUTOCUE · MISSION BRIEFING</div>
+                  <div className="uts-crawl-perspective">
+                    <div
+                      ref={teacherIntroTextRef}
+                      key={`${teacherIntroSeed}:${teacherIntroDuration}:${teacherIntroMotion.startPx}:${teacherIntroMotion.endPx}`}
+                      className="uts-crawl-text uts-crawl-text-preview-loop uts-teacher-crawl-text"
+                    >
+                      <h3>{TEACHER_INTRO_CRAWL_TITLE}</h3>
+                      {TEACHER_INTRO_CRAWL_BLOCKS.map((block, i) => (
+                        <p key={`teacher-intro-${i}-${block.slice(0, 18)}`}>{block}</p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="uts-teacher-cockpit-console uts-teacher-cockpit-console-left" aria-hidden="true" />
+              <div className="uts-teacher-cockpit-console uts-teacher-cockpit-console-right" aria-hidden="true" />
+              <div className="uts-teacher-cockpit-console-center" aria-hidden="true" />
+              <div className="uts-teacher-cockpit-meta">
+                Cockpit raam: groot · 3D autocue · loop {teacherIntroDuration}s
+                <div className="uts-teacher-cockpit-actions">
+                  {introMusicBlocked ? (
+                    <button
+                      type="button"
+                      className="uts-btn-secondary"
+                      onClick={tryStartIntroMusic}
+                    >
+                      Start soundtrack
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="uts-btn-secondary"
+                    onClick={() => setTeacherIntroSeed((v) => v + 1)}
+                  >
+                    Herstart briefing
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="uts-ql-actions">
+              <button
+                type="button"
+                className="uts-btn-primary"
+                onClick={() => setTeacherIntroOpen(false)}
+              >
+                Find the Source
+              </button>
+            </div>
+          </section>
+        ) : (
+          <>
+            <div className="uts-ql-tabs">
+              <button type="button" className={`uts-ql-tab ${step === "select" ? "active" : ""}`} onClick={() => setStep("select")}>
+                Pagina 1 · Bron + Hoofdvraag
+              </button>
+              <button
+                type="button"
+                className={`uts-ql-tab ${step === "game" ? "active" : ""}`}
+                onClick={() => {
+                  if (selectedSource) setStep("game");
+                }}
+              >
+                Pagina 2 · Game instellingen
+              </button>
+            </div>
 
-        {step === "select" ? (
+            {!leadDismissed ? (
+              <section className="uts-ql-card uts-optin-card">
+                <div className="uts-optin-head">
+                  <h3>Optioneel aanmelden</h3>
+                  <button type="button" className="uts-optin-skip" onClick={dismissLeadCard}>Later</button>
+                </div>
+                <p className="uts-muted" style={{ marginTop: 0 }}>
+                  Wil je updates over nieuwe spelvormen en extra rondes? Laat vrijblijvend je e-mail achter.
+                </p>
+                <div className="uts-optin-grid">
+                  <input
+                    className="uts-ql-input"
+                    value={leadEmail}
+                    onChange={(e) => setLeadEmail(e.target.value)}
+                    placeholder="jij@school.nl"
+                  />
+                  <input
+                    className="uts-ql-input"
+                    value={leadName}
+                    onChange={(e) => setLeadName(e.target.value)}
+                    placeholder="Naam (optioneel)"
+                  />
+                  <input
+                    className="uts-ql-input"
+                    value={leadSchool}
+                    onChange={(e) => setLeadSchool(e.target.value)}
+                    placeholder="School (optioneel)"
+                  />
+                </div>
+                <div className="uts-optin-consent">
+                  <label className="uts-ql-check">
+                    <input type="checkbox" checked={leadConsentCommunity} onChange={(e) => setLeadConsentCommunity(e.target.checked)} />
+                    <span>Community-updates ontvangen</span>
+                  </label>
+                  <label className="uts-ql-check">
+                    <input type="checkbox" checked={leadConsentProduct} onChange={(e) => setLeadConsentProduct(e.target.checked)} />
+                    <span>Nieuws over extra spellen ontvangen</span>
+                  </label>
+                </div>
+                <div className="uts-ql-actions">
+                  <button type="button" className="uts-btn-primary" onClick={submitTeacherLead} disabled={leadBusy}>
+                    {leadBusy ? "Aanmelden..." : "Vrijblijvend aanmelden"}
+                  </button>
+                </div>
+                {leadError ? <div className="uts-error" style={{ marginTop: 8 }}>{leadError}</div> : null}
+                {leadMsg ? <div className="uts-copy-msg" style={{ marginTop: 8 }}>{leadMsg}</div> : null}
+              </section>
+            ) : null}
+
+            {step === "select" ? (
           <div className="uts-ql-grid">
             <section className="uts-ql-card">
               <h2>Instellingen</h2>
@@ -776,20 +1231,21 @@ export default function SourceGameTeacherPage() {
 
               <div className="uts-preview-list">
                 {searchResults.map((s, idx) => {
-                  const active = String(s.id) === String(selectedSourceId);
+                  const rowKey = asText(s._uiKey) || sourceUiKey(s, idx);
+                  const active = rowKey === selectedSourceId;
                   const snippet = truncateAtWordEnd(s.description || s.mainText || s.fullText, 320);
-                  const imageSnippetUrl = asText(s.imageUrl);
+                  const imageSnippetUrl = pickSourceImageUrl(s);
                   const showImageSnippet = hasImageSignal(s) && !!imageSnippetUrl;
                   return (
                     <button
-                      key={`${s.id}-${idx}`}
+                      key={rowKey}
                       type="button"
                       className={`uts-preview-card ${active ? "active" : ""}`}
                       onClick={() => {
                         void selectSource(s);
                       }}
                     >
-                      <div className="uts-preview-title">{asText(s.title || s.id)}</div>
+                      <div className="uts-preview-title">{pickSourceDisplayTitle(s)}</div>
                       <div className="uts-preview-meta">{asText(s.provider) || "Bron"} · {asText(s.type) || "TEXT"}</div>
                       <div className="uts-preview-badges">
                         <span className="uts-badge">{idx < 4 ? "★ ★ ★ meest relevant" : "★ ★ relevant"}</span>
@@ -798,7 +1254,7 @@ export default function SourceGameTeacherPage() {
                         <div className="uts-preview-image-snippet-wrap">
                           <img
                             src={imageSnippetUrl}
-                            alt={`snippet ${asText(s.title || s.id)}`}
+                            alt={`snippet ${pickSourceDisplayTitle(s)}`}
                             className="uts-preview-image-snippet"
                             loading="lazy"
                           />
@@ -861,7 +1317,8 @@ export default function SourceGameTeacherPage() {
               </div>
               <div className="uts-source-mini">
                 <div><strong>Gekozen bron:</strong> {asText(selectedSource?.title || selectedSource?.id) || "(geen)"}</div>
-                <div className="uts-source-mini-meta">{tv || "TV?"} · {ka || "KA?"}</div>
+                <div className="uts-source-mini-meta">{tvHumanLabel}</div>
+                <div className="uts-source-mini-meta">{kaHumanLabel}</div>
               </div>
 
               <label className="uts-ql-label">Teams (komma-gescheiden)</label>
@@ -887,7 +1344,9 @@ export default function SourceGameTeacherPage() {
                 </button>
               </div>
               <div className="uts-muted">
-                Geschatte leestijd: <b>{computedReadingSeconds}s</b> ({previewWordCount} woorden).
+                Geschatte leestijd crawl: <b>{computedReadingSeconds}s</b> ({previewWordCount} woorden) ·
+                uitloop na laatste zin: <b>{READING_GRACE_AFTER_CRAWL_SECONDS}s</b> ·
+                leesfase totaal: <b>{computedReadingSeconds + READING_GRACE_AFTER_CRAWL_SECONDS}s</b>.
               </div>
 
               <label className="uts-ql-label">Muziek tijdens wachten (voor start)</label>
@@ -935,8 +1394,18 @@ export default function SourceGameTeacherPage() {
 
               <div className="uts-params-grid">
                 <div>
-                  <label className="uts-ql-label">Termtijd (s)</label>
+                  <label className="uts-ql-label">Begrippenronde (s)</label>
                   <input className="uts-ql-input" value={termSeconds} onChange={(e) => setTermSeconds(e.target.value)} />
+                </div>
+                <div style={{ display: "flex", alignItems: "end" }}>
+                  <label className="uts-ql-check" style={{ marginBottom: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={chipRainEnabled}
+                      onChange={(e) => setChipRainEnabled(Boolean(e.target.checked))}
+                    />
+                    <span>Bonusronde begrippenregen (chip-rain)</span>
+                  </label>
                 </div>
                 <div>
                   <label className="uts-ql-label">Aantal quizvragen</label>
@@ -978,9 +1447,9 @@ export default function SourceGameTeacherPage() {
                     {sessionBusy ? "Maken..." : "Prepare game"}
                   </button>
                 ) : (
-                  <button type="button" className="uts-btn-primary" disabled={sessionBusy || !canStart} onClick={startGame}>
-                    {sessionBusy ? "Starten..." : "Start game"}
-                  </button>
+                  <span className="uts-muted" style={{ alignSelf: "center", marginTop: 12 }}>
+                    Sessie klaar. Start via <b>Game live</b>.
+                  </span>
                 )}
               </div>
               {session?.id ? (
@@ -998,9 +1467,10 @@ export default function SourceGameTeacherPage() {
                 <div className="uts-session-meta">
                   <div><strong>Sessie:</strong> #{session.id}</div>
                   <div>
-                    <strong>Fase:</strong> {phase || "onbekend"}
-                    {Number.isFinite(Number(session.clock?.seconds_left_phase)) ? (
-                      <> · {Math.max(0, Number(session.clock?.seconds_left_phase || 0))}s</>
+                    <strong>Fase:</strong> {phaseLabel(phase)}
+                    {["terms", "chip_rain", "question_maker", "quiz"].includes(asText(phase).toLowerCase()) &&
+                    Number.isFinite(Number(session.clock?.seconds_left_phase)) ? (
+                      <> · {Math.max(0, Number(session.clock?.seconds_left_phase || 0))}s resterend</>
                     ) : null}
                   </div>
                   <div>
@@ -1010,6 +1480,19 @@ export default function SourceGameTeacherPage() {
                   <div>
                     <strong>Leerling-link:</strong> <a href={playerJoinPath} target="_blank" rel="noreferrer">{playerJoinPath}</a>
                     <button className="uts-copy" type="button" onClick={() => copyText("Leerling-link", playerJoinUrl)}>Kopieer</button>
+                  </div>
+                  <div>
+                    <strong>Smartboard joinscherm:</strong>{" "}
+                    {smartboardPath ? (
+                      <>
+                        <a href={smartboardPath} target="_blank" rel="noreferrer">{smartboardPath}</a>
+                        <button className="uts-copy" type="button" onClick={() => copyText("Smartboard-link", smartboardUrl)}>
+                          Kopieer
+                        </button>
+                      </>
+                    ) : (
+                      <span className="uts-muted">Nog niet beschikbaar</span>
+                    )}
                   </div>
                   <div className="uts-links">
                     {(session.teams || []).map((t) => (
@@ -1021,6 +1504,19 @@ export default function SourceGameTeacherPage() {
                   <div className="uts-ql-actions">
                     <a className="uts-btn-secondary" href={`/sourcegame/play/${session.id}`} target="_blank" rel="noreferrer">Open host scherm</a>
                     <a className="uts-btn-primary" href={playerJoinPath} target="_blank" rel="noreferrer">Open leerling join</a>
+                    {smartboardPath ? (
+                      <a className="uts-btn-secondary" href={smartboardPath} target="_blank" rel="noreferrer">
+                        Open smartboard join
+                      </a>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="uts-btn-start"
+                      onClick={startGame}
+                      disabled={sessionBusy || !canStart}
+                    >
+                      {sessionBusy ? "Starten..." : "Start game"}
+                    </button>
                     <button
                       type="button"
                       className="uts-btn-stop"
@@ -1034,6 +1530,8 @@ export default function SourceGameTeacherPage() {
               ) : null}
             </section>
           </div>
+            )}
+          </>
         )}
 
         {error ? <div className="uts-error">{error}</div> : null}
