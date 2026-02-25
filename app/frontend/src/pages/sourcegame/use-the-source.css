@@ -2141,10 +2141,10 @@
 
 .uts-teacher-crawl-stage {
   position: absolute;
-  left: 26%;
-  right: 26%;
-  top: 13%;
-  bottom: 42%;
+  left: 24%;
+  right: 28%;
+  top: 11%;
+  bottom: 44%;
   min-height: 0;
   height: auto;
   perspective: 760px;
@@ -2618,10 +2618,10 @@
   }
 
   .uts-teacher-crawl-stage {
-    left: 19%;
-    right: 19%;
-    top: 15%;
-    bottom: 44%;
+    left: 17%;
+    right: 21%;
+    top: 13%;
+    bottom: 46%;
     clip-path: polygon(4% 0, 96% 0, 100% 100%, 0 100%);
   }
 
