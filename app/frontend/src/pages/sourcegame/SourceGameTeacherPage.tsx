@@ -315,8 +315,8 @@ export default function SourceGameTeacherPage() {
     const measure = () => {
       const stageH = Math.max(360, stage.clientHeight || 0);
       const textH = Math.max(180, text.scrollHeight || 0);
-      const startPx = Math.max(90, Math.round(stageH * 0.32));
-      const endPx = Math.max(180, Math.round(textH - stageH * 0.62));
+      const startPx = Math.max(28, Math.round(stageH * 0.08));
+      const endPx = Math.max(220, Math.round(textH - stageH * 0.76));
       setTeacherIntroMotion((prev) =>
         prev.startPx === startPx && prev.endPx === endPx ? prev : { startPx, endPx }
       );

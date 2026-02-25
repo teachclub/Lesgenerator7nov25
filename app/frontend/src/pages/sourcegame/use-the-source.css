@@ -2016,8 +2016,8 @@
   background:
     linear-gradient(180deg, rgba(4, 9, 16, 0.14), rgba(4, 9, 16, 0.38)),
     url("/images/sourcegame-cockpit.jpg");
-  background-size: cover;
-  background-position: center center;
+  background-size: 112% auto;
+  background-position: center 44%;
   box-shadow:
     inset 0 0 0 1px rgba(162, 199, 242, 0.12),
     inset 0 -120px 110px rgba(6, 14, 26, 0.56),
@@ -2056,7 +2056,7 @@
 
 .uts-teacher-cockpit-window-wrap {
   position: absolute;
-  inset: 4.8% 7.8% 12.4%;
+  inset: 3.6% 6.2% 10.8%;
   z-index: 2;
 }
 
@@ -2140,11 +2140,16 @@
 }
 
 .uts-teacher-crawl-stage {
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  top: 15%;
+  bottom: 26%;
   min-height: 0;
-  height: 100%;
+  height: auto;
   perspective: 760px;
-  position: relative;
   overflow: hidden;
+  clip-path: polygon(3.5% 0, 96.5% 0, 100% 100%, 0 100%);
   z-index: 2;
 }
 
@@ -2158,11 +2163,11 @@
 }
 
 .uts-teacher-crawl-stage .uts-crawl-perspective {
-  left: 17%;
-  right: 17%;
-  top: 14%;
-  bottom: 7%;
-  transform: rotateX(42deg);
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  transform: rotateX(44deg);
 }
 
 .uts-teacher-crawl-stage .uts-crawl-fade {
@@ -2592,7 +2597,7 @@
   }
 
   .uts-teacher-cockpit-window-wrap {
-    inset: 4.4% 4.6% 11.8%;
+    inset: 3.6% 4.2% 10.8%;
   }
 
   .uts-teacher-cockpit-window {
@@ -2605,11 +2610,19 @@
   }
 
   .uts-teacher-crawl-stage .uts-crawl-perspective {
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    transform: rotateX(34deg);
+  }
+
+  .uts-teacher-crawl-stage {
     left: 12%;
     right: 12%;
-    top: 12%;
-    bottom: 6%;
-    transform: rotateX(34deg);
+    top: 14%;
+    bottom: 28%;
+    clip-path: polygon(2.5% 0, 97.5% 0, 100% 100%, 0 100%);
   }
 
   .uts-teacher-crawl-text h3 {
