@@ -1897,10 +1897,11 @@
 }
 
 .uts-wrap-teacher--intro-open {
-  width: min(1900px, 99.5vw);
+  width: 100%;
+  max-width: none;
   min-height: 100vh;
-  padding-top: 8px;
-  padding-bottom: 10px;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .uts-ql-head {
@@ -1981,13 +1982,16 @@
 }
 
 .uts-teacher-intro-card--fullscreen {
-  min-height: calc(100vh - 20px);
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  min-height: 100vh;
   background: transparent;
   border: 0;
   box-shadow: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 8px;
 }
 
 .uts-teacher-intro-logo {
@@ -2006,19 +2010,20 @@
 
 .uts-teacher-cockpit-frame {
   position: relative;
+  width: 100%;
   border: 1px solid #4f6587;
   border-radius: 20px;
   background:
-    linear-gradient(180deg, rgba(4, 9, 16, 0.18), rgba(4, 9, 16, 0.5)),
+    linear-gradient(180deg, rgba(4, 9, 16, 0.14), rgba(4, 9, 16, 0.38)),
     url("/images/sourcegame-cockpit.jpg");
   background-size: cover;
   background-position: center center;
   box-shadow:
-    inset 0 0 0 1px rgba(162, 199, 242, 0.14),
-    inset 0 -120px 110px rgba(6, 14, 26, 0.68),
+    inset 0 0 0 1px rgba(162, 199, 242, 0.12),
+    inset 0 -120px 110px rgba(6, 14, 26, 0.56),
     0 24px 44px rgba(0, 0, 0, 0.44);
-  min-height: clamp(760px, 84vh, 1180px);
-  padding: clamp(10px, 1.2vw, 20px) clamp(8px, 1.4vw, 20px) clamp(74px, 9vh, 122px);
+  min-height: clamp(660px, 84vh, 1120px);
+  padding: 0;
   overflow: hidden;
 }
 
@@ -2028,47 +2033,47 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(120% 90% at 50% -16%, rgba(189, 222, 255, 0.24), transparent 36%),
-    linear-gradient(180deg, rgba(6, 13, 26, 0.12), rgba(6, 13, 26, 0.28));
+    radial-gradient(120% 90% at 50% -14%, rgba(189, 222, 255, 0.22), transparent 34%),
+    linear-gradient(180deg, rgba(6, 13, 26, 0.1), rgba(6, 13, 26, 0.2));
   z-index: 1;
 }
 
 .uts-teacher-cockpit-frame::after {
   content: "";
   position: absolute;
-  left: 4%;
-  right: 4%;
-  bottom: 8px;
-  height: clamp(56px, 8.4vh, 92px);
-  border-radius: 12px;
-  border: 1px solid rgba(145, 181, 224, 0.3);
+  left: 7%;
+  right: 7%;
+  bottom: 10px;
+  height: clamp(38px, 5.2vh, 62px);
+  border-radius: 999px;
+  border: 1px solid rgba(145, 181, 224, 0.24);
   background:
-    linear-gradient(180deg, rgba(70, 96, 132, 0.24), rgba(16, 27, 44, 0.42));
-  box-shadow: inset 0 0 0 1px rgba(199, 225, 252, 0.08);
+    linear-gradient(180deg, rgba(70, 96, 132, 0.18), rgba(16, 27, 44, 0.28));
+  box-shadow: inset 0 0 0 1px rgba(199, 225, 252, 0.05);
   pointer-events: none;
-  z-index: 1;
+  z-index: 3;
 }
 
 .uts-teacher-cockpit-window-wrap {
-  position: relative;
-  z-index: 3;
-  width: 100%;
-  max-width: none;
-  margin: 0 auto;
+  position: absolute;
+  inset: 4.8% 7.8% 12.4%;
+  z-index: 2;
 }
 
 .uts-teacher-cockpit-window {
   position: relative;
-  border: 2px solid rgba(177, 208, 242, 0.64);
+  width: 100%;
+  height: 100%;
+  border: 2px solid rgba(177, 208, 242, 0.58);
   border-radius: 26px 26px 18px 18px;
   overflow: hidden;
   isolation: isolate;
-  min-height: clamp(730px, 80vh, 1080px);
+  min-height: 0;
   background:
-    linear-gradient(180deg, rgba(10, 18, 34, 0.24), rgba(6, 12, 24, 0.34));
+    linear-gradient(180deg, rgba(10, 18, 34, 0.16), rgba(6, 12, 24, 0.2));
   box-shadow:
-    inset 0 0 0 1px rgba(205, 230, 255, 0.16),
-    inset 0 -40px 56px rgba(8, 16, 30, 0.34);
+    inset 0 0 0 1px rgba(205, 230, 255, 0.1),
+    inset 0 -40px 56px rgba(8, 16, 30, 0.28);
   clip-path: polygon(3.6% 0, 96.4% 0, 100% 10%, 100% 100%, 0 100%, 0 10%);
   z-index: 3;
 }
@@ -2087,22 +2092,23 @@
 .uts-teacher-cockpit-window::after {
   content: "";
   position: absolute;
-  left: 8%;
-  right: 8%;
-  bottom: 12px;
-  height: 18px;
+  left: 9%;
+  right: 9%;
+  bottom: 10px;
+  height: 14px;
   border-radius: 999px;
-  border: 1px solid rgba(172, 205, 244, 0.3);
+  border: 1px solid rgba(172, 205, 244, 0.22);
   background:
-    linear-gradient(180deg, rgba(101, 140, 191, 0.22), rgba(26, 49, 82, 0.16));
+    linear-gradient(180deg, rgba(101, 140, 191, 0.15), rgba(26, 49, 82, 0.08));
   pointer-events: none;
   z-index: 3;
 }
 
 .uts-teacher-cockpit-screen {
-  position: relative;
-  margin: clamp(8px, 1vw, 16px) clamp(16px, 2.2vw, 34px) clamp(12px, 1.5vw, 20px);
-  min-height: clamp(680px, 74vh, 980px);
+  position: absolute;
+  inset: 2.6% 2.2% 3.2%;
+  margin: 0;
+  min-height: 0;
   border-radius: 26px 26px 16px 16px;
   border: 1px solid rgba(176, 206, 240, 0.48);
   overflow: hidden;
@@ -2153,7 +2159,8 @@
 }
 
 .uts-teacher-crawl-stage {
-  min-height: clamp(680px, 74vh, 980px);
+  min-height: 0;
+  height: 100%;
   perspective: 910px;
   position: relative;
   overflow: hidden;
@@ -2168,7 +2175,7 @@
 .uts-teacher-crawl-stage .uts-crawl-perspective {
   left: 5%;
   right: 5%;
-  bottom: -2%;
+  bottom: -3%;
   transform: rotateX(16deg);
 }
 
@@ -2178,15 +2185,15 @@
 }
 
 .uts-teacher-crawl-text h3 {
-  font-size: clamp(36px, 4vw, 70px);
+  font-size: clamp(34px, 3.6vw, 64px);
   letter-spacing: 0.07em;
   margin-bottom: 20px;
   text-shadow: 0 0 14px rgba(255, 220, 122, 0.44);
 }
 
 .uts-teacher-crawl-text p {
-  font-size: clamp(30px, 3.1vw, 52px);
-  line-height: 1.3;
+  font-size: clamp(25px, 2.55vw, 40px);
+  line-height: 1.32;
 }
 
 .uts-teacher-crawl-text {
@@ -2216,15 +2223,18 @@
 }
 
 .uts-teacher-cockpit-meta {
-  margin-top: 10px;
+  margin-top: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   color: #d4e1f7;
   font-size: 13px;
-  position: relative;
-  z-index: 3;
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  bottom: 8px;
+  z-index: 4;
   background: rgba(8, 14, 24, 0.56);
   border: 1px solid rgba(163, 194, 231, 0.24);
   border-radius: 10px;
@@ -2571,13 +2581,13 @@
   .uts-teacher-cockpit-window,
   .uts-teacher-cockpit-screen,
   .uts-teacher-crawl-stage {
-    min-height: clamp(440px, 62vh, 760px);
+    min-height: 0;
   }
 
   .uts-teacher-cockpit-frame {
-    padding: 8px 4px 58px;
+    padding: 0;
     border-radius: 16px;
-    min-height: calc(100vh - 110px);
+    min-height: calc(100vh - 92px);
   }
 
   .uts-wrap-teacher--intro-open {
@@ -2586,25 +2596,26 @@
   }
 
   .uts-teacher-intro-card--fullscreen {
-    min-height: calc(100vh - 10px);
-    padding: 6px;
+    min-height: 100vh;
+    padding: 4px;
   }
 
   .uts-teacher-intro-logo {
-    font-size: clamp(30px, 7.2vw, 58px);
+    font-size: clamp(30px, 7.2vw, 56px);
+    margin-bottom: 2px;
   }
 
   .uts-teacher-cockpit-window-wrap {
-    max-width: 100%;
+    inset: 4.4% 4.6% 11.8%;
   }
 
   .uts-teacher-cockpit-window {
     border-radius: 20px 20px 14px 14px;
-    min-height: clamp(500px, 68vh, 820px);
+    clip-path: polygon(2.8% 0, 97.2% 0, 100% 9%, 100% 100%, 0 100%, 0 9%);
   }
 
   .uts-teacher-cockpit-screen {
-    margin: 8px 8px 10px;
+    inset: 1.9% 1.6% 2.4%;
   }
 
   .uts-teacher-crawl-stage .uts-crawl-perspective {
@@ -2615,11 +2626,11 @@
   }
 
   .uts-teacher-crawl-text h3 {
-    font-size: clamp(26px, 4.4vw, 40px);
+    font-size: clamp(24px, 4.2vw, 38px);
   }
 
   .uts-teacher-crawl-text p {
-    font-size: clamp(21px, 3.8vw, 33px);
+    font-size: clamp(17px, 3.4vw, 28px);
     line-height: 1.31;
   }
 
@@ -2627,6 +2638,9 @@
     flex-direction: column;
     align-items: flex-start;
     font-size: 12px;
+    left: 3%;
+    right: 3%;
+    bottom: 4px;
   }
 }
 
