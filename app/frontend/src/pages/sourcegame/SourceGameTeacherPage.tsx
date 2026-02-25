@@ -315,8 +315,8 @@ export default function SourceGameTeacherPage() {
     const measure = () => {
       const stageH = Math.max(360, stage.clientHeight || 0);
       const textH = Math.max(180, text.scrollHeight || 0);
-      const startPx = Math.round(stageH * 0.95);
-      const endPx = Math.max(140, Math.round(textH - stageH * 0.14));
+      const startPx = Math.round(stageH * 0.72);
+      const endPx = Math.max(120, Math.round(textH - stageH * 0.34));
       setTeacherIntroMotion((prev) =>
         prev.startPx === startPx && prev.endPx === endPx ? prev : { startPx, endPx }
       );
@@ -949,14 +949,14 @@ export default function SourceGameTeacherPage() {
   return (
     <div className="uts-shell">
       <div className="uts-stars" />
-      <div className="uts-wrap uts-wrap-teacher">
-        <div className="uts-ql-head">
+      <div className={`uts-wrap uts-wrap-teacher ${teacherIntroOpen ? "uts-wrap-teacher--intro-open" : ""}`.trim()}>
+        <div className={`uts-ql-head ${teacherIntroOpen ? "uts-ql-head--hidden" : ""}`.trim()}>
           <h1>QuestionLab (QL03) → Use the Source</h1>
           <p>Docentmodule: eerst bron kiezen in QL-flow, daarna game instellen.</p>
         </div>
 
         {teacherIntroOpen ? (
-          <section className="uts-ql-card uts-teacher-intro-card">
+          <section className="uts-ql-card uts-teacher-intro-card uts-teacher-intro-card--fullscreen">
             <div className="uts-teacher-intro-logo">USE THE SOURCE</div>
             <div className="uts-teacher-cockpit-frame">
               <div className="uts-teacher-cockpit-window-wrap">
