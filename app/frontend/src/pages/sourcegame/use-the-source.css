@@ -2064,16 +2064,13 @@
   position: relative;
   width: 100%;
   height: 100%;
-  border: 2px solid rgba(177, 208, 242, 0.58);
+  border: 0;
   border-radius: 26px 26px 18px 18px;
   overflow: hidden;
   isolation: isolate;
   min-height: 0;
-  background:
-    linear-gradient(180deg, rgba(10, 18, 34, 0.16), rgba(6, 12, 24, 0.2));
-  box-shadow:
-    inset 0 0 0 1px rgba(205, 230, 255, 0.1),
-    inset 0 -40px 56px rgba(8, 16, 30, 0.28);
+  background: transparent;
+  box-shadow: none;
   clip-path: polygon(3.6% 0, 96.4% 0, 100% 10%, 100% 100%, 0 100%, 0 10%);
   z-index: 3;
 }
@@ -2085,23 +2082,12 @@
   pointer-events: none;
   background:
     radial-gradient(120% 80% at 50% -16%, rgba(188, 220, 255, 0.3), transparent 40%),
-    linear-gradient(180deg, rgba(4, 8, 15, 0.08), rgba(4, 8, 15, 0.22));
+    linear-gradient(180deg, rgba(4, 8, 15, 0.04), rgba(4, 8, 15, 0.12));
   z-index: 1;
 }
 
 .uts-teacher-cockpit-window::after {
-  content: "";
-  position: absolute;
-  left: 9%;
-  right: 9%;
-  bottom: 10px;
-  height: 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(172, 205, 244, 0.22);
-  background:
-    linear-gradient(180deg, rgba(101, 140, 191, 0.15), rgba(26, 49, 82, 0.08));
-  pointer-events: none;
-  z-index: 3;
+  display: none;
 }
 
 .uts-teacher-cockpit-screen {
@@ -2110,7 +2096,7 @@
   margin: 0;
   min-height: 0;
   border-radius: 26px 26px 16px 16px;
-  border: 1px solid rgba(176, 206, 240, 0.48);
+  border: 0;
   overflow: hidden;
   isolation: isolate;
   background:
@@ -2118,8 +2104,7 @@
     radial-gradient(120% 72% at 50% 112%, rgba(139, 205, 255, 0.56) 0 18%, rgba(27, 58, 100, 0.16) 36%, rgba(3, 8, 16, 0.1) 64%),
     linear-gradient(180deg, #070d18 0%, #02050c 100%);
   box-shadow:
-    inset 0 0 0 1px rgba(221, 238, 255, 0.1),
-    inset 0 -28px 40px rgba(6, 11, 22, 0.38);
+    inset 0 -26px 38px rgba(6, 11, 22, 0.32);
 }
 
 .uts-teacher-cockpit-screen::before,
@@ -2161,10 +2146,14 @@
 .uts-teacher-crawl-stage {
   min-height: 0;
   height: 100%;
-  perspective: 910px;
+  perspective: 640px;
   position: relative;
   overflow: hidden;
   z-index: 2;
+}
+
+.uts-teacher-crawl-stage .uts-crawl-label {
+  display: none;
 }
 
 .uts-teacher-crawl-stage > * {
@@ -2173,10 +2162,10 @@
 }
 
 .uts-teacher-crawl-stage .uts-crawl-perspective {
-  left: 5%;
-  right: 5%;
-  bottom: -3%;
-  transform: rotateX(16deg);
+  left: 8%;
+  right: 8%;
+  bottom: -17%;
+  transform: rotateX(28deg);
 }
 
 .uts-teacher-crawl-stage .uts-crawl-fade {
@@ -2622,7 +2611,7 @@
     left: 4%;
     right: 4%;
     bottom: -12%;
-    transform: rotateX(15deg);
+    transform: rotateX(24deg);
   }
 
   .uts-teacher-crawl-text h3 {
