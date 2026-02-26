@@ -2144,15 +2144,15 @@
 
 .uts-teacher-crawl-stage {
   position: absolute;
-  left: 18%;
+  left: 10%;
   right: 34%;
-  top: 4%;
+  top: -2%;
   bottom: 51%;
   min-height: 0;
   height: auto;
-  perspective: 760px;
+  perspective: 640px;
   overflow: hidden;
-  clip-path: polygon(6% 0, 94% 0, 100% 100%, 0 100%);
+  clip-path: polygon(1.5% 0, 95% 0, 100% 100%, 0 100%);
   z-index: 2;
 }
 
@@ -2170,7 +2170,7 @@
   right: 0;
   top: 0;
   bottom: 0;
-  transform: rotateX(36deg);
+  transform: rotateX(42deg);
 }
 
 .uts-teacher-crawl-stage .uts-crawl-fade {
@@ -2617,15 +2617,15 @@
     right: 0;
     top: 0;
     bottom: 0;
-    transform: rotateX(30deg);
+    transform: rotateX(36deg);
   }
 
   .uts-teacher-crawl-stage {
-    left: 11%;
+    left: 5%;
     right: 27%;
-    top: 6%;
+    top: 1%;
     bottom: 53%;
-    clip-path: polygon(4% 0, 96% 0, 100% 100%, 0 100%);
+    clip-path: polygon(1% 0, 96% 0, 100% 100%, 0 100%);
   }
 
   .uts-teacher-crawl-text h3 {
