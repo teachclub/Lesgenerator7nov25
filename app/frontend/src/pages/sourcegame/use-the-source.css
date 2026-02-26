@@ -1345,7 +1345,7 @@
 
 .uts-teacher-crawl-text {
   position: relative;
-  left: var(--teacher-crawl-text-shift, -2.2ch);
+  left: var(--teacher-crawl-text-shift, -1.2ch);
   max-width: var(--teacher-crawl-max-width, 94%);
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -2144,8 +2144,8 @@
 
 .uts-teacher-crawl-stage {
   position: absolute;
-  left: var(--teacher-crawl-left, 8%);
-  right: var(--teacher-crawl-right, 34%);
+  left: var(--teacher-crawl-left, 10%);
+  right: var(--teacher-crawl-right, 36%);
   top: var(--teacher-crawl-top, -16%);
   bottom: var(--teacher-crawl-bottom, 51%);
   min-height: 0;
@@ -2300,9 +2300,35 @@
 .uts-teacher-crawl-tuner-actions {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   font-size: 12px;
   color: #d7e2fa;
+}
+
+.uts-teacher-crawl-tuner-audio,
+.uts-teacher-crawl-tuner-cms {
+  border: 1px solid rgba(163, 194, 231, 0.2);
+  border-radius: 10px;
+  padding: 7px 8px;
+  background: rgba(6, 12, 22, 0.5);
+}
+
+.uts-teacher-crawl-tuner-audio .uts-ql-label,
+.uts-teacher-crawl-tuner-cms .uts-ql-label {
+  margin-top: 0;
+}
+
+.uts-teacher-crawl-tuner-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.uts-teacher-crawl-tuner-links a {
+  color: #dce7ff;
+  text-decoration: underline;
 }
 
 .uts-teacher-cockpit-strut,
@@ -2684,8 +2710,8 @@
   }
 
   .uts-teacher-crawl-stage {
-    left: var(--teacher-crawl-left, 8%);
-    right: var(--teacher-crawl-right, 34%);
+    left: var(--teacher-crawl-left, 10%);
+    right: var(--teacher-crawl-right, 36%);
     top: var(--teacher-crawl-top, -16%);
     bottom: var(--teacher-crawl-bottom, 51%);
     clip-path: polygon(
@@ -2701,7 +2727,7 @@
   }
 
   .uts-teacher-crawl-text {
-    left: var(--teacher-crawl-text-shift, -2.2ch);
+    left: var(--teacher-crawl-text-shift, -1.2ch);
     max-width: var(--teacher-crawl-max-width, 94%);
   }
 

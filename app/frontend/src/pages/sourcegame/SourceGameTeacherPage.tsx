@@ -248,7 +248,6 @@ const TEACHER_INTRO_WPM = 135;
 const TEACHER_INTRO_SPEED_MULTIPLIER = 1.5;
 const TEACHER_INTRO_CRAWL_TITLE = "Mission Briefing // Use the Source";
 const TEACHER_INTRO_CRAWL_BLOCKS = [
-  "Scherp aan.",
   "Beste leraar, beste sourcerer.",
   "Lang geleden, in een vergeten tijdperk, lazen leerlingen vrijwillig bronnen. Ja, echt. Zonder zuchten. Zonder \"moet dit?\".",
   "Nu moeten we concurreren met Snapchat, TikTok, PlayStation en 47 open tabs die niets met geschiedenis te maken hebben.",
@@ -262,13 +261,14 @@ const TEACHER_INTRO_CRAWL_BLOCKS = [
 ];
 
 const TEACHER_CRAWL_TUNING_STORAGE_KEY = "uts_teacher_crawl_tuning_v2";
+const TEACHER_CRAWL_CONTENT_STORAGE_KEY = "uts_teacher_crawl_content_v1";
 const DEFAULT_TEACHER_CRAWL_TUNING: TeacherCrawlTuning = {
-  leftPct: 8,
-  rightPct: 34,
+  leftPct: 10,
+  rightPct: 36,
   topPct: -16,
   bottomPct: 51,
   tiltDeg: 38,
-  textShiftCh: -2.2,
+  textShiftCh: -1.2,
   maxWidthPct: 94,
   clipLeftPct: 0,
   clipRightPct: 95.5,
@@ -285,7 +285,7 @@ function normalizeTeacherCrawlTuning(raw: Partial<TeacherCrawlTuning> | null | u
   return {
     leftPct: clampNum(base.leftPct, -5, 40, DEFAULT_TEACHER_CRAWL_TUNING.leftPct),
     rightPct: clampNum(base.rightPct, 0, 50, DEFAULT_TEACHER_CRAWL_TUNING.rightPct),
-    topPct: clampNum(base.topPct, -30, 20, DEFAULT_TEACHER_CRAWL_TUNING.topPct),
+    topPct: clampNum(base.topPct, -100, 20, DEFAULT_TEACHER_CRAWL_TUNING.topPct),
     bottomPct: clampNum(base.bottomPct, 20, 70, DEFAULT_TEACHER_CRAWL_TUNING.bottomPct),
     tiltDeg: clampNum(base.tiltDeg, 20, 55, DEFAULT_TEACHER_CRAWL_TUNING.tiltDeg),
     textShiftCh: clampNum(base.textShiftCh, -20, 10, DEFAULT_TEACHER_CRAWL_TUNING.textShiftCh),
@@ -293,6 +293,13 @@ function normalizeTeacherCrawlTuning(raw: Partial<TeacherCrawlTuning> | null | u
     clipLeftPct: clampNum(base.clipLeftPct, 0, 20, DEFAULT_TEACHER_CRAWL_TUNING.clipLeftPct),
     clipRightPct: clampNum(base.clipRightPct, 80, 100, DEFAULT_TEACHER_CRAWL_TUNING.clipRightPct),
   };
+}
+
+function parseCrawlBlocksFromTextarea(raw: string): string[] {
+  return String(raw || "")
+    .split(/\n{2,}|\r\n\r\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
 }
 
 export default function SourceGameTeacherPage() {
@@ -317,11 +324,13 @@ export default function SourceGameTeacherPage() {
   const [termSeconds, setTermSeconds] = useState("60");
   const [chipRainEnabled, setChipRainEnabled] = useState(true);
   const [round2Count, setRound2Count] = useState("5");
+  const [introMusicUrl, setIntroMusicUrl] = useState(BUNDLED_CHASE_TRACK);
   const [waitingMusicUrl, setWaitingMusicUrl] = useState("https://pixabay.com/nl/music/hoofdtitel-space-adventures-orchestral-music-star-wars-style-139660/");
   const [warmupMusicUrl, setWarmupMusicUrl] = useState(BUNDLED_CHASE_TRACK);
   const [musicUrl, setMusicUrl] = useState(BUNDLED_BATTLE_TRACK);
   const [teacherMusicOn, setTeacherMusicOn] = useState(false);
   const [teacherMusicVolume, setTeacherMusicVolume] = useState(65);
+  const [teacherMusicMuted, setTeacherMusicMuted] = useState(false);
   const [introMusicBlocked, setIntroMusicBlocked] = useState(false);
   const teacherTrackRef = useRef<HTMLAudioElement | null>(null);
   const [previewSeed, setPreviewSeed] = useState(0);
@@ -331,8 +340,17 @@ export default function SourceGameTeacherPage() {
   const teacherIntroTextRef = useRef<HTMLDivElement | null>(null);
   const [teacherIntroMotion, setTeacherIntroMotion] = useState({ startPx: 340, endPx: 220 });
   const [teacherCrawlTuning, setTeacherCrawlTuning] = useState<TeacherCrawlTuning>(DEFAULT_TEACHER_CRAWL_TUNING);
-  const [showTeacherCrawlTuner, setShowTeacherCrawlTuner] = useState(true);
+  const [ownerMode, setOwnerMode] = useState(false);
+  const [showTeacherCrawlTuner, setShowTeacherCrawlTuner] = useState(false);
+  const [teacherCrawlSpeed, setTeacherCrawlSpeed] = useState(1);
+  const [teacherCrawlPaused, setTeacherCrawlPaused] = useState(false);
+  const [introMusicPlaying, setIntroMusicPlaying] = useState(false);
   const [teacherCrawlTunerMsg, setTeacherCrawlTunerMsg] = useState("");
+  const [teacherCrawlTitle, setTeacherCrawlTitle] = useState(TEACHER_INTRO_CRAWL_TITLE);
+  const [teacherCrawlBlocks, setTeacherCrawlBlocks] = useState<string[]>(TEACHER_INTRO_CRAWL_BLOCKS);
+  const [teacherCrawlTitleDraft, setTeacherCrawlTitleDraft] = useState(TEACHER_INTRO_CRAWL_TITLE);
+  const [teacherCrawlBlocksDraft, setTeacherCrawlBlocksDraft] = useState(TEACHER_INTRO_CRAWL_BLOCKS.join("\n\n"));
+  const [teacherCrawlCmsMsg, setTeacherCrawlCmsMsg] = useState("");
   const [previewMotion, setPreviewMotion] = useState({ startPx: 260, endPx: 180 });
   const [sessionBusy, setSessionBusy] = useState(false);
   const [session, setSession] = useState<SessionApi["session"]>();
@@ -355,6 +373,36 @@ export default function SourceGameTeacherPage() {
   const [manualSourceUrl, setManualSourceUrl] = useState("");
   const [manualSourceImage, setManualSourceImage] = useState("");
   const [manualSourceType, setManualSourceType] = useState("TEXT");
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const dashboardMode = params.get("dashboard") === "1" || params.get("owner") === "1";
+      setOwnerMode(dashboardMode);
+      setShowTeacherCrawlTuner(dashboardMode);
+    } catch {
+      // fail-open
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TEACHER_CRAWL_CONTENT_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw || "{}");
+      const nextTitle = asText(parsed?.title) || TEACHER_INTRO_CRAWL_TITLE;
+      const nextBlocks = Array.isArray(parsed?.blocks)
+        ? parsed.blocks.map((b: unknown) => asText(b)).filter(Boolean)
+        : [];
+      const blocks = nextBlocks.length ? nextBlocks : TEACHER_INTRO_CRAWL_BLOCKS;
+      setTeacherCrawlTitle(nextTitle);
+      setTeacherCrawlBlocks(blocks);
+      setTeacherCrawlTitleDraft(nextTitle);
+      setTeacherCrawlBlocksDraft(blocks.join("\n\n"));
+    } catch {
+      // fail-open
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -410,6 +458,8 @@ export default function SourceGameTeacherPage() {
 
   function resetTeacherCrawlTuning() {
     setTeacherCrawlTuning(DEFAULT_TEACHER_CRAWL_TUNING);
+    setTeacherCrawlSpeed(1);
+    setTeacherCrawlPaused(false);
     setTeacherCrawlTunerMsg("Tuner teruggezet op default.");
     window.setTimeout(() => setTeacherCrawlTunerMsg(""), 1600);
   }
@@ -439,6 +489,40 @@ export default function SourceGameTeacherPage() {
       setTeacherCrawlTunerMsg("Kopieren mislukt.");
     }
     window.setTimeout(() => setTeacherCrawlTunerMsg(""), 1600);
+  }
+
+  function applyTeacherCrawlContentDraft() {
+    const nextTitle = asText(teacherCrawlTitleDraft) || TEACHER_INTRO_CRAWL_TITLE;
+    const nextBlocks = parseCrawlBlocksFromTextarea(teacherCrawlBlocksDraft);
+    const blocks = nextBlocks.length ? nextBlocks : TEACHER_INTRO_CRAWL_BLOCKS;
+    setTeacherCrawlTitle(nextTitle);
+    setTeacherCrawlBlocks(blocks);
+    try {
+      window.localStorage.setItem(
+        TEACHER_CRAWL_CONTENT_STORAGE_KEY,
+        JSON.stringify({ title: nextTitle, blocks })
+      );
+      setTeacherCrawlCmsMsg("Crawltekst opgeslagen.");
+    } catch {
+      setTeacherCrawlCmsMsg("Opslaan mislukt.");
+    }
+    setTeacherIntroSeed((v) => v + 1);
+    window.setTimeout(() => setTeacherCrawlCmsMsg(""), 1800);
+  }
+
+  function resetTeacherCrawlContent() {
+    setTeacherCrawlTitle(TEACHER_INTRO_CRAWL_TITLE);
+    setTeacherCrawlBlocks(TEACHER_INTRO_CRAWL_BLOCKS);
+    setTeacherCrawlTitleDraft(TEACHER_INTRO_CRAWL_TITLE);
+    setTeacherCrawlBlocksDraft(TEACHER_INTRO_CRAWL_BLOCKS.join("\n\n"));
+    try {
+      window.localStorage.removeItem(TEACHER_CRAWL_CONTENT_STORAGE_KEY);
+    } catch {
+      // fail-open
+    }
+    setTeacherCrawlCmsMsg("Crawltekst reset naar default.");
+    setTeacherIntroSeed((v) => v + 1);
+    window.setTimeout(() => setTeacherCrawlCmsMsg(""), 1800);
   }
 
   useEffect(() => {
@@ -565,7 +649,10 @@ export default function SourceGameTeacherPage() {
     return normalizeAudioInputForSession(musicUrl);
   }, [musicUrl]);
   const teacherVolume01 = Math.max(0, Math.min(1, teacherMusicVolume / 100));
-  const teacherIntroTrackUrl = BUNDLED_CHASE_TRACK;
+  const teacherEffectiveVolume01 = teacherMusicMuted ? 0 : teacherVolume01;
+  const teacherIntroTrackUrl = useMemo(() => {
+    return normalizeAudioInputForSession(introMusicUrl || BUNDLED_CHASE_TRACK);
+  }, [introMusicUrl]);
   const teacherActiveTrackUrl = teacherIntroOpen
     ? teacherIntroTrackUrl
     : step === "game" && teacherMusicOn
@@ -580,6 +667,7 @@ export default function SourceGameTeacherPage() {
         teacherTrackRef.current = null;
       }
       setIntroMusicBlocked(false);
+      setIntroMusicPlaying(false);
       return;
     }
     if (teacherTrackRef.current) {
@@ -589,42 +677,76 @@ export default function SourceGameTeacherPage() {
     }
     const audio = new Audio(teacherActiveTrackUrl);
     audio.loop = true;
-    audio.volume = teacherVolume01;
+    audio.volume = teacherEffectiveVolume01;
+    audio.muted = teacherMusicMuted;
     teacherTrackRef.current = audio;
     audio.play().then(() => {
       setIntroMusicBlocked(false);
+      setIntroMusicPlaying(true);
     }).catch(async () => {
       try {
         audio.muted = true;
         await audio.play();
-        audio.muted = false;
-        audio.volume = teacherVolume01;
+        audio.muted = teacherMusicMuted;
+        audio.volume = teacherEffectiveVolume01;
         setIntroMusicBlocked(false);
+        setIntroMusicPlaying(true);
       } catch {
         if (teacherIntroOpen) setIntroMusicBlocked(true);
+        setIntroMusicPlaying(false);
       }
     });
     return () => {
       audio.pause();
       audio.currentTime = 0;
+      setIntroMusicPlaying(false);
       if (teacherTrackRef.current === audio) teacherTrackRef.current = null;
     };
-  }, [teacherActiveTrackUrl, teacherVolume01, teacherIntroOpen]);
+  }, [teacherActiveTrackUrl, teacherIntroOpen]);
 
   useEffect(() => {
     if (teacherTrackRef.current) {
-      teacherTrackRef.current.volume = teacherVolume01;
+      teacherTrackRef.current.volume = teacherEffectiveVolume01;
+      teacherTrackRef.current.muted = teacherMusicMuted;
     }
-  }, [teacherVolume01]);
+  }, [teacherEffectiveVolume01, teacherMusicMuted]);
 
   function tryStartIntroMusic() {
     const track = teacherTrackRef.current;
     if (!teacherIntroOpen || !track) return;
     track.play().then(() => {
       setIntroMusicBlocked(false);
+      setIntroMusicPlaying(true);
     }).catch(() => {
       setIntroMusicBlocked(true);
+      setIntroMusicPlaying(false);
     });
+  }
+
+  async function toggleIntroMusicPlayback() {
+    if (!teacherIntroOpen) return;
+    let track = teacherTrackRef.current;
+    if (!track) {
+      track = new Audio(teacherIntroTrackUrl || BUNDLED_CHASE_TRACK);
+      track.loop = true;
+      track.volume = teacherEffectiveVolume01;
+      track.muted = teacherMusicMuted;
+      teacherTrackRef.current = track;
+    }
+    if (!track.paused) {
+      track.pause();
+      setIntroMusicBlocked(false);
+      setIntroMusicPlaying(false);
+      return;
+    }
+    try {
+      await track.play();
+      setIntroMusicBlocked(false);
+      setIntroMusicPlaying(true);
+    } catch {
+      setIntroMusicBlocked(true);
+      setIntroMusicPlaying(false);
+    }
   }
 
   useEffect(() => {
@@ -894,6 +1016,7 @@ export default function SourceGameTeacherPage() {
           },
           meta: {
             reading_wpm: Number(readingWpm),
+            intro_music_url: normalizeAudioInputForSession(introMusicUrl),
             waiting_music_url: normalizeAudioInputForSession(waitingMusicUrl),
             warmup_music_url: normalizeAudioInputForSession(warmupMusicUrl),
             music_live_url: normalizeAudioInputForSession(musicUrl),
@@ -1026,13 +1149,22 @@ export default function SourceGameTeacherPage() {
   }
 
   const teacherIntroWordCount = useMemo(
-    () => countWords([TEACHER_INTRO_CRAWL_TITLE, ...TEACHER_INTRO_CRAWL_BLOCKS].join(" ")),
-    []
+    () => countWords([teacherCrawlTitle, ...teacherCrawlBlocks].join(" ")),
+    [teacherCrawlTitle, teacherCrawlBlocks]
   );
   const teacherIntroDuration = useMemo(
     () => Math.max(30, Math.ceil(estimateReadingSeconds(teacherIntroWordCount, TEACHER_INTRO_WPM) / TEACHER_INTRO_SPEED_MULTIPLIER)),
     [teacherIntroWordCount]
   );
+  const teacherIntroDurationTuned = useMemo(
+    () => Math.max(8, Number((teacherIntroDuration / Math.max(0.2, teacherCrawlSpeed)).toFixed(1))),
+    [teacherIntroDuration, teacherCrawlSpeed]
+  );
+
+  const teacherResultPath = "/sourcegame/teacher";
+  const teacherDashboardPath = "/sourcegame/teacher?dashboard=1";
+  const teacherResultUrl = typeof window !== "undefined" ? `${window.location.origin}${teacherResultPath}` : teacherResultPath;
+  const teacherDashboardUrl = typeof window !== "undefined" ? `${window.location.origin}${teacherDashboardPath}` : teacherDashboardPath;
 
   const gameCode = asText(session?.game_code || (session?.id ? `US${session.id}` : ""));
   const playerJoinPath = "/join";
@@ -1071,7 +1203,7 @@ export default function SourceGameTeacherPage() {
                       ref={teacherIntroStageRef}
                       className="uts-crawl-stage uts-teacher-crawl-stage"
                       style={{
-                        ["--crawl-duration" as any]: `${teacherIntroDuration}s`,
+                        ["--crawl-duration" as any]: `${teacherIntroDurationTuned}s`,
                         ["--crawl-start-px" as any]: `${teacherIntroMotion.startPx}px`,
                         ["--crawl-end-px" as any]: `${teacherIntroMotion.endPx}px`,
                         ["--teacher-crawl-left" as any]: `${teacherCrawlTuning.leftPct}%`,
@@ -1090,11 +1222,12 @@ export default function SourceGameTeacherPage() {
                       <div className="uts-crawl-perspective">
                         <div
                           ref={teacherIntroTextRef}
-                          key={`${teacherIntroSeed}:${teacherIntroDuration}:${teacherIntroMotion.startPx}:${teacherIntroMotion.endPx}`}
+                          key={`${teacherIntroSeed}:${teacherIntroDurationTuned}:${teacherIntroMotion.startPx}:${teacherIntroMotion.endPx}`}
                           className="uts-crawl-text uts-crawl-text-preview-loop uts-teacher-crawl-text"
+                          style={{ animationPlayState: teacherCrawlPaused ? "paused" : "running" }}
                         >
-                          <h3>{TEACHER_INTRO_CRAWL_TITLE}</h3>
-                          {TEACHER_INTRO_CRAWL_BLOCKS.map((block, i) => (
+                          <h3>{teacherCrawlTitle}</h3>
+                          {teacherCrawlBlocks.map((block, i) => (
                             <p key={`teacher-intro-${i}-${block.slice(0, 18)}`}>{block}</p>
                           ))}
                         </div>
@@ -1104,15 +1237,17 @@ export default function SourceGameTeacherPage() {
                 </div>
               </div>
               <div className="uts-teacher-cockpit-meta">
-                Cockpit raam: groot · 3D autocue · loop {teacherIntroDuration}s
+                Cockpit raam: groot · 3D autocue · loop {teacherIntroDurationTuned}s
                 <div className="uts-teacher-cockpit-actions">
-                  <button
-                    type="button"
-                    className="uts-btn-secondary"
-                    onClick={() => setShowTeacherCrawlTuner((v) => !v)}
-                  >
-                    {showTeacherCrawlTuner ? "Verberg tuner" : "Crawl tuner"}
-                  </button>
+                  {ownerMode ? (
+                    <button
+                      type="button"
+                      className="uts-btn-secondary"
+                      onClick={() => setShowTeacherCrawlTuner((v) => !v)}
+                    >
+                      {showTeacherCrawlTuner ? "Verberg tuner" : "Crawl tuner"}
+                    </button>
+                  ) : null}
                   {introMusicBlocked ? (
                     <button
                       type="button"
@@ -1131,7 +1266,7 @@ export default function SourceGameTeacherPage() {
                   </button>
                 </div>
               </div>
-              {showTeacherCrawlTuner ? (
+              {ownerMode && showTeacherCrawlTuner ? (
                 <div className="uts-teacher-crawl-tuner">
                   <div className="uts-teacher-crawl-tuner-title">Crawl Tuner (live)</div>
                   <div className="uts-teacher-crawl-tuner-grid">
@@ -1163,7 +1298,7 @@ export default function SourceGameTeacherPage() {
                       <span>Boven</span>
                       <input
                         type="range"
-                        min={-30}
+                        min={-100}
                         max={12}
                         step={0.5}
                         value={teacherCrawlTuning.topPct}
@@ -1208,6 +1343,18 @@ export default function SourceGameTeacherPage() {
                       <strong>{teacherCrawlTuning.maxWidthPct.toFixed(1)}%</strong>
                     </label>
                     <label className="uts-teacher-crawl-tuner-row">
+                      <span>Crawl snelheid</span>
+                      <input
+                        type="range"
+                        min={0.25}
+                        max={2.5}
+                        step={0.05}
+                        value={teacherCrawlSpeed}
+                        onChange={(e) => setTeacherCrawlSpeed(Number(e.target.value))}
+                      />
+                      <strong>{teacherCrawlSpeed.toFixed(2)}x</strong>
+                    </label>
+                    <label className="uts-teacher-crawl-tuner-row">
                       <span>3D tilt</span>
                       <input
                         type="range"
@@ -1243,8 +1390,76 @@ export default function SourceGameTeacherPage() {
                       />
                       <strong>{teacherCrawlTuning.clipRightPct.toFixed(1)}%</strong>
                     </label>
+                    <label className="uts-teacher-crawl-tuner-row">
+                      <span>Muziek volume</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={teacherMusicVolume}
+                        onChange={(e) => setTeacherMusicVolume(Number(e.target.value))}
+                      />
+                      <strong>{teacherMusicVolume}%</strong>
+                    </label>
+                  </div>
+                  <div className="uts-teacher-crawl-tuner-audio">
+                    <label className="uts-ql-label">Cockpit soundtrack (mp3/url)</label>
+                    <input
+                      className="uts-ql-input"
+                      value={introMusicUrl}
+                      onChange={(e) => setIntroMusicUrl(e.target.value)}
+                      placeholder="Plak een directe .mp3 link of /audio/bestand.mp3"
+                    />
+                  </div>
+                  <div className="uts-teacher-crawl-tuner-cms">
+                    <div className="uts-teacher-crawl-tuner-title">Crawl Tekst CMS</div>
+                    <label className="uts-ql-label">Titel</label>
+                    <input
+                      className="uts-ql-input"
+                      value={teacherCrawlTitleDraft}
+                      onChange={(e) => setTeacherCrawlTitleDraft(e.target.value)}
+                      placeholder="Mission Briefing // Use the Source"
+                    />
+                    <label className="uts-ql-label">Tekstblokken (scheid met lege regel)</label>
+                    <textarea
+                      className="uts-ql-textarea"
+                      value={teacherCrawlBlocksDraft}
+                      onChange={(e) => setTeacherCrawlBlocksDraft(e.target.value)}
+                      rows={8}
+                    />
+                    <div className="uts-teacher-crawl-tuner-actions">
+                      <button type="button" className="uts-btn-secondary" onClick={applyTeacherCrawlContentDraft}>
+                        Opslaan tekst
+                      </button>
+                      <button type="button" className="uts-btn-secondary" onClick={resetTeacherCrawlContent}>
+                        Reset tekst
+                      </button>
+                      {teacherCrawlCmsMsg ? <span>{teacherCrawlCmsMsg}</span> : null}
+                    </div>
                   </div>
                   <div className="uts-teacher-crawl-tuner-actions">
+                    <button
+                      type="button"
+                      className="uts-btn-secondary"
+                      onClick={() => setTeacherCrawlPaused((v) => !v)}
+                    >
+                      {teacherCrawlPaused ? "Start crawl" : "Stop crawl"}
+                    </button>
+                    <button
+                      type="button"
+                      className="uts-btn-secondary"
+                      onClick={toggleIntroMusicPlayback}
+                    >
+                      {introMusicPlaying ? "Pauze soundtrack" : "Start soundtrack"}
+                    </button>
+                    <button
+                      type="button"
+                      className="uts-btn-secondary"
+                      onClick={() => setTeacherMusicMuted((v) => !v)}
+                    >
+                      {teacherMusicMuted ? "Volume aan" : "Volume uit"}
+                    </button>
                     <button type="button" className="uts-btn-secondary" onClick={resetTeacherCrawlTuning}>
                       Reset
                     </button>
@@ -1252,6 +1467,10 @@ export default function SourceGameTeacherPage() {
                       Copy CSS
                     </button>
                     {teacherCrawlTunerMsg ? <span>{teacherCrawlTunerMsg}</span> : null}
+                  </div>
+                  <div className="uts-teacher-crawl-tuner-links">
+                    <a href={teacherDashboardUrl}>Dashboard link</a>
+                    <a href={teacherResultUrl}>Resultaat link (zonder tuner)</a>
                   </div>
                 </div>
               ) : null}
@@ -1598,6 +1817,14 @@ export default function SourceGameTeacherPage() {
                 placeholder="Plak bij voorkeur een directe .mp3 link"
               />
 
+              <label className="uts-ql-label">Cockpit soundtrack intro (dashboard)</label>
+              <input
+                className="uts-ql-input"
+                value={introMusicUrl}
+                onChange={(e) => setIntroMusicUrl(e.target.value)}
+                placeholder="Plak bij voorkeur een directe .mp3 link"
+              />
+
               <label className="uts-ql-label">Opwarm-track vlak na start</label>
               <input
                 className="uts-ql-input"
@@ -1620,6 +1847,13 @@ export default function SourceGameTeacherPage() {
                   onClick={() => setTeacherMusicOn((v) => !v)}
                 >
                   Preview game-track: {teacherMusicOn ? "aan" : "uit"}
+                </button>
+                <button
+                  type="button"
+                  className={`uts-music-toggle ${teacherMusicMuted ? "off" : "on"}`}
+                  onClick={() => setTeacherMusicMuted((v) => !v)}
+                >
+                  Volume: {teacherMusicMuted ? "uit" : "aan"}
                 </button>
                 <span className="uts-volume-label">Volume {teacherMusicVolume}%</span>
                 <input
