@@ -1345,8 +1345,8 @@
 
 .uts-teacher-crawl-text {
   position: relative;
-  left: -4ch;
-  max-width: 96%;
+  left: var(--teacher-crawl-text-shift, -2.2ch);
+  max-width: var(--teacher-crawl-max-width, 94%);
   overflow-wrap: anywhere;
   word-break: break-word;
   hyphens: auto;
@@ -2144,15 +2144,20 @@
 
 .uts-teacher-crawl-stage {
   position: absolute;
-  left: 6%;
-  right: 32%;
-  top: -16%;
-  bottom: 51%;
+  left: var(--teacher-crawl-left, 8%);
+  right: var(--teacher-crawl-right, 34%);
+  top: var(--teacher-crawl-top, -16%);
+  bottom: var(--teacher-crawl-bottom, 51%);
   min-height: 0;
   height: auto;
   perspective: 760px;
   overflow: hidden;
-  clip-path: polygon(0 0, 95.5% 0, 100% 100%, 0 100%);
+  clip-path: polygon(
+    var(--teacher-crawl-clip-left, 0%) 0,
+    var(--teacher-crawl-clip-right, 95.5%) 0,
+    100% 100%,
+    0 100%
+  );
   z-index: 2;
 }
 
@@ -2170,7 +2175,7 @@
   right: 0;
   top: 0;
   bottom: 0;
-  transform: rotateX(38deg);
+  transform: rotateX(var(--teacher-crawl-tilt, 38deg));
 }
 
 .uts-teacher-crawl-stage .uts-crawl-fade {
@@ -2240,6 +2245,64 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.uts-teacher-crawl-tuner {
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  bottom: 64px;
+  z-index: 4;
+  border-radius: 12px;
+  border: 1px solid rgba(163, 194, 231, 0.28);
+  background: rgba(8, 14, 24, 0.72);
+  backdrop-filter: blur(4px);
+  padding: 8px 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.uts-teacher-crawl-tuner-title {
+  color: #f5e6a6;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.uts-teacher-crawl-tuner-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+
+.uts-teacher-crawl-tuner-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 7px;
+  color: #dbe7fb;
+  font-size: 11px;
+}
+
+.uts-teacher-crawl-tuner-row input[type="range"] {
+  width: 100%;
+}
+
+.uts-teacher-crawl-tuner-row strong {
+  font-size: 10px;
+  font-weight: 800;
+  color: #ffe59a;
+  min-width: 54px;
+  text-align: right;
+}
+
+.uts-teacher-crawl-tuner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #d7e2fa;
 }
 
 .uts-teacher-cockpit-strut,
@@ -2617,15 +2680,20 @@
     right: 0;
     top: 0;
     bottom: 0;
-    transform: rotateX(34deg);
+    transform: rotateX(var(--teacher-crawl-tilt, 38deg));
   }
 
   .uts-teacher-crawl-stage {
-    left: 2%;
-    right: 26%;
-    top: -10%;
-    bottom: 53%;
-    clip-path: polygon(0 0, 96.5% 0, 100% 100%, 0 100%);
+    left: var(--teacher-crawl-left, 8%);
+    right: var(--teacher-crawl-right, 34%);
+    top: var(--teacher-crawl-top, -16%);
+    bottom: var(--teacher-crawl-bottom, 51%);
+    clip-path: polygon(
+      var(--teacher-crawl-clip-left, 0%) 0,
+      var(--teacher-crawl-clip-right, 95.5%) 0,
+      100% 100%,
+      0 100%
+    );
   }
 
   .uts-teacher-crawl-text h3 {
@@ -2633,8 +2701,8 @@
   }
 
   .uts-teacher-crawl-text {
-    left: -2ch;
-    max-width: 96%;
+    left: var(--teacher-crawl-text-shift, -2.2ch);
+    max-width: var(--teacher-crawl-max-width, 94%);
   }
 
   .uts-teacher-crawl-text p {
@@ -2649,6 +2717,16 @@
     left: 3%;
     right: 3%;
     bottom: 4px;
+  }
+
+  .uts-teacher-crawl-tuner {
+    left: 3%;
+    right: 3%;
+    bottom: 72px;
+  }
+
+  .uts-teacher-crawl-tuner-grid {
+    grid-template-columns: 1fr;
   }
 }
 

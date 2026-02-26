@@ -41,6 +41,18 @@ type SessionApi = {
   error?: string;
 };
 
+type TeacherCrawlTuning = {
+  leftPct: number;
+  rightPct: number;
+  topPct: number;
+  bottomPct: number;
+  tiltDeg: number;
+  textShiftCh: number;
+  maxWidthPct: number;
+  clipLeftPct: number;
+  clipRightPct: number;
+};
+
 function asText(x: unknown): string {
   return String(x || "").trim();
 }
@@ -249,6 +261,40 @@ const TEACHER_INTRO_CRAWL_BLOCKS = [
   "May the source be with you.",
 ];
 
+const TEACHER_CRAWL_TUNING_STORAGE_KEY = "uts_teacher_crawl_tuning_v2";
+const DEFAULT_TEACHER_CRAWL_TUNING: TeacherCrawlTuning = {
+  leftPct: 8,
+  rightPct: 34,
+  topPct: -16,
+  bottomPct: 51,
+  tiltDeg: 38,
+  textShiftCh: -2.2,
+  maxWidthPct: 94,
+  clipLeftPct: 0,
+  clipRightPct: 95.5,
+};
+
+function clampNum(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function normalizeTeacherCrawlTuning(raw: Partial<TeacherCrawlTuning> | null | undefined): TeacherCrawlTuning {
+  const base = raw || {};
+  return {
+    leftPct: clampNum(base.leftPct, -5, 40, DEFAULT_TEACHER_CRAWL_TUNING.leftPct),
+    rightPct: clampNum(base.rightPct, 0, 50, DEFAULT_TEACHER_CRAWL_TUNING.rightPct),
+    topPct: clampNum(base.topPct, -30, 20, DEFAULT_TEACHER_CRAWL_TUNING.topPct),
+    bottomPct: clampNum(base.bottomPct, 20, 70, DEFAULT_TEACHER_CRAWL_TUNING.bottomPct),
+    tiltDeg: clampNum(base.tiltDeg, 20, 55, DEFAULT_TEACHER_CRAWL_TUNING.tiltDeg),
+    textShiftCh: clampNum(base.textShiftCh, -20, 10, DEFAULT_TEACHER_CRAWL_TUNING.textShiftCh),
+    maxWidthPct: clampNum(base.maxWidthPct, 70, 100, DEFAULT_TEACHER_CRAWL_TUNING.maxWidthPct),
+    clipLeftPct: clampNum(base.clipLeftPct, 0, 20, DEFAULT_TEACHER_CRAWL_TUNING.clipLeftPct),
+    clipRightPct: clampNum(base.clipRightPct, 80, 100, DEFAULT_TEACHER_CRAWL_TUNING.clipRightPct),
+  };
+}
+
 export default function SourceGameTeacherPage() {
   const [teacherIntroOpen, setTeacherIntroOpen] = useState(true);
   const [teacherIntroSeed, setTeacherIntroSeed] = useState(0);
@@ -284,6 +330,9 @@ export default function SourceGameTeacherPage() {
   const teacherIntroStageRef = useRef<HTMLDivElement | null>(null);
   const teacherIntroTextRef = useRef<HTMLDivElement | null>(null);
   const [teacherIntroMotion, setTeacherIntroMotion] = useState({ startPx: 340, endPx: 220 });
+  const [teacherCrawlTuning, setTeacherCrawlTuning] = useState<TeacherCrawlTuning>(DEFAULT_TEACHER_CRAWL_TUNING);
+  const [showTeacherCrawlTuner, setShowTeacherCrawlTuner] = useState(true);
+  const [teacherCrawlTunerMsg, setTeacherCrawlTunerMsg] = useState("");
   const [previewMotion, setPreviewMotion] = useState({ startPx: 260, endPx: 180 });
   const [sessionBusy, setSessionBusy] = useState(false);
   const [session, setSession] = useState<SessionApi["session"]>();
@@ -306,6 +355,25 @@ export default function SourceGameTeacherPage() {
   const [manualSourceUrl, setManualSourceUrl] = useState("");
   const [manualSourceImage, setManualSourceImage] = useState("");
   const [manualSourceType, setManualSourceType] = useState("TEXT");
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TEACHER_CRAWL_TUNING_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      setTeacherCrawlTuning(normalizeTeacherCrawlTuning(parsed));
+    } catch {
+      // fail-open
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TEACHER_CRAWL_TUNING_STORAGE_KEY, JSON.stringify(teacherCrawlTuning));
+    } catch {
+      // fail-open
+    }
+  }, [teacherCrawlTuning]);
 
   useEffect(() => {
     if (!teacherIntroOpen) return;
@@ -335,6 +403,43 @@ export default function SourceGameTeacherPage() {
       if (ro) ro.disconnect();
     };
   }, [teacherIntroOpen, teacherIntroSeed]);
+
+  function updateTeacherCrawlTuning(key: keyof TeacherCrawlTuning, value: number) {
+    setTeacherCrawlTuning((prev) => normalizeTeacherCrawlTuning({ ...prev, [key]: value }));
+  }
+
+  function resetTeacherCrawlTuning() {
+    setTeacherCrawlTuning(DEFAULT_TEACHER_CRAWL_TUNING);
+    setTeacherCrawlTunerMsg("Tuner teruggezet op default.");
+    window.setTimeout(() => setTeacherCrawlTunerMsg(""), 1600);
+  }
+
+  async function copyTeacherCrawlTuningCss() {
+    const t = teacherCrawlTuning;
+    const css = [
+      ".uts-teacher-crawl-stage {",
+      `  left: ${t.leftPct}%;`,
+      `  right: ${t.rightPct}%;`,
+      `  top: ${t.topPct}%;`,
+      `  bottom: ${t.bottomPct}%;`,
+      `  clip-path: polygon(${t.clipLeftPct}% 0, ${t.clipRightPct}% 0, 100% 100%, 0 100%);`,
+      "}",
+      ".uts-teacher-crawl-stage .uts-crawl-perspective {",
+      `  transform: rotateX(${t.tiltDeg}deg);`,
+      "}",
+      ".uts-teacher-crawl-text {",
+      `  left: ${t.textShiftCh}ch;`,
+      `  max-width: ${t.maxWidthPct}%;`,
+      "}",
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(css);
+      setTeacherCrawlTunerMsg("Tuner CSS gekopieerd.");
+    } catch {
+      setTeacherCrawlTunerMsg("Kopieren mislukt.");
+    }
+    window.setTimeout(() => setTeacherCrawlTunerMsg(""), 1600);
+  }
 
   useEffect(() => {
     try {
@@ -969,6 +1074,15 @@ export default function SourceGameTeacherPage() {
                         ["--crawl-duration" as any]: `${teacherIntroDuration}s`,
                         ["--crawl-start-px" as any]: `${teacherIntroMotion.startPx}px`,
                         ["--crawl-end-px" as any]: `${teacherIntroMotion.endPx}px`,
+                        ["--teacher-crawl-left" as any]: `${teacherCrawlTuning.leftPct}%`,
+                        ["--teacher-crawl-right" as any]: `${teacherCrawlTuning.rightPct}%`,
+                        ["--teacher-crawl-top" as any]: `${teacherCrawlTuning.topPct}%`,
+                        ["--teacher-crawl-bottom" as any]: `${teacherCrawlTuning.bottomPct}%`,
+                        ["--teacher-crawl-tilt" as any]: `${teacherCrawlTuning.tiltDeg}deg`,
+                        ["--teacher-crawl-text-shift" as any]: `${teacherCrawlTuning.textShiftCh}ch`,
+                        ["--teacher-crawl-max-width" as any]: `${teacherCrawlTuning.maxWidthPct}%`,
+                        ["--teacher-crawl-clip-left" as any]: `${teacherCrawlTuning.clipLeftPct}%`,
+                        ["--teacher-crawl-clip-right" as any]: `${teacherCrawlTuning.clipRightPct}%`,
                       }}
                     >
                       <div className="uts-crawl-fade" />
@@ -992,6 +1106,13 @@ export default function SourceGameTeacherPage() {
               <div className="uts-teacher-cockpit-meta">
                 Cockpit raam: groot · 3D autocue · loop {teacherIntroDuration}s
                 <div className="uts-teacher-cockpit-actions">
+                  <button
+                    type="button"
+                    className="uts-btn-secondary"
+                    onClick={() => setShowTeacherCrawlTuner((v) => !v)}
+                  >
+                    {showTeacherCrawlTuner ? "Verberg tuner" : "Crawl tuner"}
+                  </button>
                   {introMusicBlocked ? (
                     <button
                       type="button"
@@ -1010,6 +1131,130 @@ export default function SourceGameTeacherPage() {
                   </button>
                 </div>
               </div>
+              {showTeacherCrawlTuner ? (
+                <div className="uts-teacher-crawl-tuner">
+                  <div className="uts-teacher-crawl-tuner-title">Crawl Tuner (live)</div>
+                  <div className="uts-teacher-crawl-tuner-grid">
+                    <label className="uts-teacher-crawl-tuner-row">
+                      <span>Links</span>
+                      <input
+                        type="range"
+                        min={-5}
+                        max={25}
+                        step={0.5}
+                        value={teacherCrawlTuning.leftPct}
+                        onChange={(e) => updateTeacherCrawlTuning("leftPct", Number(e.target.value))}
+                      />
+                      <strong>{teacherCrawlTuning.leftPct.toFixed(1)}%</strong>
+                    </label>
+                    <label className="uts-teacher-crawl-tuner-row">
+                      <span>Rechts</span>
+                      <input
+                        type="range"
+                        min={10}
+                        max={50}
+                        step={0.5}
+                        value={teacherCrawlTuning.rightPct}
+                        onChange={(e) => updateTeacherCrawlTuning("rightPct", Number(e.target.value))}
+                      />
+                      <strong>{teacherCrawlTuning.rightPct.toFixed(1)}%</strong>
+                    </label>
+                    <label className="uts-teacher-crawl-tuner-row">
+                      <span>Boven</span>
+                      <input
+                        type="range"
+                        min={-30}
+                        max={12}
+                        step={0.5}
+                        value={teacherCrawlTuning.topPct}
+                        onChange={(e) => updateTeacherCrawlTuning("topPct", Number(e.target.value))}
+                      />
+                      <strong>{teacherCrawlTuning.topPct.toFixed(1)}%</strong>
+                    </label>
+                    <label className="uts-teacher-crawl-tuner-row">
+                      <span>Onder</span>
+                      <input
+                        type="range"
+                        min={25}
+                        max={65}
+                        step={0.5}
+                        value={teacherCrawlTuning.bottomPct}
+                        onChange={(e) => updateTeacherCrawlTuning("bottomPct", Number(e.target.value))}
+                      />
+                      <strong>{teacherCrawlTuning.bottomPct.toFixed(1)}%</strong>
+                    </label>
+                    <label className="uts-teacher-crawl-tuner-row">
+                      <span>Tekst X</span>
+                      <input
+                        type="range"
+                        min={-15}
+                        max={6}
+                        step={0.2}
+                        value={teacherCrawlTuning.textShiftCh}
+                        onChange={(e) => updateTeacherCrawlTuning("textShiftCh", Number(e.target.value))}
+                      />
+                      <strong>{teacherCrawlTuning.textShiftCh.toFixed(1)}ch</strong>
+                    </label>
+                    <label className="uts-teacher-crawl-tuner-row">
+                      <span>Max breedte</span>
+                      <input
+                        type="range"
+                        min={75}
+                        max={100}
+                        step={0.5}
+                        value={teacherCrawlTuning.maxWidthPct}
+                        onChange={(e) => updateTeacherCrawlTuning("maxWidthPct", Number(e.target.value))}
+                      />
+                      <strong>{teacherCrawlTuning.maxWidthPct.toFixed(1)}%</strong>
+                    </label>
+                    <label className="uts-teacher-crawl-tuner-row">
+                      <span>3D tilt</span>
+                      <input
+                        type="range"
+                        min={22}
+                        max={52}
+                        step={0.5}
+                        value={teacherCrawlTuning.tiltDeg}
+                        onChange={(e) => updateTeacherCrawlTuning("tiltDeg", Number(e.target.value))}
+                      />
+                      <strong>{teacherCrawlTuning.tiltDeg.toFixed(1)}deg</strong>
+                    </label>
+                    <label className="uts-teacher-crawl-tuner-row">
+                      <span>Clip links</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={12}
+                        step={0.5}
+                        value={teacherCrawlTuning.clipLeftPct}
+                        onChange={(e) => updateTeacherCrawlTuning("clipLeftPct", Number(e.target.value))}
+                      />
+                      <strong>{teacherCrawlTuning.clipLeftPct.toFixed(1)}%</strong>
+                    </label>
+                    <label className="uts-teacher-crawl-tuner-row">
+                      <span>Clip rechts</span>
+                      <input
+                        type="range"
+                        min={84}
+                        max={100}
+                        step={0.5}
+                        value={teacherCrawlTuning.clipRightPct}
+                        onChange={(e) => updateTeacherCrawlTuning("clipRightPct", Number(e.target.value))}
+                      />
+                      <strong>{teacherCrawlTuning.clipRightPct.toFixed(1)}%</strong>
+                    </label>
+                  </div>
+                  <div className="uts-teacher-crawl-tuner-actions">
+                    <button type="button" className="uts-btn-secondary" onClick={resetTeacherCrawlTuning}>
+                      Reset
+                    </button>
+                    <button type="button" className="uts-btn-secondary" onClick={copyTeacherCrawlTuningCss}>
+                      Copy CSS
+                    </button>
+                    {teacherCrawlTunerMsg ? <span>{teacherCrawlTunerMsg}</span> : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div className="uts-ql-actions">
               <button
