@@ -1345,8 +1345,8 @@
 
 .uts-teacher-crawl-text {
   position: relative;
-  left: -32ch;
-  max-width: 86%;
+  left: -20ch;
+  max-width: 92%;
   overflow-wrap: anywhere;
   word-break: break-word;
   hyphens: auto;
@@ -2144,15 +2144,15 @@
 
 .uts-teacher-crawl-stage {
   position: absolute;
-  left: 4%;
-  right: 33%;
-  top: -10%;
+  left: 6%;
+  right: 32%;
+  top: -16%;
   bottom: 51%;
   min-height: 0;
   height: auto;
   perspective: 760px;
   overflow: hidden;
-  clip-path: polygon(0 0, 95% 0, 100% 100%, 0 100%);
+  clip-path: polygon(0 0, 95.5% 0, 100% 100%, 0 100%);
   z-index: 2;
 }
 
@@ -2621,11 +2621,11 @@
   }
 
   .uts-teacher-crawl-stage {
-    left: 0;
-    right: 27%;
-    top: -6%;
+    left: 2%;
+    right: 26%;
+    top: -10%;
     bottom: 53%;
-    clip-path: polygon(0 0, 96% 0, 100% 100%, 0 100%);
+    clip-path: polygon(0 0, 96.5% 0, 100% 100%, 0 100%);
   }
 
   .uts-teacher-crawl-text h3 {
@@ -2633,7 +2633,7 @@
   }
 
   .uts-teacher-crawl-text {
-    left: -20ch;
+    left: -12ch;
     max-width: 90%;
   }
 
