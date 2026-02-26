@@ -1345,8 +1345,8 @@
 
 .uts-teacher-crawl-text {
   position: relative;
-  left: -20ch;
-  max-width: 92%;
+  left: -4ch;
+  max-width: 96%;
   overflow-wrap: anywhere;
   word-break: break-word;
   hyphens: auto;
@@ -2633,8 +2633,8 @@
   }
 
   .uts-teacher-crawl-text {
-    left: -12ch;
-    max-width: 90%;
+    left: -2ch;
+    max-width: 96%;
   }
 
   .uts-teacher-crawl-text p {
